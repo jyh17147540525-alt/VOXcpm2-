@@ -177,7 +177,7 @@ def get_model():
                 _model_info["device"] = (
                     torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU"
                 )
-                _model_info["sample_rate"] = int(_model.tts_model.sample_rate)
+                _model_info["sample_rate"] = _vc_stab._get_sample_rate(_model)
                 _model_info["load_seconds"] = round(time.time() - t0, 1)
                 print(f"[VoxCPM2] 模型就绪，用时 {_model_info['load_seconds']}s "
                       f"设备 {_model_info['device']}", flush=True)
@@ -1365,7 +1365,7 @@ def _do_generate(kwargs: dict):
 
         eff_steps = int(kwargs.get("inference_timesteps", 10))
         stability_report = None
-        sr = int(model.tts_model.sample_rate)
+        sr = _vc_stab._get_sample_rate(model)
         with _infer_lock:                         # 串行推理，防并发打爆显存
             text_str = str(kwargs.get("text", ""))
             # 长文本/稳定合成：句末+逗号分块 + 每块独立生成(参考锚定) + 分级停顿拼接，

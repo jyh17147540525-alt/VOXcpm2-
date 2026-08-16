@@ -210,6 +210,32 @@ def compute_stability_metrics(chunks: list[np.ndarray], final: np.ndarray,
 
 
 # ----------------------------------------------------------------------------- 编排：稳定合成
+# voxcpm 适配层：显式检测底层模型的能力，私有 API 不可用时干净回退公开 API，
+# 避免对 voxcpm 内部结构（如 model.tts_model.*）的隐式耦合。
+
+def _get_tts_model(model):
+    """安全获取底层 TTS 模型对象（私有属性，可能随 voxcpm 版本变化/缺失）。"""
+    return getattr(model, "tts_model", None) or getattr(model, "model", None)
+
+
+def _supports_cache(model) -> bool:
+    """检测是否支持 prompt-cache 独立生成（build_prompt_cache + generate_with_prompt_cache）。"""
+    tts = _get_tts_model(model)
+    return (tts is not None
+            and callable(getattr(tts, "build_prompt_cache", None))
+            and callable(getattr(tts, "generate_with_prompt_cache", None)))
+
+
+def _get_sample_rate(model, default: int = 24000) -> int:
+    """获取模型采样率；底层属性缺失时回退默认值（VoxCPM2 为 24k）。"""
+    tts = _get_tts_model(model)
+    sr = getattr(tts, "sample_rate", None)
+    try:
+        return int(sr) if sr else default
+    except (TypeError, ValueError):
+        return default
+
+
 def _to_numpy(wav) -> np.ndarray:
     if hasattr(wav, "cpu"):
         return np.asarray(wav.squeeze(0).cpu().numpy(), dtype=np.float32)
@@ -417,21 +443,25 @@ def synthesize_stable(model, text: str, reference_wav_path: str | None,
         report.update(compute_stability_metrics([wav], wav, sr_tts))
         return wav, report
 
-    # 一次构建参考缓存，所有块复用同一参考（音色锚定，杜绝续写式误差累积）
-    try:
-        base_cache = model.tts_model.build_prompt_cache(
-            prompt_text=prompt_text if use_prompt else None,
-            prompt_wav_path=prompt_wav_path if use_prompt else None,
-            reference_wav_path=reference_wav_path if use_ref else None,
-        )
-    except Exception:
-        base_cache = None
+    # 参考缓存：仅当底层模型支持 prompt-cache 独立生成时构建（私有 API 能力检测），
+    # 否则直接走公开 model.generate 回退，避免对 voxcpm 内部结构的隐式耦合。
+    tts = _get_tts_model(model)
+    base_cache = None
+    if _supports_cache(model):
+        try:
+            base_cache = tts.build_prompt_cache(
+                prompt_text=prompt_text if use_prompt else None,
+                prompt_wav_path=prompt_wav_path if use_prompt else None,
+                reference_wav_path=reference_wav_path if use_ref else None,
+            )
+        except Exception:
+            base_cache = None
 
     pieces: list[np.ndarray] = []
     for ct in chunks_text:
         if base_cache is not None:
             try:
-                wav, _, _ = model.tts_model.generate_with_prompt_cache(
+                wav, _, _ = tts.generate_with_prompt_cache(
                     target_text=ct,
                     prompt_cache=base_cache,  # 每块都用同一参考缓存，独立生成
                     inference_timesteps=inference_timesteps,

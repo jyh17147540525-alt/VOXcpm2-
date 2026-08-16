@@ -24,6 +24,23 @@ A ready-to-use local voice cloning and text-to-speech (TTS) service. Built on to
 
 ---
 
+## 🖥️ Platform support
+
+The code is cross-platform by design — pure Python, no OS-specific shell commands, `pathlib` for all paths, and ffmpeg discovery that falls back to the bundled `imageio-ffmpeg`. However, it has been **tested primarily on Windows (CUDA)**. Other platforms are expected to work but have not been fully verified; feedback and fixes for Linux/macOS are very welcome.
+
+| Platform | Status |
+|---|---|
+| Windows (CUDA) | ✅ Tested |
+| Linux | ⚠️ Expected to work, not yet verified |
+| macOS | ⚠️ Expected to work, not yet verified |
+| CPU-only | ⚠️ Should work, but slower |
+
+## 🔌 Compatibility with the `voxcpm` package
+
+The code talks to the `voxcpm` model through a small adapter layer (`voice_clone/synthesis_stab.py`). It uses the **public API** (`VoxCPM.from_pretrained`, `model.generate`) as the primary path, and only opts into the optional prompt-cache fast path (the internal `tts_model.build_prompt_cache` / `generate_with_prompt_cache`) when those methods are detected at runtime. If they are absent or fail, generation **falls back cleanly to the public API**, so the project does not hard-depend on voxcpm's private internals.
+
+---
+
 ## 📦 Project structure
 
 ```
