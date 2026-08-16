@@ -1,21 +1,21 @@
 @echo off
-chcp 65001 >nul
-title VoxCPM2 本地推理服务
+chcp 936 >nul
+title VoxCPM2 ������������
 
 rem ============================================================
-rem  VoxCPM2 一键启动（通用版）
-rem  本脚本位于 scripts/ 目录，项目根目录为上一级。
-rem  优先使用项目根目录下的虚拟环境 python，否则使用系统 python。
+rem  VoxCPM2 һ��������ͨ�ð棩
+rem  ���ű�λ�� scripts/ Ŀ¼����Ŀ��Ŀ¼Ϊ��һ����
+rem  ����ʹ����Ŀ��Ŀ¼�µ����⻷�� python������ʹ��ϵͳ python��
 rem ============================================================
 
-rem 定位项目根目录（scripts 的上一级）
+rem ��λ��Ŀ��Ŀ¼��scripts ����һ����
 set "ROOT=%~dp0.."
 
-rem 端口 / 监听地址（局域网访问改 0.0.0.0）
+rem �˿� / ������ַ�����������ʸ� 0.0.0.0��
 set "VOXCPM_PORT=8808"
 set "VOXCPM_HOST=127.0.0.1"
 
-rem 优先使用项目根目录下的虚拟环境
+rem ����ʹ����Ŀ��Ŀ¼�µ����⻷��
 set "PY="
 if exist "%ROOT%\env\python.exe"   set "PY=%ROOT%\env\python.exe"
 if exist "%ROOT%\venv\Scripts\python.exe" set "PY=%ROOT%\venv\Scripts\python.exe"
@@ -23,8 +23,8 @@ if exist "%ROOT%\venv\Scripts\python.exe" set "PY=%ROOT%\venv\Scripts\python.exe
 if "%PY%"=="" (
   where python >nul 2>nul
   if errorlevel 1 (
-    echo [错误] 未找到 Python，请先安装 Python 3.10-3.12 并安装依赖。
-    echo 参考 README.md 的「安装步骤」。
+    echo [����] δ�ҵ� Python�����Ȱ�װ Python 3.10-3.12 ����װ������
+    echo �ο� README.md �ġ���װ���衹��
     pause
     exit /b 1
   )
@@ -32,23 +32,23 @@ if "%PY%"=="" (
 )
 
 if not exist "%ROOT%\server.py" (
-  echo [错误] 未找到 server.py，请确认在正确目录运行。
+  echo [����] δ�ҵ� server.py����ȷ������ȷĿ¼���С�
   pause
   exit /b 1
 )
 
-rem 离线加载本地权重（若权重已就位）
+rem ���߼��ر���Ȩ�أ���Ȩ���Ѿ�λ��
 set "HF_HUB_OFFLINE=1"
 
 echo.
-echo 正在启动 VoxCPM2 服务 ...
-echo 启动完成后浏览器访问 http://localhost:%VOXCPM_PORT%
-echo 访问令牌见项目根目录的 credentials.json（首次启动自动生成）
-echo 关闭本窗口即停止服务。
+echo �������� VoxCPM2 ���� ...
+echo ������ɺ���������� http://localhost:%VOXCPM_PORT%
+echo �������Ƽ���Ŀ��Ŀ¼�� credentials.json���״������Զ����ɣ�
+echo �رձ����ڼ�ֹͣ����
 echo.
 
 "%PY%" "%ROOT%\server.py"
 
 echo.
-echo 服务已停止。
+echo ������ֹͣ��
 pause

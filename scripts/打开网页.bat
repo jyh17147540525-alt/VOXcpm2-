@@ -1,9 +1,9 @@
 @echo off
-chcp 65001 >nul
-rem è¯»å–é¡¹ç›®æ ¹ç›®å½• credentials.json çš„ä¸€é”®ç™»å½•é“¾æ¥ï¼Œç”¨é»˜è®¤æµè§ˆå™¨æ‰“å¼€ï¼ˆå…æ‰‹è¾“ä»¤ç‰Œï¼‰
+chcp 936 >nul
+rem ¶ÁÈ¡ÏîÄ¿¸ùÄ¿Â¼ credentials.json µÄÒ»¼üµÇÂ¼Á´½Ó£¬ÓÃÄ¬ÈÏä¯ÀÀÆ÷´ò¿ª£¨ÃâÊÖÊäÁîÅÆ£©
 set "ROOT=%~dp0.."
 
-rem ä¼˜å…ˆç”¨è™šæ‹Ÿç¯å¢ƒçš„ pythonï¼Œå¦åˆ™ç”¨ç³»ç»Ÿ python
+rem ÓÅÏÈÓÃĞéÄâ»·¾³µÄ python£¬·ñÔòÓÃÏµÍ³ python
 set "PY="
 if exist "%ROOT%\env\python.exe" set "PY=%ROOT%\env\python.exe"
 if exist "%ROOT%\venv\Scripts\python.exe" set "PY=%ROOT%\venv\Scripts\python.exe"
@@ -12,10 +12,10 @@ if "%PY%"=="" set "PY=python"
 for /f "usebackq delims=" %%i in (`"%PY%" -c "import json,os;print(json.load(open(os.path.join(r'%ROOT%','credentials.json'),encoding='utf-8'))['quick_login_url'])"`) do set "URL=%%i"
 
 if "%URL%"=="" (
-  echo æ²¡æ‰¾åˆ° credentials.jsonï¼Œè¯·å…ˆè¿è¡Œ scripts\start.bat å¯åŠ¨ä¸€æ¬¡æœåŠ¡ã€‚
+  echo Ã»ÕÒµ½ credentials.json£¬ÇëÏÈÔËĞĞ scripts\start.bat Æô¶¯Ò»´Î·şÎñ¡£
   pause
   exit /b 1
 )
 
-echo æ­£åœ¨æ‰“å¼€: %URL%
+echo ÕıÔÚ´ò¿ª: %URL%
 start "" "%URL%"
