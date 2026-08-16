@@ -234,8 +234,11 @@ def normalize_reference(ref_path: str) -> str:
 
 
 def strip_design_annotations(text: str) -> str:
-    """移除（）/() 内的音频设计文本（角色性别、音色特征、句子间情绪、停顿等）。
-    这些是给合成器的提示，不参与朗读——只保留括号外的台词内容。"""
+    """提取「括号外」的台词内容，仅用于空文本校验。
+
+    括号内的音色/风格/情绪提示（如"（年轻女性，温柔甜美）"）会被保留在原 text 中
+    传给模型，由模型理解并应用（VoxCPM 的 Voice Design 用法）；本函数只负责判断
+    剥掉括号后是否还有实际台词。"""
     t = text or ""
     for _ in range(8):
         nt = re.sub(r"（[^（）]*）", "", t)
@@ -444,14 +447,14 @@ border:1px solid #f1f5f9;border-radius:10px;margin-bottom:8px;background:#fff}
       <label>合成文本</label>
       <textarea id="text">你好，这里是本地部署的 VoxCPM2 语音大模型，现在可以直接在浏览器里使用了。</textarea>
       <div class="chips" id="chips">
-        <button class="chip" onclick="pre('（年轻女性，温柔甜美）')">年轻女性·温柔</button>
-        <button class="chip" onclick="pre('（中年男性，沉稳有磁性）')">中年男性·沉稳</button>
-        <button class="chip" onclick="pre('（活力少年，语速偏快）')">活力少年</button>
-        <button class="chip" onclick="pre('（广东话，中年男性）')">粤语</button>
-        <button class="chip" onclick="pre('（四川话，年轻女性）')">四川话</button>
-        <button class="chip" onclick="pre('（新闻播报腔，字正腔圆）')">新闻播报</button>
+        <button class="chip" onclick="pre('(年轻女性，温柔甜美)')">年轻女性·温柔</button>
+        <button class="chip" onclick="pre('(中年男性，沉稳有磁性)')">中年男性·沉稳</button>
+        <button class="chip" onclick="pre('(活力少年，语速偏快)')">活力少年</button>
+        <button class="chip" onclick="pre('(广东话，中年男性)')">粤语</button>
+        <button class="chip" onclick="pre('(四川话，年轻女性)')">四川话</button>
+        <button class="chip" onclick="pre('(新闻播报腔，字正腔圆)')">新闻播报</button>
       </div>
-      <div class="muted" style="margin-top:8px">语音设计模式：用「（）」在文本开头描述想要的音色、情绪、语速。</div>
+      <div class="muted" style="margin-top:8px">语音设计模式：用「()」在文本开头描述想要的音色、情绪、语速，例如「(年轻女性，温柔甜美)你好」。</div>
     </div>
 
     <div class="field hide" id="refField">
@@ -644,7 +647,7 @@ function updatePtField(){
   // 极致克隆下，逐字文本仅在上传参考音频时显示/必填；选用音色包时隐藏、无需填写
   document.getElementById('ptField').classList.toggle('hide', !(mode==='hifi' && !selectedPackId));
 }
-function pre(t){const el=document.getElementById('text');el.value=t+el.value.replace(/^（[^）]*）/,'');el.focus();}
+function pre(t){const el=document.getElementById('text');el.value=t+el.value.replace(/^\([^()]*\)|^（[^（）]*）/,'');el.focus();}
 
 const EMOTION_PRESETS={
   '高兴':{pitch:1,speed:1.08,volume:1.12,pause:0.12,breath:0.4},
@@ -1177,8 +1180,9 @@ def generate(
 ):
     """网页用的统一生成接口（支持文件上传）"""
     require_auth(request)
-    text = strip_design_annotations(text)
-    if not text.strip():
+    text = text or ""
+    # 仅用括号外台词做空校验；括号提示词保留，交由模型应用音色/风格
+    if not strip_design_annotations(text):
         raise HTTPException(status_code=400, detail="文本不能为空")
 
     ref_path = None
@@ -1270,8 +1274,9 @@ async def tts_api(request: Request):
     """纯 JSON 接口，方便脚本 / 其它程序调用"""
     require_auth(request)
     body = await request.json()
-    text = strip_design_annotations((body or {}).get("text", ""))
-    if not text.strip():
+    text = (body or {}).get("text", "") or ""
+    # 仅用括号外台词做空校验；括号提示词保留，交由模型应用音色/风格
+    if not strip_design_annotations(text):
         raise HTTPException(status_code=400, detail="文本不能为空")
     kwargs = dict(
         text=text,
