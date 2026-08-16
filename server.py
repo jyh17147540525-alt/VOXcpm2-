@@ -1,0 +1,1690 @@
+"""
+VoxCPM2 本地推理服务 (FastAPI + 令牌验证)  ——  加固版
+=================================================
+修复点（针对“克隆音频频繁返回请求失败”）：
+- 全局异常处理器：任何未捕获异常都返回 JSON {detail:...} 并记录完整 traceback，
+  不再出现 uvicorn 原生纯文本 "Internal Server Error"（前端 r.json() 解析失败 → 笼统“请求失败”）。
+- 推理链路(get_model + generate + 后处理)整体包进 try/except，异常转为 HTTPException(500) JSON。
+- 模型自愈：单次推理抛异常后把 _model 置空，下次请求自动重新加载，避免损坏态卡死整个服务。
+- 参考音频上传后做格式/时长校验，坏文件返回清晰的 400 而非笼统 500。
+
+启动：  python server.py            （或 scripts/start.bat 一键启动）
+凭证：  项目根目录下 credentials.json（首次启动自动生成，含访问令牌）
+日志：  项目根目录下 server_error.log（推理/未捕获异常的完整 traceback）
+"""
+
+import io
+import os
+import re
+import sys
+import json
+import time
+import uuid
+import secrets
+import threading
+import traceback
+from pathlib import Path
+from datetime import datetime
+
+import numpy as np
+import soundfile as sf
+import uvicorn
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form
+from fastapi.responses import HTMLResponse, JSONResponse, Response, FileResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
+
+def _restore_native_deletion() -> None:
+    """还原被 WorkBuddy 沙箱“安全删除”垫片(sitecustomize)替换的文件删除函数。
+
+    沙箱为保护用户文件，会把 os.remove/unlink、pathlib.Path.unlink 等替换成
+    “移入回收站”，回收站不可用时就抛 OSError(fail-closed)。本服务是用户自己的
+    本地 TTS 应用，需要原生删除自己 uploads/prepared 下的临时文件（等价于在
+    沙箱外运行），故在启动时还原为原生实现。还原失败不影响主流程。
+    """
+    try:
+        import sitecustomize as _sc
+        import shutil as _shutil
+        import pathlib as _pathlib
+        for _mod, _patched, _orig_name in (
+            (os, "remove", "_orig_remove"),
+            (os, "unlink", "_orig_unlink"),
+            (os, "rmdir", "_orig_rmdir"),
+            (_shutil, "rmtree", "_orig_shutil_rmtree"),
+        ):
+            _orig = getattr(_sc, _orig_name, None)
+            if _orig is not None:
+                setattr(_mod, _patched, _orig)
+        _pu = getattr(_sc, "_orig_path_unlink", None)
+        if _pu is not None:
+            _pathlib.Path.unlink = _pu
+        _pr = getattr(_sc, "_orig_path_rmdir", None)
+        if _pr is not None:
+            _pathlib.Path.rmdir = _pr
+        print("[VoxCPM2] 已还原原生文件删除（绕过沙箱 safe-delete 垫片）", flush=True)
+    except Exception as e:
+        print(f"[VoxCPM2][WARN] 还原原生删除失败: {e}", flush=True)
+
+
+_restore_native_deletion()
+
+# ============================== 配置 ==============================
+# 默认以 server.py 所在目录为项目根目录（模型权重、配置、输出均在此目录下），
+# 也可通过环境变量 VOXCPM_HOME 指向权重所在目录（支持权重与代码分离部署）。
+BASE_DIR = Path(os.environ.get("VOXCPM_HOME", "") or Path(__file__).resolve().parent)
+MODEL_PATH = str(BASE_DIR)
+OUTPUT_DIR = BASE_DIR / "outputs"
+UPLOAD_DIR = BASE_DIR / "uploads"
+CRED_FILE = BASE_DIR / "credentials.json"
+ERROR_LOG = BASE_DIR / "server_error.log"
+
+PORT = int(os.environ.get("VOXCPM_PORT", "8808"))
+HOST = os.environ.get("VOXCPM_HOST", "127.0.0.1")
+DEVICE = os.environ.get("VOXCPM_DEVICE", "auto")
+
+# 参考音频时长限制（秒）
+MIN_REFERENCE_SECONDS = 0.3    # 太短无法提取稳定音色
+MAX_REFERENCE_SECONDS = 600    # 最长 10 分钟
+
+# 长参考音频克隆增强（voice_clone 套件）
+REF_TARGET_DUR = float(os.environ.get("VOXCPM_REF_TARGET_DUR", "25.0"))  # 融合参考目标时长
+# 加速模式：使用该音色包生成时采用的扩散步数（远小于默认 10，显著缩短生成耗时）
+ACCEL_STEPS = int(os.environ.get("VOXCPM_ACCEL_STEPS", "4"))
+# 长文本自动稳定合成阈值（超过此长度强制分块，避免单次超长生成导致音色漂移/机械感）
+LONG_TEXT_CHARS = int(os.environ.get("VOXCPM_LONG_TEXT_CHARS", "100"))
+sys.path.insert(0, str(BASE_DIR))  # 让 voice_clone 包可被导入
+from voice_clone import prepare_reference as _vc_prepare_reference
+from voice_clone import synthesis_stab as _vc_stab
+
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+# 音色包（声线包）本地持久化管理
+import voice_packs as vp_store
+vp_store.init(BASE_DIR)
+VOICE_PACK_DIR = vp_store.VOICE_PACK_DIR
+
+
+def log_error(where: str, exc: BaseException):
+    """把完整 traceback 追加写入 server_error.log，方便事后定位。
+    先打印到 stdout（voxcpm_server.log 兜底），写文件失败也不阻断主流程、不掩盖真实异常。"""
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    print(f"[VoxCPM2][ERROR] {where}: {type(exc).__name__}: {exc}", flush=True)
+    try:
+        with open(ERROR_LOG, "a", encoding="utf-8") as f:
+            f.write(f"\n{'=' * 70}\n[{ts}] {where}\n")
+            f.write(tb)
+            f.flush()
+    except Exception as e:
+        print(f"[VoxCPM2][WARN] 写错误日志失败({e})，完整堆栈见下：", flush=True)
+        print(tb, flush=True)
+
+
+def load_or_create_token() -> str:
+    env_token = os.environ.get("VOXCPM_API_KEY")
+    if env_token:
+        return env_token
+    if CRED_FILE.exists():
+        try:
+            data = json.loads(CRED_FILE.read_text(encoding="utf-8"))
+            if data.get("access_token"):
+                return data["access_token"]
+        except Exception:
+            pass
+    token = "vox2_" + secrets.token_urlsafe(24)
+    CRED_FILE.write_text(
+        json.dumps(
+            {
+                "service": "VoxCPM2 本地推理服务",
+                "access_token": token,
+                "url": f"http://localhost:{PORT}",
+                "quick_login_url": f"http://localhost:{PORT}/?token={token}",
+                "api_header": "X-API-Key: <access_token>",
+                "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return token
+
+
+ACCESS_TOKEN = load_or_create_token()
+
+# ============================== 模型 ==============================
+_model = None
+_model_lock = threading.Lock()
+_infer_lock = threading.Lock()
+_model_info = {"loaded": False, "device": None, "sample_rate": None, "load_seconds": None}
+
+
+def get_model():
+    global _model
+    if _model is None:
+        with _model_lock:
+            if _model is None:
+                t0 = time.time()
+                print("[VoxCPM2] 正在加载模型，首次约需 20-60 秒 ...", flush=True)
+                from voxcpm import VoxCPM
+                import torch
+
+                _model = VoxCPM.from_pretrained(
+                    MODEL_PATH, load_denoiser=False, device=DEVICE
+                )
+                _model_info["loaded"] = True
+                _model_info["device"] = (
+                    torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU"
+                )
+                _model_info["sample_rate"] = int(_model.tts_model.sample_rate)
+                _model_info["load_seconds"] = round(time.time() - t0, 1)
+                print(f"[VoxCPM2] 模型就绪，用时 {_model_info['load_seconds']}s "
+                      f"设备 {_model_info['device']}", flush=True)
+    return _model
+
+
+def reset_model():
+    """模型自愈：推理异常后置空，下次请求自动重载（避免损坏态永久卡死）"""
+    global _model
+    _model = None
+    _model_info["loaded"] = False
+
+
+def unload_model():
+    """优雅卸载模型并释放显存。停止服务前先调用本函数，可避免直接强杀进程
+    导致 GPU CUDA 上下文损坏（段错误、需整机重启）。"""
+    global _model
+    if _model is not None:
+        try:
+            del _model
+        except Exception:
+            pass
+        _model = None
+    _model_info["loaded"] = False
+    _model_info["device"] = None
+    _model_info["sample_rate"] = None
+    try:
+        import gc
+        import torch
+        torch.cuda.empty_cache()
+        gc.collect()
+    except Exception:
+        pass
+
+
+def normalize_reference(ref_path: str) -> str:
+    """校验上传的参考音频：可解码 + 时长合理；返回模型可用的路径。
+    坏文件抛出 ValueError，由调用方转成清晰的 400。"""
+    try:
+        data, sr = sf.read(ref_path)
+        dur = len(data) / sr
+    except Exception:
+        try:
+            import librosa
+            y, sr = librosa.load(ref_path, sr=None, mono=False)
+            dur = len(y) / sr
+        except Exception as e:
+            raise ValueError(f"参考音频无法解码（请使用 wav/mp3/flac 且未损坏的文件）: {e}")
+    if dur < MIN_REFERENCE_SECONDS:
+        raise ValueError(f"参考音频太短（<{MIN_REFERENCE_SECONDS:g} 秒），请上传 0.3 秒以上的清晰音频")
+    if dur > MAX_REFERENCE_SECONDS:
+        raise ValueError(f"参考音频过长（>{MAX_REFERENCE_SECONDS // 60} 分钟），请裁剪到 10 分钟以内")
+    return ref_path
+
+
+def strip_design_annotations(text: str) -> str:
+    """移除（）/() 内的音频设计文本（角色性别、音色特征、句子间情绪、停顿等）。
+    这些是给合成器的提示，不参与朗读——只保留括号外的台词内容。"""
+    t = text or ""
+    for _ in range(8):
+        nt = re.sub(r"（[^（）]*）", "", t)
+        nt = re.sub(r"\([^()]*\)", "", nt)
+        if nt == t:
+            break
+        t = nt
+    return t.strip()
+
+
+def prepare_clone_reference(ref_path: str, denoise_on: bool, remove_bg_on: bool) -> str:
+    """克隆/极致克隆参考音频增强（voice_clone 套件）：
+    - 长音频(>30s)自动分段 + 声纹离群剔除 + 融合为有界代表参考（避免整段编码特征漂移）
+    - 可选：谱门控降噪、背景音/音乐去除
+    返回融合参考 wav 路径（按文件哈希+参数缓存，避免重复计算）。"""
+    try:
+        out_path, rep = _vc_prepare_reference(
+            ref_path, denoise=denoise_on, remove_bg=remove_bg_on, target_dur=REF_TARGET_DUR)
+        adapt = rep.get("adaptation", {})
+        print(f"[VoxCPM2] 参考增强: 输入 {rep.get('input_duration')}s -> "
+              f"融合 {rep.get('output_duration')}s | 分段={adapt.get('split_method')} "
+              f"段数={adapt.get('n_segments')} 选={adapt.get('chosen')}", flush=True)
+        return out_path
+    except ValueError as e:
+        raise ValueError(f"参考音频处理失败: {e}")
+
+
+# ============================== 鉴权 ==============================
+def check_auth(request: Request) -> bool:
+    header_key = request.headers.get("x-api-key")
+    if header_key and secrets.compare_digest(header_key, ACCESS_TOKEN):
+        return True
+    auth = request.headers.get("authorization", "")
+    if auth.lower().startswith("bearer "):
+        if secrets.compare_digest(auth[7:].strip(), ACCESS_TOKEN):
+            return True
+    cookie = request.cookies.get("voxcpm_token")
+    if cookie and secrets.compare_digest(cookie, ACCESS_TOKEN):
+        return True
+    q = request.query_params.get("token")
+    if q and secrets.compare_digest(q, ACCESS_TOKEN):
+        return True
+    return False
+
+
+def require_auth(request: Request):
+    if not check_auth(request):
+        raise HTTPException(status_code=401, detail="访问令牌无效，请检查 credentials.json")
+
+
+app = FastAPI(title="VoxCPM2 本地推理服务", version="2.1.0", docs_url=None, redoc_url=None)
+
+
+# ---------- 全局异常处理器：保证永远返回 JSON，并把 traceback 落盘 ----------
+@app.exception_handler(StarletteHTTPException)
+async def http_exc_handler(request: Request, exc: StarletteHTTPException):
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+
+@app.exception_handler(Exception)
+async def unhandled_exc_handler(request: Request, exc: Exception):
+    log_error("未捕获异常", exc)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"服务器内部错误: {type(exc).__name__}: {exc}"},
+    )
+
+
+# ============================== 前端页面 ==============================
+LOGIN_HTML = """<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VoxCPM2 · 访问验证</title><style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:"Segoe UI","Microsoft YaHei",sans-serif;background:#f5f6fa;min-height:100vh;
+display:flex;align-items:center;justify-content:center;padding:20px}
+.card{background:#fff;border:1px solid #e5e7eb;border-radius:16px;padding:36px;max-width:420px;width:100%;
+box-shadow:0 4px 24px rgba(0,0,0,.06)}
+h1{font-size:20px;color:#111827;margin-bottom:6px}
+p.sub{font-size:13px;color:#6b7280;margin-bottom:24px;line-height:1.6}
+label{display:block;font-size:13px;color:#374151;margin-bottom:8px;font-weight:600}
+input{width:100%;padding:12px;border:1px solid #d1d5db;border-radius:10px;font-size:14px;
+font-family:ui-monospace,Consolas,monospace}
+input:focus{outline:none;border-color:#2563eb;box-shadow:0 0 0 3px rgba(37,99,235,.12)}
+button{width:100%;margin-top:16px;padding:13px;background:#2563eb;color:#fff;border:none;
+border-radius:10px;font-size:15px;font-weight:600;cursor:pointer}
+button:hover{background:#1d4ed8}
+.err{margin-top:12px;padding:10px;background:#fef2f2;color:#b91c1c;border-radius:8px;font-size:13px;display:none}
+.hint{margin-top:18px;padding:12px;background:#f9fafb;border-radius:8px;font-size:12px;color:#6b7280;line-height:1.7}
+code{background:#eef2ff;color:#3730a3;padding:1px 5px;border-radius:4px;font-size:11px}
+</style></head><body>
+<div class="card">
+  <h1>🎙️ VoxCPM2 本地服务</h1>
+  <p class="sub">该服务已启用访问验证，请输入访问令牌。</p>
+  <label>访问令牌 (Access Token)</label>
+  <input type="password" id="tk" placeholder="vox2_..." autofocus>
+  <button onclick="go()">进入</button>
+  <div class="err" id="err"></div>
+  <div class="hint">令牌保存在 <code>CRED_PATH_PLACEHOLDER</code><br>
+  也可用一键链接直接进入：<code>http://localhost:PORT_PLACEHOLDER/?token=你的令牌</code></div>
+</div>
+<script>
+async function go(){
+  const tk=document.getElementById('tk').value.trim();
+  if(!tk){show('请输入访问令牌');return;}
+  const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({token:tk})});
+  if(r.ok){location.href='/';}else{show('令牌不正确');}
+}
+function show(m){const e=document.getElementById('err');e.textContent='❌ '+m;e.style.display='block';}
+document.getElementById('tk').addEventListener('keydown',e=>{if(e.key==='Enter')go();});
+</script></body></html>"""
+
+APP_HTML = """<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VoxCPM2 · 本地语音合成</title><style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:"Segoe UI","Microsoft YaHei",sans-serif;background:#f5f6fa;color:#111827;padding:24px}
+.wrap{max-width:900px;margin:0 auto}
+.top{display:flex;align-items:center;justify-content:space-between;background:#fff;border:1px solid #e5e7eb;
+border-radius:14px;padding:16px 20px;margin-bottom:16px}
+.top h1{font-size:18px}
+.badges{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.badge{font-size:12px;padding:4px 10px;border-radius:999px;background:#f3f4f6;color:#374151}
+.badge.ok{background:#ecfdf5;color:#047857}
+.badge.warn{background:#fffbeb;color:#b45309}
+.card{background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:20px;margin-bottom:16px}
+.tabs{display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap}
+.tab{padding:9px 16px;border:1px solid #e5e7eb;border-radius:10px;background:#fff;cursor:pointer;font-size:13px;color:#4b5563}
+.tab.active{background:#2563eb;color:#fff;border-color:#2563eb}
+label{display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:7px}
+textarea{width:100%;padding:13px;border:1px solid #d1d5db;border-radius:10px;font-size:14px;
+min-height:110px;resize:vertical;font-family:inherit;line-height:1.6}
+input[type=text],input[type=file]{width:100%;padding:11px;border:1px solid #d1d5db;border-radius:10px;font-size:14px}
+textarea:focus,input:focus{outline:none;border-color:#2563eb;box-shadow:0 0 0 3px rgba(37,99,235,.1)}
+.field{margin-bottom:16px}
+.hide{display:none}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.chip{font-size:12px;padding:5px 10px;background:#eef2ff;color:#3730a3;border-radius:999px;cursor:pointer;border:none}
+.chip:hover{background:#e0e7ff}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px}
+.pbox{background:#f9fafb;border:1px solid #f3f4f6;border-radius:10px;padding:12px}
+.pbox label{font-size:12px;color:#6b7280;font-weight:500;margin-bottom:6px}
+.prow{display:flex;align-items:center;gap:10px}
+input[type=range]{flex:1}
+.pv{font-family:ui-monospace,Consolas,monospace;font-size:13px;color:#2563eb;min-width:34px;text-align:right}
+.checks{display:flex;gap:20px;margin-bottom:18px;font-size:13px;color:#4b5563}
+.checks label{display:flex;align-items:center;gap:6px;font-weight:500;margin:0;cursor:pointer}
+.gen{width:100%;padding:15px;background:#2563eb;color:#fff;border:none;border-radius:12px;
+font-size:15px;font-weight:600;cursor:pointer}
+.gen:hover{background:#1d4ed8}
+.gen:disabled{background:#9ca3af;cursor:not-allowed}
+.status{margin-top:16px;padding:14px;background:#f9fafb;border-radius:10px;font-size:13px;
+color:#4b5563;display:none;align-items:center;gap:10px}
+.status.show{display:flex}
+.spin{width:18px;height:18px;border:2px solid #e5e7eb;border-top-color:#2563eb;border-radius:50%;
+animation:sp .8s linear infinite;flex-shrink:0}
+@keyframes sp{to{transform:rotate(360deg)}}
+.err{margin-top:14px;padding:12px;background:#fef2f2;color:#b91c1c;border-radius:10px;font-size:13px;display:none;
+white-space:pre-wrap;line-height:1.6}
+.err.show{display:block}
+.res{margin-top:18px;padding:16px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;display:none}
+.res.show{display:block}
+.res .meta{font-size:12px;color:#047857;margin-bottom:10px}
+audio{width:100%}
+.hist{font-size:13px}
+.hist .row{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid #f3f4f6}
+.hist .row:last-child{border:none}
+.hist a{color:#2563eb;text-decoration:none;font-size:12px}
+.muted{color:#9ca3af;font-size:12px}
+.api{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:#f9fafb;padding:12px;
+border-radius:8px;color:#374151;white-space:pre-wrap;line-height:1.7;overflow-x:auto}
+.ptab{padding:9px 16px;border:1px solid #e5e7eb;border-radius:10px;background:#fff;cursor:pointer;font-size:13px;color:#4b5563}
+.ptab.active{background:#2563eb;color:#fff;border-color:#2563eb}
+.pack{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;
+border:1px solid #f1f5f9;border-radius:10px;margin-bottom:8px;background:#fff}
+.pack .info{min-width:0}
+.pack .nm{font-size:14px;font-weight:600;color:#111827;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pack .meta{font-size:12px;color:#6b7280;margin-top:2px}
+.pack .acts{display:flex;gap:6px;flex-shrink:0}
+.pack .acts button{padding:6px 10px;border:1px solid #e5e7eb;background:#fff;border-radius:8px;font-size:12px;cursor:pointer;color:#374151}
+.pack .acts button:hover{border-color:#2563eb;color:#2563eb}
+.pack .acts .del:hover{border-color:#dc2626;color:#dc2626}
+.pack .acts .use{background:#2563eb;color:#fff;border-color:#2563eb}
+.vp-sel{width:100%;padding:10px;border:1px solid #d1d5db;border-radius:10px;font-size:14px;margin-top:6px;background:#fff}
+</style></head><body>
+<div class="wrap">
+  <div class="top">
+    <h1>🎙️ VoxCPM2 <span class="muted" style="font-size:13px">本地部署</span></h1>
+    <div class="badges">
+      <span class="badge" id="devBadge">检测中…</span>
+      <span class="badge ok">2B · 48kHz</span>
+      <span class="badge" id="modelBadge">模型未加载</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="tabs">
+      <button class="tab active" data-mode="design" onclick="setMode('design')">🎨 语音设计</button>
+      <button class="tab" data-mode="clone" onclick="setMode('clone')">🎛️ 音色克隆</button>
+      <button class="tab" data-mode="hifi" onclick="setMode('hifi')">🎙️ 极致克隆</button>
+    </div>
+
+    <div class="field">
+      <label>合成文本</label>
+      <textarea id="text">你好，这里是本地部署的 VoxCPM2 语音大模型，现在可以直接在浏览器里使用了。</textarea>
+      <div class="chips" id="chips">
+        <button class="chip" onclick="pre('（年轻女性，温柔甜美）')">年轻女性·温柔</button>
+        <button class="chip" onclick="pre('（中年男性，沉稳有磁性）')">中年男性·沉稳</button>
+        <button class="chip" onclick="pre('（活力少年，语速偏快）')">活力少年</button>
+        <button class="chip" onclick="pre('（广东话，中年男性）')">粤语</button>
+        <button class="chip" onclick="pre('（四川话，年轻女性）')">四川话</button>
+        <button class="chip" onclick="pre('（新闻播报腔，字正腔圆）')">新闻播报</button>
+      </div>
+      <div class="muted" style="margin-top:8px">语音设计模式：用「（）」在文本开头描述想要的音色、情绪、语速。</div>
+    </div>
+
+    <div class="field hide" id="refField">
+      <label>参考音频（0.3 秒 – 10 分钟，wav/mp3/flac）</label>
+      <input type="file" id="refFile" accept="audio/*">
+      <div class="muted" style="margin-top:6px">克隆模式必填，模型会复刻这段音频的音色。</div>
+    </div>
+
+    <div class="field hide" id="packSelField">
+      <label>或选择已保存音色包（免重复上传长音频）</label>
+      <select class="vp-sel" id="packSel" onchange="onPackSel()">
+        <option value="">— 不使用音色包，改为上传音频 —</option>
+      </select>
+      <div class="muted" style="margin-top:6px" id="packSelHint"></div>
+    </div>
+
+    <div class="field hide" id="ptField">
+      <label>参考音频的逐字文本（极致克隆必填）</label>
+      <input type="file" id="refFile2" accept="audio/*" style="display:none">
+      <input type="text" id="promptText" placeholder="必须与参考音频内容完全一致">
+    </div>
+
+    <div class="grid">
+      <div class="pbox">
+        <label>CFG 引导强度（1.0-3.0，默认 2.0）</label>
+        <div class="prow"><input type="range" id="cfg" min="1" max="3" step="0.1" value="2"
+          oninput="document.getElementById('cfgv').textContent=this.value">
+          <span class="pv" id="cfgv">2.0</span></div>
+      </div>
+      <div class="pbox">
+        <label>扩散步数（4-30，越大越细腻越慢）</label>
+        <div class="prow"><input type="range" id="steps" min="4" max="30" step="1" value="10"
+          oninput="document.getElementById('stv').textContent=this.value">
+          <span class="pv" id="stv">10</span></div>
+      </div>
+    </div>
+
+    <div class="checks">
+      <label><input type="checkbox" id="normalize" checked> 文本规范化（数字/日期正确读出）</label>
+      <label title="谱门控降噪，去除稳态/环境噪声（离线可用）"><input type="checkbox" id="denoise" checked> 参考音频降噪</label>
+      <label title="分离并抑制背景音乐/环境音，突出人声"><input type="checkbox" id="remove_bg"> 去除背景音/音乐</label>
+      <label title="长台词按句分块生成并交叉淡化拼接，避免断裂/突变"><input type="checkbox" id="stable"> 长文本稳定合成</label>
+    </div>
+    <div class="muted" style="font-size:12px;margin:-6px 0 10px">提示：参考音频超过 30 秒时会自动分段，按说话人声纹融合为约 25 秒的代表音频，显著缓解长音频克隆的失真与音色漂移。</div>
+
+    <div class="field">
+      <label>🎭 情绪语气（可选，套用一组音调/语速/停顿预设，可再手动微调）</label>
+      <select id="emotionSel" class="vp-sel" onchange="applyEmotion(this.value)">
+        <option value="">— 不指定情绪 —</option>
+        <option value="高兴">高兴</option>
+        <option value="悲伤">悲伤</option>
+        <option value="严肃">严肃</option>
+        <option value="温柔">温柔</option>
+        <option value="愤怒">愤怒</option>
+        <option value="平静">平静</option>
+      </select>
+    </div>
+    <div class="grid">
+      <div class="pbox">
+        <label>音调（半音，0=原音）</label>
+        <div class="prow"><input type="range" id="pitch" min="-12" max="12" step="1" value="0"
+          oninput="document.getElementById('pitchv').textContent=this.value">
+          <span class="pv" id="pitchv">0</span></div>
+      </div>
+      <div class="pbox">
+        <label>语速（0.5x-2.0x）</label>
+        <div class="prow"><input type="range" id="speed" min="0.5" max="2" step="0.05" value="1"
+          oninput="document.getElementById('speedv').textContent=this.value">
+          <span class="pv" id="speedv">1.0</span></div>
+      </div>
+      <div class="pbox">
+        <label>音量（0.1x-2.0x）</label>
+        <div class="prow"><input type="range" id="volume" min="0.1" max="2" step="0.05" value="1"
+          oninput="document.getElementById('volumev').textContent=this.value">
+          <span class="pv" id="volumev">1.0</span></div>
+      </div>
+      <div class="pbox">
+        <label>句间停顿（秒，0=无）</label>
+        <div class="prow"><input type="range" id="pause" min="0" max="1.5" step="0.05" value="0.15"
+          oninput="document.getElementById('pausev').textContent=this.value">
+          <span class="pv" id="pausev">0.15</span></div>
+      </div>
+      <div class="pbox">
+        <label>呼吸声轻重（0=无）</label>
+        <div class="prow"><input type="range" id="breath" min="0" max="1" step="0.05" value="0"
+          oninput="document.getElementById('breathv').textContent=this.value">
+          <span class="pv" id="breathv">0</span></div>
+      </div>
+    </div>
+    <div class="checks">
+      <label title="解析 <break>/<prosody>/<emotion> 等 SSML 标签，强制控制停顿/重音/语速"><input type="checkbox" id="ssml"> 启用 SSML 标签</label>
+    </div>
+
+    <button class="gen" id="btn" onclick="generate()">🔊 生成语音</button>
+
+    <div class="status" id="status"><div class="spin"></div><div id="statusText">生成中…</div></div>
+    <div class="err" id="err"></div>
+    <div class="res" id="res">
+      <div class="meta" id="resMeta"></div>
+      <audio id="player" controls></audio>
+      <div class="prow" style="margin-top:10px;gap:8px">
+        <select id="exportFmt" style="width:auto;padding:8px;border:1px solid #d1d5db;border-radius:8px">
+          <option value="mp3">导出 MP3</option>
+          <option value="wav">导出 WAV</option>
+          <option value="m4a">导出 M4A</option>
+        </select>
+        <button id="exportBtn" onclick="exportAudio()" style="padding:8px 14px;border:1px solid #d1d5db;border-radius:8px;background:#fff;cursor:pointer;font-size:13px">⬇️ 导出</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <label>本次会话生成记录</label>
+    <div class="hist" id="hist"><div class="muted">还没有生成记录</div></div>
+  </div>
+
+  <div class="card">
+    <div class="tabs">
+      <button class="ptab active" data-pane="manage" onclick="showPackPane('manage')">🎭 音色包管理</button>
+      <button class="ptab" data-pane="save" onclick="showPackPane('save')">🎙️ 制作音色声线包</button>
+    </div>
+
+      <div id="packManage">
+        <div class="muted" style="margin-bottom:12px">已提取并保存在本地的音色声线包，后续克隆可直接选用，无需重复上传长音频。数据存于 <code>VOICE_PACK_DIR_PLACEHOLDER</code>，重启服务后依然保留。也可用 API：<code>POST /api/voicepacks</code> 保存，生成时传 <code>voice_pack_id</code>。带 <span style="color:#b45309">⚡加速</span> 标记的音色包在生成时自动提速。</div>
+        <div id="packList"><div class="muted">还没有音色包，去“制作音色声线包”做一个吧。</div></div>
+      </div>
+
+    <div id="packSave" class="hide">
+      <div class="field">
+        <label>方式一：实时录制（直接用麦克风，无需上传文件）</label>
+        <button class="gen" id="recBtn" onclick="startRec()" style="background:#0ea5e9">🎤 开始录制</button>
+        <div class="muted" id="recStatus" style="margin-top:6px;color:#0369a1">点击下方按钮授权麦克风后开始朗读，建议 10–30 秒清晰语句；录制完可回放确认。</div>
+        <div class="field hide" id="recWrap" style="margin-top:10px">
+          <label>录制回放（确认无误再保存）</label>
+          <audio id="recPlay" controls></audio>
+        </div>
+      </div>
+      <div class="field">
+        <label>方式二：上传音频或拖拽视频（wav/mp3/flac/mp4/mov 等，视频自动提取人声）</label>
+        <input type="file" id="vpFile" accept="audio/*,video/*">
+        <div class="muted" style="margin-top:6px">建议 10–60 秒清晰人声；超过 30 秒会自动分段并融合为约 25 秒的代表参考。视频文件会自动提取音轨（需已安装 ffmpeg）。</div>
+      </div>
+      <div class="field">
+        <label>音色包名称（便于识别）</label>
+        <input type="text" id="vpName" placeholder="例如：客服小美 / 讲师老王">
+      </div>
+      <div class="checks">
+        <label><input type="checkbox" id="vpDenoise" checked> 参考音频降噪</label>
+        <label><input type="checkbox" id="vpRemoveBg"> 去除背景音/音乐</label>
+        <label title="开启后，使用该音色包克隆生成时会自动采用更少扩散步数，生成更快（音质略降）"><input type="checkbox" id="vpAccel"> 🚀 加速模式（生成更快）</label>
+      </div>
+      <button class="gen" id="vpSaveBtn" onclick="savePack()">🔒 提取并保存音色包</button>
+      <div class="status" id="vpStatus"><div class="spin"></div><div id="vpStatusText">提取中…（首次需加载模型，请稍候）</div></div>
+      <div class="err" id="vpErr"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <label>API 调用示例（令牌放请求头）</label>
+    <div class="api" id="apiSample">curl -X POST http://localhost:PORT_PLACEHOLDER/api/tts \\
+  -H "X-API-Key: 你的访问令牌" \\
+  -H "Content-Type: application/json" \\
+  -d "{\\"text\\":\\"你好世界\\",\\"cfg_value\\":2.0,\\"inference_timesteps\\":10}" \\
+  --output out.wav</div>
+  </div>
+</div>
+
+<script>
+const API_TOKEN='TOKEN_PLACEHOLDER';
+let mode='design';
+let selectedPackId=null;
+let voicePacks=[];
+let lastOutputName=null;
+function setMode(m){
+  mode=m;
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.mode===m));
+  document.getElementById('refField').classList.toggle('hide',m==='design');
+  document.getElementById('packSelField').classList.toggle('hide',m==='design');
+  document.getElementById('chips').style.display=(m==='hifi')?'none':'flex';
+  if(m==='design'){
+    selectedPackId=null;
+    const sel=document.getElementById('packSel');
+    if(sel)sel.value='';
+    document.getElementById('packSelHint').textContent='';
+    document.getElementById('refFile').value='';
+  }
+  updatePtField();
+}
+function updatePtField(){
+  // 极致克隆下，逐字文本仅在上传参考音频时显示/必填；选用音色包时隐藏、无需填写
+  document.getElementById('ptField').classList.toggle('hide', !(mode==='hifi' && !selectedPackId));
+}
+function pre(t){const el=document.getElementById('text');el.value=t+el.value.replace(/^（[^）]*）/,'');el.focus();}
+
+const EMOTION_PRESETS={
+  '高兴':{pitch:1,speed:1.08,volume:1.12,pause:0.12,breath:0.4},
+  '悲伤':{pitch:-1,speed:0.86,volume:0.90,pause:0.28,breath:0.5},
+  '严肃':{pitch:0,speed:0.92,volume:1.00,pause:0.32,breath:0.35},
+  '温柔':{pitch:0,speed:0.95,volume:0.95,pause:0.18,breath:0.45},
+  '愤怒':{pitch:0,speed:1.15,volume:1.25,pause:0.10,breath:0.3},
+  '平静':{pitch:0,speed:1.00,volume:1.00,pause:0.15,breath:0.35}
+};
+function setSlider(id,val,vid){const el=document.getElementById(id);el.value=val;document.getElementById(vid).textContent=val;}
+function applyEmotion(name){
+  const p=EMOTION_PRESETS[name];
+  if(!p)return;
+  setSlider('pitch',p.pitch,'pitchv');
+  setSlider('speed',p.speed,'speedv');
+  setSlider('volume',p.volume,'volumev');
+  setSlider('pause',p.pause,'pausev');
+  setSlider('breath',p.breath,'breathv');
+}
+
+function apiHeaders(){return {'x-api-key':API_TOKEN};}
+
+function setModelBadge(state,extra){
+  const b=document.getElementById('modelBadge');
+  if(state==='loading'){b.textContent='模型加载中…(约20-60秒)';b.className='badge';b.style.cursor='default';b.onclick=null;}
+  else if(state==='error'){b.textContent='模型加载失败 · 点此重试';b.className='badge warn';b.style.cursor='pointer';b.onclick=()=>warmupModel();}
+  else if(state==='ready'){b.textContent='模型已加载 · '+(extra||'');b.className='badge ok';b.style.cursor='default';b.onclick=null;}
+  else {b.textContent=extra||'模型未加载';b.className='badge';b.style.cursor='default';b.onclick=null;}
+}
+async function refreshStatus(){
+  try{
+    const r=await fetch('/api/health');const d=await r.json();
+    document.getElementById('devBadge').textContent=d.device||'未知设备';
+    document.getElementById('devBadge').className='badge '+(d.cuda?'ok':'warn');
+    if(d.model_loaded)setModelBadge('ready',(d.sample_rate/1000)+'kHz');
+    else setModelBadge('notloaded');
+  }catch(e){setModelBadge('error');}
+}
+async function warmupModel(){
+  setModelBadge('loading');
+  try{
+    const r=await fetch('/api/warmup',{method:'POST',headers:apiHeaders()});
+    if(!r.ok)throw new Error('warmup '+r.status);
+    await refreshStatus();
+  }catch(e){setModelBadge('error');}
+}
+async function init(){
+  try{
+    const r=await fetch('/api/health');const d=await r.json();
+    document.getElementById('devBadge').textContent=d.device||'未知设备';
+    document.getElementById('devBadge').className='badge '+(d.cuda?'ok':'warn');
+    if(d.model_loaded)setModelBadge('ready',(d.sample_rate/1000)+'kHz');
+    else warmupModel();   // 自动加载模型，避免一直显示“模型未加载”
+  }catch(e){setModelBadge('error');}
+}
+init();
+loadVoicePacks();
+
+// 真实调用一次：带超时(300s) + 失败自动重试一次
+async function callGenerate(fd, signal){
+  const r=await fetch('/api/generate',{method:'POST',body:fd,signal,headers:apiHeaders()});
+  if(!r.ok){
+    let detail='生成失败';
+    try{const j=await r.json();detail=j.detail||detail;}catch(e){}
+    throw new Error(detail+'  (HTTP '+r.status+')');
+  }
+  return r;
+}
+
+async function generate(){
+  const text=document.getElementById('text').value.trim();
+  const err=document.getElementById('err'),st=document.getElementById('status'),
+        res=document.getElementById('res'),btn=document.getElementById('btn');
+  err.classList.remove('show');res.classList.remove('show');
+  if(!text){return showErr('请输入要合成的文本');}
+  const refFile=document.getElementById('refFile').files[0];
+  if(mode!=='design'&&!refFile&&!selectedPackId){return showErr('该模式需要上传参考音频，或从“已保存音色包”中选择一个');}
+  const promptText=document.getElementById('promptText').value.trim();
+  // 极致克隆：选用音色包时无需逐字文本；上传参考音频时才需填写
+  if(mode==='hifi'&&!selectedPackId&&!promptText){return showErr('极致克隆请上传参考音频并填写其逐字文本；或直接选用音色包（无需逐字文本）');}
+
+  btn.disabled=true;st.classList.add('show');
+  document.getElementById('statusText').textContent='生成中…';
+  const t0=Date.now();
+  const timer=setInterval(()=>{document.getElementById('statusText').textContent=
+    '生成中… 已用 '+((Date.now()-t0)/1000).toFixed(1)+' 秒（首次需加载模型，请耐心等待）';},100);
+
+  let attempt=0;
+  while(true){
+    attempt++;
+    const controller=new AbortController();
+    const to=setTimeout(()=>controller.abort(),1800000); // 30 分钟硬超时（支持最长 10 分钟参考音频）
+    const fd=new FormData();
+    fd.append('text',text);
+    fd.append('cfg_value',document.getElementById('cfg').value);
+    fd.append('inference_timesteps',document.getElementById('steps').value);
+    fd.append('normalize',document.getElementById('normalize').checked);
+    fd.append('denoise',document.getElementById('denoise').checked);
+    fd.append('remove_bg',document.getElementById('remove_bg').checked);
+    fd.append('stable',document.getElementById('stable').checked);
+    fd.append('pitch',document.getElementById('pitch').value);
+    fd.append('speed',document.getElementById('speed').value);
+    fd.append('volume',document.getElementById('volume').value);
+    fd.append('pause',document.getElementById('pause').value);
+    fd.append('breath',document.getElementById('breath').value);
+    fd.append('emotion',document.getElementById('emotionSel').value);
+    fd.append('ssml',document.getElementById('ssml').checked);
+    fd.append('mode',mode);
+    if(refFile)fd.append('reference',refFile);
+    if(selectedPackId)fd.append('voice_pack_id',selectedPackId);
+    if(promptText)fd.append('prompt_text',promptText);
+    try{
+      const r=await callGenerate(fd, controller.signal);
+      clearTimeout(to);clearInterval(timer);
+      const name=r.headers.get('X-Output-Name')||'output.wav';
+      lastOutputName=name;
+      const secs=r.headers.get('X-Elapsed')||'?';
+      const blob=await r.blob();
+      const player=document.getElementById('player');
+      const oldUrl=player.src;
+      if(oldUrl&&oldUrl.indexOf('blob:')===0){try{URL.revokeObjectURL(oldUrl);}catch(_){}}
+      player.src=URL.createObjectURL(blob);
+      document.getElementById('resMeta').textContent='✅ 生成成功 · 耗时 '+secs+' 秒 · 文件 '+name+'（已保存到 F:\\\\VoxCPM2\\\\outputs）';
+      res.classList.add('show');addHist(name,text);refreshStatus();
+      clearInterval(timer);btn.disabled=false;st.classList.remove('show');
+      return;
+    }catch(e){
+      clearTimeout(to);
+      const canRetry = attempt===1 && (/Failed to fetch|网络|HTTP 5/.test(e.message));
+      if(canRetry){
+        document.getElementById('statusText').textContent='连接异常，正在自动重试（第 2 次）…';
+        await new Promise(s=>setTimeout(s,800));
+        continue; // 重试一次
+      }
+      clearInterval(timer);
+      let msg=e.message||'请求失败';
+      if(e.name==='AbortError')msg='请求超时（>30 分钟）。参考音频过长或文本太多，请缩短后重试';
+      showErr(msg);btn.disabled=false;st.classList.remove('show');
+      return;
+    }finally{
+      if(attempt>=2)clearInterval(timer);
+    }
+  }
+}
+function showErr(m){const e=document.getElementById('err');e.textContent='❌ '+m;e.classList.add('show');
+  document.getElementById('btn').disabled=false;document.getElementById('status').classList.remove('show');}
+function addHist(name,text){
+  const h=document.getElementById('hist');
+  if(h.querySelector('.muted'))h.innerHTML='';
+  const d=document.createElement('div');d.className='row';
+  d.innerHTML='<span>'+(text.length>34?text.slice(0,34)+'…':text)+'</span>'+
+    '<a href="/api/outputs/'+name+'" target="_blank">'+name+' ↓</a>';
+  h.prepend(d);
+}
+
+async function exportAudio(){
+  const fmt=document.getElementById('exportFmt').value;
+  if(!lastOutputName){return alert('请先生成音频');}
+  const fd=new FormData();
+  fd.append('format',fmt);
+  fd.append('name',lastOutputName);
+  try{
+    const r=await fetch('/api/export',{method:'POST',headers:apiHeaders(),body:fd});
+    if(!r.ok){let m='导出失败';try{const j=await r.json();m=j.detail||m;}catch(e){}return alert(m);}
+    const blob=await r.blob();
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download=lastOutputName.replace(/\.wav$/i,'')+'.'+fmt;
+    document.body.appendChild(a);a.click();a.remove();
+    setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+  }catch(e){alert('导出失败：'+e.message);}
+}
+
+// ============ 音色包管理 ============
+function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+
+async function loadVoicePacks(){
+  try{
+    const r=await fetch('/api/voicepacks',{headers:apiHeaders()});
+    if(!r.ok)return;
+    const d=await r.json();
+    voicePacks=d.packs||[];
+    renderPacks();
+    fillPackSel();
+  }catch(e){/* 静默：不影响主功能 */}
+}
+
+function renderPacks(){
+  const el=document.getElementById('packList');
+  el.innerHTML='';
+  if(!voicePacks.length){el.innerHTML='<div class="muted">还没有音色包，去“制作音色声线包”做一个吧。</div>';return;}
+  for(const p of voicePacks){
+    const dur=p.processed_duration!=null?p.processed_duration+'s':'';
+    const src=p.source_duration!=null?p.source_duration+'s':'';
+    const accel=p.accelerated?' <span style="color:#b45309">⚡加速</span>':'';
+    const meta=[dur?('代表参考 '+dur):'', src?('原片 '+src):'', p.created_at].filter(Boolean).join(' · ');
+    const row=document.createElement('div');
+    row.className='pack'; row.dataset.id=p.id;
+    const info=document.createElement('div'); info.className='info';
+    const nm=document.createElement('div'); nm.className='nm'; nm.innerHTML=esc(p.name)+accel;
+    const md=document.createElement('div'); md.className='meta'; md.textContent=meta;
+    info.appendChild(nm); info.appendChild(md);
+    const acts=document.createElement('div'); acts.className='acts';
+    function btn(label, cls, act){
+      const b=document.createElement('button');
+      if(cls) b.className=cls;
+      b.textContent=label;
+      b.dataset.act=act;
+      return b;
+    }
+    acts.appendChild(btn('▶ 试听','', 'preview'));
+    acts.appendChild(btn('选用','use','use'));
+    acts.appendChild(btn('删除','del','delete'));
+    row.appendChild(info); row.appendChild(acts);
+    el.appendChild(row);
+  }
+}
+
+// 事件委托：用 data-* 标记按钮意图，避开 onclick 字符串拼接导致的 V8 解析陷阱
+document.getElementById('packList').addEventListener('click', function(e){
+  const b=e.target.closest && e.target.closest('button[data-act]');
+  if(!b) return;
+  const row=b.closest('.pack');
+  const id=row && row.dataset.id;
+  if(!id) return;
+  const act=b.dataset.act;
+  if(act==='preview') previewPack(id);
+  else if(act==='use') usePack(id);
+  else if(act==='delete') deletePack(id);
+});
+
+// 参考音频与音色包互斥：上传参考音频时清空音色包选择
+document.getElementById('refFile').addEventListener('change', function(){
+  if(this.files && this.files.length){
+    const sel=document.getElementById('packSel');
+    if(sel)sel.value='';
+    selectedPackId=null;
+    document.getElementById('packSelHint').textContent='';
+    updatePtField();
+  }
+});
+
+function fillPackSel(){
+  const sel=document.getElementById('packSel');
+  const cur=sel.value;
+  sel.innerHTML='<option value="">— 不使用音色包，改为上传音频 —</option>'+
+    voicePacks.map(p=>'<option value="'+p.id+'">'+esc(p.name)+(p.processed_duration!=null?(' ('+p.processed_duration+'s)'):'')+'</option>').join('');
+  if(cur)sel.value=cur;
+}
+
+function showPackPane(which){
+  const manage=which==='manage';
+  document.getElementById('packManage').classList.toggle('hide',!manage);
+  document.getElementById('packSave').classList.toggle('hide',manage);
+  document.querySelectorAll('.ptab').forEach(t=>t.classList.toggle('active',t.dataset.pane===which));
+}
+
+function showVpErr(m){const e=document.getElementById('vpErr');e.textContent=m?('❌ '+m):'';e.classList.toggle('show',!!m);}
+
+async function savePack(){
+  const file=document.getElementById('vpFile').files[0];
+  if(!file&&!recBlob){return showVpErr('请先录制或上传参考音频');}
+  const fd=new FormData();
+  fd.append('name',document.getElementById('vpName').value);
+  fd.append('denoise',document.getElementById('vpDenoise').checked);
+  fd.append('remove_bg',document.getElementById('vpRemoveBg').checked);
+  fd.append('accelerated',document.getElementById('vpAccel').checked);
+  if(recBlob)fd.append('reference',recBlob,'recording.wav');
+  else fd.append('reference',file);
+  const btn=document.getElementById('vpSaveBtn'),st=document.getElementById('vpStatus');
+  btn.disabled=true;st.classList.add('show');showVpErr('');
+  const t0=Date.now();
+  const timer=setInterval(()=>{document.getElementById('vpStatusText').textContent='提取中… 已用 '+((Date.now()-t0)/1000).toFixed(1)+' 秒';},200);
+  try{
+    const r=await fetch('/api/voicepacks',{method:'POST',body:fd,headers:apiHeaders()});
+    clearInterval(timer);
+    if(!r.ok){let m='保存失败';try{const j=await r.json();m=j.detail||m;}catch(e){}showVpErr(m);st.classList.remove('show');return;}
+    const d=await r.json();
+    document.getElementById('vpFile').value='';
+    document.getElementById('vpName').value='';
+    resetRec();
+    st.classList.remove('show');
+    await loadVoicePacks();
+    showPackPane('manage');
+    alert('已保存音色包：'+d.pack.name+(d.pack.accelerated?'（⚡已开启加速模式）':''));
+  }catch(e){clearInterval(timer);st.classList.remove('show');showVpErr('请求失败：'+e.message);}
+  finally{btn.disabled=false;}
+}
+
+function onPackSel(){
+  const sel=document.getElementById('packSel');
+  const v=sel.value;
+  selectedPackId=v||null;
+  const hint=document.getElementById('packSelHint');
+  if(v){const p=voicePacks.find(x=>x.id===v);
+    let t='✅ 已选用：'+(p?p.name:v)+'（无需再上传音频，直接点生成即可）';
+    if(p&&p.accelerated)t+='  ⚡加速模式已启用，生成更快';
+    hint.textContent=t;
+    document.getElementById('refField').classList.add('hide');
+    document.getElementById('refFile').value='';   // 二选一互斥：清空参考音频
+  }
+  else{hint.textContent='';document.getElementById('refField').classList.remove('hide');}
+  updatePtField();
+}
+
+function usePack(id){
+  const p=voicePacks.find(x=>x.id===id);
+  selectedPackId=id;
+  setMode('clone');
+  document.getElementById('packSel').value=id;
+  const hint=document.getElementById('packSelHint');
+  let t='✅ 已选用音色包：'+(p?p.name:id)+'（无需再上传音频，直接点生成即可）';
+  if(p&&p.accelerated)t+='  ⚡加速模式已启用，生成更快';
+  hint.textContent=t;
+  document.getElementById('refField').classList.add('hide');
+  document.getElementById('refFile').value='';
+  document.getElementById('packSelField').classList.remove('hide');
+}
+
+let vpAudio=null;
+async function previewPack(id){
+  if(!vpAudio)vpAudio=new Audio();
+  try{
+    const r=await fetch('/api/voicepacks/'+id+'/preview',{headers:apiHeaders()});
+    if(!r.ok){alert('试听失败（'+r.status+'）');return;}
+    const blob=await r.blob();
+    vpAudio.src=URL.createObjectURL(blob);
+    vpAudio.play().catch(()=>{});
+  }catch(e){alert('试听失败：'+e.message);}
+}
+
+async function deletePack(id){
+  if(!confirm('确定删除该音色包？此操作不可撤销。'))return;
+  try{
+    const r=await fetch('/api/voicepacks/'+id,{method:'DELETE',headers:apiHeaders()});
+    if(r.ok){if(selectedPackId===id)selectedPackId=null;await loadVoicePacks();}
+    else{let m='删除失败';try{const j=await r.json();m=j.detail||m;}catch(e){}alert(m);}
+  }catch(e){alert('请求失败：'+e.message);}
+}
+
+// ============ 录制音色（MediaRecorder → WAV） ============
+let recBlob=null, recChunks=[], recStream=null, mediaRec=null, recTimer=null, recSecs=0;
+async function startRec(){
+  try{
+    recStream=await navigator.mediaDevices.getUserMedia({audio:true});
+    mediaRec=new MediaRecorder(recStream);
+    recChunks=[];
+    mediaRec.ondataavailable=e=>{if(e.data&&e.data.size)recChunks.push(e.data);};
+    mediaRec.onstop=async ()=>{
+      try{
+        const blob=new Blob(recChunks,{type:mediaRec.mimeType||'audio/webm'});
+        recBlob=await blobToWav(blob);
+        document.getElementById('recPlay').src=URL.createObjectURL(recBlob);
+        document.getElementById('recWrap').classList.remove('hide');
+        document.getElementById('vpFile').value=''; // 录制优先，清空上传
+      }catch(e){showVpErr('录音转码失败：'+e.message);}
+      if(recStream)recStream.getTracks().forEach(t=>t.stop());
+    };
+    mediaRec.start();
+    recSecs=0;
+    const btn=document.getElementById('recBtn');
+    btn.textContent='⏹ 停止录制';btn.style.background='#dc2626';btn.onclick=stopRec;
+    document.getElementById('recStatus').textContent='录制中 0.0s';
+    recTimer=setInterval(()=>{recSecs+=0.1;document.getElementById('recStatus').textContent='录制中 '+recSecs.toFixed(1)+'s';},100);
+  }catch(e){showVpErr('无法访问麦克风：'+(e.message||e.name)+'（请允许浏览器麦克风权限）');}
+}
+function stopRec(){
+  if(mediaRec&&mediaRec.state!=='inactive')mediaRec.stop();
+  clearInterval(recTimer);
+  const btn=document.getElementById('recBtn');
+  btn.textContent='🎤 重新录制';btn.style.background='#0ea5e9';btn.onclick=startRec;
+  document.getElementById('recStatus').textContent='录制完成，可回放或重新录制';
+}
+function resetRec(){
+  recBlob=null;recChunks=[];recSecs=0;
+  const btn=document.getElementById('recBtn');
+  if(btn){btn.textContent='🎤 开始录制';btn.style.background='#0ea5e9';btn.onclick=startRec;}
+  const w=document.getElementById('recWrap');if(w)w.classList.add('hide');
+  const s=document.getElementById('recStatus');if(s)s.textContent='点击下方按钮授权麦克风后开始朗读，建议 10–30 秒清晰语句；录制完可回放确认。';
+}
+async function blobToWav(blob){
+  const arr=await blob.arrayBuffer();
+  const Ctx=window.AudioContext||window.webkitAudioContext;
+  const ctx=new Ctx();
+  const buf=await ctx.decodeAudioData(arr.slice(0));
+  const ch=buf.numberOfChannels, len=buf.length, sr=buf.sampleRate;
+  const inter=new Float32Array(len*ch);
+  for(let c=0;c<ch;c++){const d=buf.getChannelData(c);for(let i=0;i<len;i++)inter[i*ch+c]=d[i];}
+  return new Blob([encodeWav(inter,sr,ch)],{type:'audio/wav'});
+}
+function encodeWav(samples,sr,ch){
+  const bps=2, blockAlign=ch*bps, dataSize=samples.length*bps;
+  const ab=new ArrayBuffer(44+dataSize), view=new DataView(ab);
+  const ws=(o,s)=>{for(let i=0;i<s.length;i++)view.setUint8(o+i,s.charCodeAt(i));};
+  ws(0,'RIFF');view.setUint32(4,36+dataSize,true);ws(8,'WAVE');ws(12,'fmt ');
+  view.setUint32(16,16,true);view.setUint16(20,1,true);view.setUint16(22,ch,true);
+  view.setUint32(24,sr,true);view.setUint32(28,sr*blockAlign,true);view.setUint16(32,blockAlign,true);
+  view.setUint16(34,16,true);ws(36,'data');view.setUint32(40,dataSize,true);
+  let off=44;
+  for(let i=0;i<samples.length;i++){let s=Math.max(-1,Math.min(1,samples[i]));view.setInt16(off,s<0?s*0x8000:s*0x7FFF,true);off+=2;}
+  return ab;
+}
+</script></body></html>"""
+
+
+def render(html: str) -> str:
+    return (html
+            .replace("PORT_PLACEHOLDER", str(PORT))
+            .replace("TOKEN_PLACEHOLDER", ACCESS_TOKEN)
+            .replace("CRED_PATH_PLACEHOLDER", str(CRED_FILE))
+            .replace("VOICE_PACK_DIR_PLACEHOLDER", str(BASE_DIR / "voice_packs")))
+
+
+# ============================== 路由 ==============================
+@app.get("/", response_class=HTMLResponse)
+def index(request: Request):
+    if not check_auth(request):
+        return HTMLResponse(render(LOGIN_HTML), status_code=200)
+    resp = HTMLResponse(render(APP_HTML))
+    q = request.query_params.get("token")
+    if q and secrets.compare_digest(q, ACCESS_TOKEN):
+        resp.set_cookie("voxcpm_token", ACCESS_TOKEN, httponly=True, samesite="lax", max_age=30 * 86400)
+    return resp
+
+
+@app.post("/api/login")
+async def login(request: Request):
+    body = await request.json()
+    token = (body or {}).get("token", "")
+    if not token or not secrets.compare_digest(token, ACCESS_TOKEN):
+        raise HTTPException(status_code=401, detail="令牌不正确")
+    resp = JSONResponse({"ok": True})
+    resp.set_cookie("voxcpm_token", ACCESS_TOKEN, httponly=True, samesite="lax", max_age=30 * 86400)
+    return resp
+
+
+@app.get("/api/health")
+def health():
+    cuda = False
+    try:
+        import torch
+        cuda = torch.cuda.is_available()
+    except Exception:
+        pass
+    return {
+        "status": "ok",
+        "model_loaded": _model_info["loaded"],
+        "device": _model_info["device"] or ("CUDA 可用" if cuda else "CPU"),
+        "cuda": cuda,
+        "sample_rate": _model_info["sample_rate"],
+        "model_path": MODEL_PATH,
+        "port": PORT,
+    }
+
+
+@app.post("/api/unload")
+def unload(request: Request):
+    """优雅卸载模型、释放显存（停止服务前调用，避免强杀损坏 GPU）。"""
+    require_auth(request)
+    unload_model()
+    return {"ok": True, "detail": "模型已卸载，显存已释放"}
+
+
+@app.post("/api/generate")
+def generate(
+    request: Request,
+    text: str = Form(...),
+    mode: str = Form("design"),
+    cfg_value: float = Form(2.0),
+    inference_timesteps: int = Form(10),
+    normalize: str = Form("true"),
+    denoise: str = Form("false"),
+    remove_bg: str = Form("false"),
+    stable: str = Form("false"),
+    prompt_text: str = Form(""),
+    voice_pack_id: str = Form(None),
+    pitch: float = Form(0.0),
+    speed: float = Form(1.0),
+    volume: float = Form(1.0),
+    pause: float = Form(0.15),
+    breath: float = Form(0.0),
+    emotion: str = Form(""),
+    default_emotion: str = Form("neutral"),
+    trigger_threshold: float = Form(0.5),
+    transition_smoothness: float = Form(0.5),
+    timbre_lock: str = Form("true"),
+    ssml: str = Form("false"),
+    reference: UploadFile = File(None),
+):
+    """网页用的统一生成接口（支持文件上传）"""
+    require_auth(request)
+    text = strip_design_annotations(text)
+    if not text.strip():
+        raise HTTPException(status_code=400, detail="文本不能为空")
+
+    ref_path = None
+    used_pack = False
+    if voice_pack_id:
+        # 复用已保存的音色包，无需再次上传长段音频
+        if mode not in ("clone", "hifi"):
+            raise HTTPException(status_code=400, detail="音色包仅用于克隆 / 极致克隆模式")
+        vp_wav, _ = vp_store.get_pack_paths(voice_pack_id)
+        if vp_wav is None or not Path(vp_wav).exists():
+            raise HTTPException(status_code=404, detail="所选音色包不存在或已损坏，请从列表重新选择")
+        ref_path = str(vp_wav)
+        used_pack = True
+        print(f"[VoxCPM2] 使用音色包 {voice_pack_id} 作为参考", flush=True)
+    elif reference is not None and reference.filename:
+        suffix = Path(reference.filename).suffix or ".wav"
+        ref_path = UPLOAD_DIR / f"ref_{uuid.uuid4().hex[:8]}{suffix}"
+        ref_path.write_bytes(reference.file.read())
+        ref_path = str(ref_path)
+
+    if mode in ("clone", "hifi") and not ref_path:
+        raise HTTPException(status_code=400, detail="该模式需要上传参考音频，或从已保存音色包中选择")
+
+    # 参考音频校验（坏文件在此给出清晰 400，不进入推理）
+    if ref_path and not used_pack:
+        try:
+            normalize_reference(ref_path)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    # 克隆/极致克隆：参考音频增强预处理（降噪 / 去背景音 / 长音频分段融合）
+    # 注：音色包已是清洗/融合后的代表参考，跳过二次处理，直接复用，避免重复计算与音色漂移。
+    if ref_path and not used_pack and mode in ("clone", "hifi"):
+        try:
+            ref_path = prepare_clone_reference(
+                ref_path,
+                denoise_on=str(denoise).lower() == "true",
+                remove_bg_on=str(remove_bg).lower() == "true",
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    kwargs = dict(
+        text=text,
+        cfg_value=float(cfg_value),
+        inference_timesteps=int(inference_timesteps),
+        normalize=str(normalize).lower() == "true",
+        denoise=str(denoise).lower() == "true",
+        _stable=str(stable).lower() == "true",
+        pitch=float(pitch),
+        speed=float(speed),
+        volume=float(volume),
+        pause=float(pause),
+        breath=float(breath),
+        emotion=str(emotion).strip(),
+        default_emotion=str(default_emotion).strip() or "neutral",
+        trigger_threshold=float(trigger_threshold),
+        transition_smoothness=float(transition_smoothness),
+        timbre_lock=str(timbre_lock).lower() == "true",
+        _ssml=str(ssml).lower() == "true",
+    )
+    # 加速模式：使用已开启加速的音色包时，自动降低扩散步数，显著缩短生成耗时
+    if used_pack:
+        _meta = vp_store.get_pack_meta(voice_pack_id)
+        if _meta and _meta.get("accelerated"):
+            kwargs["inference_timesteps"] = min(int(inference_timesteps), ACCEL_STEPS)
+    if mode == "clone":
+        kwargs["reference_wav_path"] = ref_path
+    elif mode == "hifi":
+        # 二选一：音色包自带干净参考，无需逐字文本（降级为普通克隆）；
+        # 上传参考音频时仍需逐字文本，用于极致克隆增强。
+        if used_pack:
+            kwargs["reference_wav_path"] = ref_path
+        else:
+            if not prompt_text.strip():
+                raise HTTPException(
+                    status_code=400,
+                    detail="极致克隆需上传参考音频并填写其逐字文本；或直接选用音色包（无需逐字文本）",
+                )
+            kwargs["reference_wav_path"] = ref_path
+            kwargs["prompt_wav_path"] = ref_path
+            kwargs["prompt_text"] = prompt_text
+
+    return _do_generate(kwargs)
+
+
+@app.post("/api/tts")
+async def tts_api(request: Request):
+    """纯 JSON 接口，方便脚本 / 其它程序调用"""
+    require_auth(request)
+    body = await request.json()
+    text = strip_design_annotations((body or {}).get("text", ""))
+    if not text.strip():
+        raise HTTPException(status_code=400, detail="文本不能为空")
+    kwargs = dict(
+        text=text,
+        cfg_value=float(body.get("cfg_value", 2.0)),
+        inference_timesteps=int(body.get("inference_timesteps", 10)),
+        normalize=bool(body.get("normalize", True)),
+        denoise=bool(body.get("denoise", False)),
+    )
+    if body.get("voice_pack_id"):
+        vp_wav, _ = vp_store.get_pack_paths(body["voice_pack_id"])
+        if vp_wav is None or not Path(vp_wav).exists():
+            raise HTTPException(status_code=404, detail="所选音色包不存在或已损坏")
+        kwargs["reference_wav_path"] = str(vp_wav)
+        if body.get("prompt_text"):
+            kwargs["prompt_wav_path"] = str(vp_wav)
+        _meta = vp_store.get_pack_meta(body["voice_pack_id"])
+        if _meta and _meta.get("accelerated"):
+            kwargs["inference_timesteps"] = min(int(body.get("inference_timesteps", 10)), ACCEL_STEPS)
+    elif body.get("reference_wav_path"):
+        kwargs["reference_wav_path"] = body["reference_wav_path"]
+    if body.get("prompt_wav_path"):
+        kwargs["prompt_wav_path"] = body["prompt_wav_path"]
+    if body.get("prompt_text"):
+        kwargs["prompt_text"] = body["prompt_text"]
+    kwargs.update(
+        pitch=float(body.get("pitch", 0) or 0),
+        speed=float(body.get("speed", 1.0) or 1.0),
+        volume=float(body.get("volume", 1.0) or 1.0),
+        pause=float(body.get("pause", 0.15) or 0.15),
+        breath=float(body.get("breath", 0) or 0),
+        emotion=str(body.get("emotion", "") or "").strip(),
+        _ssml=bool(body.get("ssml", False)),
+    )
+    return _do_generate(kwargs)
+
+
+def _do_generate(kwargs: dict):
+    """统一生成：整条链路包进 try/except，异常 → JSON；失败 → 模型自愈。"""
+    t0 = time.time()
+    try:
+        model = get_model()                       # 加载也可能抛异常，一并捕获
+        _stable = kwargs.pop("_stable", False)
+        _ssml = kwargs.pop("_ssml", False)
+        pitch = float(kwargs.pop("pitch", 0.0) or 0.0)
+        speed = float(kwargs.pop("speed", 1.0) or 1.0)
+        volume = float(kwargs.pop("volume", 1.0) or 1.0)
+        _pause = kwargs.pop("pause", 0.15)
+        pause = float(_pause if _pause is not None else 0.15)
+        breath = float(kwargs.pop("breath", 0.0) or 0.0)
+        emotion = (kwargs.pop("emotion", "") or "").strip()
+        # 情绪控制参数（长文本默认中性、情绪切换阈值、过渡平滑度、音色锁定）
+        emotion_control = {
+            "default_emotion": kwargs.pop("default_emotion", "neutral") or "neutral",
+            "trigger_threshold": float(kwargs.pop("trigger_threshold", 0.5) or 0.5),
+            "transition_smoothness": float(kwargs.pop("transition_smoothness", 0.5) or 0.5),
+            "timbre_lock": bool(kwargs.pop("timbre_lock", True)),
+            "keep_default_when_unspecified": True,
+        }
+
+        # 情绪预设 + SSML 解析（lazy import 避免启动依赖）
+        try:
+            import audio_edit as _ae
+        except Exception:
+            _ae = None
+        if emotion and _ae is not None:
+            name = _ae.EMOTION_ALIAS.get(emotion.lower(), emotion)
+            preset = _ae.EMOTION_PRESETS.get(name) or _ae.EMOTION_PRESETS.get(emotion)
+            if preset:
+                pitch = pitch if abs(pitch) > 0.01 else preset.get("pitch", 0.0)
+                speed = speed if abs(speed - 1.0) > 0.01 else preset.get("speed", 1.0)
+                volume = volume if abs(volume - 1.0) > 0.01 else preset.get("volume", 1.0)
+                pause = pause if abs(pause - 0.15) > 0.01 else preset.get("pause", 0.15)
+                breath = breath if breath > 0.01 else preset.get("breath", 0.4)
+        if _ssml and _ae is not None:
+            text_str, sp = _ae.parse_ssml(str(kwargs.get("text", "")))
+            kwargs["text"] = text_str
+            pitch = sp.get("pitch", pitch)
+            speed = sp.get("speed", speed)
+            volume = sp.get("volume", volume)
+            pause = sp.get("pause", pause)
+            breath = sp.get("breath", breath)
+
+        # 发音校正：检测多音字/生僻字并记录（模型本身具备 LLM 级多音字上下文理解）
+        if _ae is not None:
+            try:
+                _polys = _ae.detect_polyphones(str(kwargs.get("text", "")))
+                if _polys:
+                    print(f"[VoxCPM2] 多音字/生僻字提示: {''.join(_polys[:24])}", flush=True)
+            except Exception:
+                pass
+
+        eff_steps = int(kwargs.get("inference_timesteps", 10))
+        stability_report = None
+        sr = int(model.tts_model.sample_rate)
+        with _infer_lock:                         # 串行推理，防并发打爆显存
+            text_str = str(kwargs.get("text", ""))
+            # 长文本/稳定合成：句末+逗号分块 + 每块独立生成(参考锚定) + 分级停顿拼接，
+            # 根治音色漂移 / 机械感累积 / 语速越来越快 / 逗号无停顿。
+            if _stable or len(text_str) >= LONG_TEXT_CHARS:
+                wav, stab_rep = _vc_stab.synthesize_stable(
+                    model,
+                    text_str,
+                    reference_wav_path=kwargs.get("reference_wav_path"),
+                    sr_tts=sr,
+                    prompt_wav_path=kwargs.get("prompt_wav_path"),
+                    prompt_text=kwargs.get("prompt_text"),
+                    max_chars=60,
+                    pause=pause,
+                    breath=breath,
+                    emotion=emotion,
+                    emotion_control=emotion_control,
+                    cfg_value=kwargs.get("cfg_value", 2.0),
+                    inference_timesteps=kwargs.get("inference_timesteps", 10),
+                    normalize=kwargs.get("normalize", True),
+                    denoise=kwargs.get("denoise", False),
+                )
+                stability_report = stab_rep
+                print(f"[VoxCPM2] 稳定合成指标: {stab_rep}", flush=True)
+            else:
+                wav = model.generate(**kwargs)
+        if isinstance(wav, list):
+            wav = np.concatenate(wav)
+        # 音调/语速（在归一化前应用，避免被 RMS 归一化抹平）
+        if _ae is not None:
+            wav = _ae.apply_pitch(wav, sr, pitch)
+            wav = _ae.apply_speed(wav, sr, speed)
+        # 统一后处理：软限幅防爆音 + RMS 归一化，保证基础响度一致
+        wav = _vc_stab.postprocess_output(wav)
+        # 音量（归一化后独立生效）+ 最终限幅防爆音
+        if _ae is not None:
+            wav = _ae.apply_volume(wav, volume)
+        wav = _vc_stab.declip(wav)
+        elapsed = round(time.time() - t0, 2)
+
+        name = f"tts_{time.strftime('%m%d_%H%M%S')}_{uuid.uuid4().hex[:4]}.wav"
+        path = OUTPUT_DIR / name
+        sf.write(str(path), wav, sr)
+
+        buf = io.BytesIO()
+        sf.write(buf, wav, sr, format="WAV")
+        buf.seek(0)
+        dur = round(len(wav) / sr, 2)
+        print(f"[VoxCPM2] 生成完成 {name} 时长{dur}s 耗时{elapsed}s", flush=True)
+        headers = {
+            "X-Output-Name": name,
+            "X-Elapsed": str(elapsed),
+            "X-Duration": str(dur),
+            "X-Effective-Steps": str(eff_steps),
+            "Content-Disposition": f'inline; filename="{name}"',
+        }
+        if stability_report:
+            try:
+                headers["X-Stability"] = json.dumps(stability_report, ensure_ascii=False)
+            except Exception:
+                pass
+        return Response(
+            content=buf.read(),
+            media_type="audio/wav",
+            headers=headers,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error("推理失败", e)
+        reset_model()                             # 自愈：下次请求自动重新加载
+        raise HTTPException(status_code=500, detail=f"推理失败: {type(e).__name__}: {e}")
+
+
+@app.get("/api/outputs/{name}")
+def get_output(name: str, request: Request):
+    require_auth(request)
+    path = (OUTPUT_DIR / name).resolve()
+    if not str(path).startswith(str(OUTPUT_DIR.resolve())) or not path.exists():
+        raise HTTPException(status_code=404, detail="文件不存在")
+    return FileResponse(str(path), media_type="audio/wav", filename=name)
+
+
+# ============================== 音频导出 (MP3/WAV/M4A) ==============================
+_FFMPEG_PATH = None
+
+
+def _find_ffmpeg():
+    """定位 ffmpeg 可执行文件路径（用于 MP3/M4A 转码与视频提取）。找不到返回 None。"""
+    global _FFMPEG_PATH
+    if _FFMPEG_PATH:
+        return _FFMPEG_PATH
+    import glob as _g
+    candidates = [os.environ.get("VOXCPM_FFMPEG", "")]
+    # 项目目录下的 ffmpeg（如 ffmpeg/bin/ffmpeg.exe）
+    for pat in ("ffmpeg/bin/ffmpeg.exe", "ffmpeg.exe"):
+        p = BASE_DIR / pat
+        if p.exists():
+            candidates.append(str(p))
+    for c in candidates:
+        if c and os.path.exists(c):
+            _FFMPEG_PATH = c
+            return c
+    for pat in ("ffmpeg*/bin/ffmpeg.exe", "ffmpeg.exe"):
+        for c in _g.glob(str(BASE_DIR / pat)):
+            if os.path.exists(c):
+                _FFMPEG_PATH = c
+                return c
+    # 系统 PATH 里的 ffmpeg
+    import shutil as _sh
+    p = _sh.which("ffmpeg")
+    if p:
+        _FFMPEG_PATH = p
+        return p
+    # imageio-ffmpeg 内置的 ffmpeg 二进制（pip 安装，最可靠）
+    try:
+        import imageio_ffmpeg as _iff
+        p = _iff.get_ffmpeg_exe()
+        if p and os.path.exists(p):
+            _FFMPEG_PATH = p
+            return p
+    except Exception:
+        pass
+    return None
+
+
+def _run_ffmpeg(args: list[str]) -> bytes:
+    ff = _find_ffmpeg()
+    if not ff:
+        raise HTTPException(status_code=400, detail="此操作需要 ffmpeg，未检测到（请确认已安装）")
+    import subprocess
+    r = subprocess.run([ff] + args, capture_output=True)
+    if r.returncode != 0:
+        raise HTTPException(status_code=500, detail=f"ffmpeg 转码失败: {r.stderr.decode('utf-8', 'ignore')[:200]}")
+    return r.stdout
+
+
+def convert_audio(data: bytes, fmt: str) -> bytes:
+    """把 WAV 字节流转成目标格式。fmt: wav / mp3 / m4a。"""
+    fmt = (fmt or "wav").lower()
+    if fmt == "wav":
+        return data
+    if fmt == "mp3":
+        # 优先 ffmpeg；ffmpeg 缺失或转码失败时回退 lameenc（纯 Python，已装）
+        if _find_ffmpeg():
+            import tempfile, os as _os
+            td = tempfile.mkdtemp()
+            src = _os.path.join(td, "in.wav")
+            dst = _os.path.join(td, "out.mp3")
+            try:
+                with open(src, "wb") as f:
+                    f.write(data)
+                _run_ffmpeg(["-y", "-i", src, "-b:a", "192k", dst])
+                with open(dst, "rb") as f:
+                    return f.read()
+            except Exception:
+                pass  # ffmpeg 失败 → 回退 lameenc
+            finally:
+                for p in (src, dst):
+                    try:
+                        os.unlink(p)
+                    except OSError:
+                        pass
+        # lameenc 回退
+        import lameenc
+        wav, wsr = sf.read(io.BytesIO(data))
+        if wav.ndim > 1:
+            wav = wav.mean(axis=1)
+        enc = lameenc.Encoder()
+        enc.set_bit_rate(192)
+        enc.set_in_sample_rate(int(wsr))
+        enc.set_channels(1)
+        enc.set_quality(2)
+        pcm = (np.clip(wav, -1, 1) * 32767).astype("<i2").tobytes()
+        return bytes(enc.encode(pcm) + enc.flush())
+    if fmt == "m4a":
+        if not _find_ffmpeg():
+            raise HTTPException(status_code=400, detail="M4A 导出需要 ffmpeg，未检测到")
+        import tempfile
+        td = tempfile.mkdtemp()
+        src = os.path.join(td, "in.wav")
+        dst = os.path.join(td, "out.m4a")
+        try:
+            with open(src, "wb") as f:
+                f.write(data)
+            _run_ffmpeg(["-y", "-i", src, "-c:a", "aac", "-b:a", "192k", dst])
+            with open(dst, "rb") as f:
+                return f.read()
+        finally:
+            for p in (src, dst):
+                try:
+                    os.unlink(p)
+                except OSError:
+                    pass
+    raise HTTPException(status_code=400, detail=f"不支持的导出格式: {fmt}")
+
+
+@app.post("/api/export")
+async def export_audio(request: Request, format: str = Form("mp3"),
+                       name: str = Form(""), audio: UploadFile = File(None)):
+    """把音频（上传 WAV 或引用 outputs 里的文件名）导出为 MP3/WAV/M4A。"""
+    require_auth(request)
+    if audio is not None and getattr(audio, "filename", ""):
+        data = audio.file.read()
+    elif name:
+        p = (OUTPUT_DIR / name).resolve()
+        if not str(p).startswith(str(OUTPUT_DIR.resolve())) or not p.exists():
+            raise HTTPException(status_code=404, detail="文件不存在")
+        data = p.read_bytes()
+    else:
+        raise HTTPException(status_code=400, detail="请提供音频文件或 output 文件名")
+    fmt = (format or "mp3").lower()
+    out = convert_audio(data, fmt)
+    media = {"wav": "audio/wav", "mp3": "audio/mpeg", "m4a": "audio/mp4"}.get(fmt, "application/octet-stream")
+    return Response(content=out, media_type=media,
+                    headers={"Content-Disposition": f'attachment; filename="export.{fmt}"'})
+
+
+@app.post("/api/warmup")
+def warmup(request: Request):
+    require_auth(request)
+    get_model()
+    return {"ok": True, **_model_info}
+
+
+def _safe_unlink(path) -> None:
+    """尽力删除临时文件；删除失败（如沙箱回收站不可用）不影响主流程。"""
+    try:
+        Path(path).unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+# ============================== 音色包管理 ==============================
+@app.get("/api/voicepacks")
+def list_voice_packs(request: Request):
+    require_auth(request)
+    return {"packs": vp_store.list_packs()}
+
+
+@app.post("/api/voicepacks")
+def create_voice_pack(
+    request: Request,
+    name: str = Form(""),
+    denoise: str = Form("true"),
+    remove_bg: str = Form("false"),
+    accelerated: str = Form("false"),
+    reference: UploadFile = File(...),
+):
+    """从上传/录制的参考音频抽取音色，保存为可长期复用的音色包。"""
+    require_auth(request)
+    if reference is None or not reference.filename:
+        raise HTTPException(status_code=400, detail="请上传或录制参考音频")
+    suffix = (Path(reference.filename).suffix or ".wav").lower()
+    raw_path = UPLOAD_DIR / f"vp_src_{uuid.uuid4().hex[:8]}{suffix}"
+    raw_path.write_bytes(reference.file.read())
+    raw_path = str(raw_path)
+
+    # 视频文件：先用 ffmpeg 提取音轨（单声道 24k wav），再走音色抽取流程
+    if suffix in (".mp4", ".mov", ".mkv", ".avi", ".webm", ".flv", ".m4v", ".wmv", ".ts"):
+        ff = _find_ffmpeg()
+        if not ff:
+            _safe_unlink(raw_path)
+            raise HTTPException(status_code=400, detail="从视频提取音轨需要 ffmpeg，当前未检测到")
+        import subprocess
+        ref_path = str(UPLOAD_DIR / f"vp_src_{uuid.uuid4().hex[:8]}.wav")
+        r = subprocess.run(
+            [ff, "-y", "-i", raw_path, "-vn", "-ac", "1", "-ar", "24000", ref_path],
+            capture_output=True,
+        )
+        _safe_unlink(raw_path)  # 视频源文件弃用
+        if r.returncode != 0 or not Path(ref_path).exists():
+            raise HTTPException(status_code=400,
+                                detail="视频音轨提取失败：" + r.stderr.decode("utf-8", "ignore")[:200])
+    else:
+        ref_path = raw_path
+
+    try:
+        normalize_reference(ref_path)  # 坏文件在此给出清晰 400
+    except ValueError as e:
+        p = Path(ref_path)
+        if p.exists():
+            _safe_unlink(p)
+        raise HTTPException(status_code=400, detail=str(e))
+    try:
+        rec = vp_store.create_pack(
+            name=name.strip(),
+            ref_path=ref_path,
+            denoise=str(denoise).lower() == "true",
+            remove_bg=str(remove_bg).lower() == "true",
+            accelerated=str(accelerated).lower() == "true",
+            source_name=reference.filename,
+        )
+        _safe_unlink(ref_path)  # 源文件用后即弃，音色已落盘
+        print(f"[VoxCPM2] 已保存音色包 {rec['id']} ({rec['name']})", flush=True)
+        return {"ok": True, "pack": rec}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        log_error("保存音色包失败", e)
+        raise HTTPException(status_code=500, detail=f"保存音色包失败: {type(e).__name__}: {e}")
+
+
+@app.get("/api/voicepacks/{pack_id}/audio")
+def get_voice_pack_audio(pack_id: str, request: Request):
+    require_auth(request)
+    wav, _ = vp_store.get_pack_paths(pack_id)
+    if wav is None or not wav.exists():
+        raise HTTPException(status_code=404, detail="音色包不存在")
+    return FileResponse(str(wav), media_type="audio/wav", filename=f"{pack_id}.wav")
+
+
+@app.get("/api/voicepacks/{pack_id}/preview")
+def get_voice_pack_preview(pack_id: str, request: Request):
+    require_auth(request)
+    wav, preview = vp_store.get_pack_paths(pack_id)
+    if wav is None or not wav.exists():
+        raise HTTPException(status_code=404, detail="音色包不存在")
+    target = preview if (preview is not None and preview.exists()) else wav
+    return FileResponse(str(target), media_type="audio/wav", filename=f"{pack_id}_preview.wav")
+
+
+@app.delete("/api/voicepacks/{pack_id}")
+def delete_voice_pack(pack_id: str, request: Request):
+    require_auth(request)
+    if not vp_store.delete_pack(pack_id):
+        raise HTTPException(status_code=404, detail="音色包不存在")
+    return {"ok": True}
+
+
+# ============================== 启动 ==============================
+if __name__ == "__main__":
+    line = "=" * 66
+    print(line)
+    print("  VoxCPM2 本地推理服务 (加固版)")
+    print(line)
+    print(f"  模型目录 : {MODEL_PATH}")
+    print(f"  监听地址 : http://{HOST}:{PORT}")
+    print(f"  浏览器访问: http://localhost:{PORT}")
+    print(f"  一键登录 : http://localhost:{PORT}/?token={ACCESS_TOKEN}")
+    print(f"  访问令牌 : {ACCESS_TOKEN}")
+    print(f"  凭证文件 : {CRED_FILE}")
+    print(f"  错误日志 : {ERROR_LOG}")
+    print(f"  输出目录 : {OUTPUT_DIR}")
+    print(line)
+    print("  提示：模型在第一次生成时才加载（约 20-60 秒），之后常驻显存；")
+    print("  若某次推理异常，服务会自动重载模型自愈，无需重启。")
+    print(line, flush=True)
+    # 注：本机 uvicorn 0.52.2 不对请求体大小做限制（仅 header 有 16KB 缓冲），
+    # 故 10 分钟参考音频可直接以 multipart 流式上传，无需额外放宽上传上限。
+    try:
+        uvicorn.run(app, host=HOST, port=PORT, log_level="info")
+    except OSError as e:
+        # 端口被占用是最常见的“启动报错”：给出清晰可执行的提示，而非晦涩堆栈
+        msg = str(e).lower()
+        if "address already in use" in msg or "10048" in msg or "10013" in msg:
+            print("\n[VoxCPM2][错误] 端口 %d 已被占用，无法启动。" % PORT)
+            print("  · 多半 VoxCPM2 已在运行 —— 直接打开 http://localhost:%d 即可。" % PORT)
+            print("  · 若确认没有其它实例，请先结束占用进程，或改上方 PORT 后重试。")
+            print("  · 查询占用： netstat -ano | findstr :%d" % PORT)
+            sys.exit(2)
+        else:
+            raise

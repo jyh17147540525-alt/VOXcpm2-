@@ -1,0 +1,31 @@
+# ============================================================
+# VOXcpm2 依赖清单
+# 建议 Python 3.10–3.12（推荐 3.11）
+#
+# 注意：PyTorch 需安装 CUDA 版本（PyPI 默认是 CPU 版），
+# 请先用下方命令安装 torch，再执行 pip install -r requirements.txt：
+#   pip install torch==2.9.1 torchaudio==2.9.1 --index-url https://download.pytorch.org/whl/cu128
+# ============================================================
+
+# ---- 核心模型库 ----
+voxcpm==2.0.3
+
+# ---- Web 服务 ----
+fastapi>=0.110
+uvicorn>=0.29
+python-multipart>=0.0.9
+
+# ---- 音频处理 ----
+numpy>=1.26
+scipy>=1.12
+librosa>=0.10
+soundfile>=0.12
+
+# ---- 编辑音频 / 导出 ----
+pypinyin>=0.50          # 多音字检测
+lameenc>=1.7            # MP3 编码（纯 Python 回退）
+imageio-ffmpeg>=0.5     # M4A 转码 / 视频提取音轨（内置 ffmpeg 二进制）
+
+# ---- PyTorch（CUDA 版，见文件顶部说明）----
+# torch==2.9.1
+# torchaudio==2.9.1

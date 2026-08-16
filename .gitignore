@@ -1,0 +1,64 @@
+# ===== 预训练模型权重（体积大，需单独下载，勿提交）=====
+*.safetensors
+*.pth
+*.pt
+*.ckpt
+*.bin
+*.gguf
+*.ggml
+
+# ===== 虚拟环境 / 依赖 =====
+venv/
+env/
+.venv/
+ENV/
+
+# ===== 敏感凭证 =====
+credentials.json
+
+# ===== 运行时数据（生成/上传/缓存）=====
+outputs/
+uploads/
+voice_packs/
+prepared/
+.pipcache/
+.tmp/
+*.wav
+*.mp3
+*.m4a
+*.flac
+
+# ===== 日志 =====
+*.log
+server_error.log
+
+# ===== Python 缓存 =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# ===== 测试 / 覆盖率 =====
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ===== IDE / 编辑器 =====
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ===== 操作系统 =====
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# ===== 其他临时文件 =====
+*.tmp
+*.bak
+*.orig
