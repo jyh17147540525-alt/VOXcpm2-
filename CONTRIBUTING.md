@@ -1,85 +1,85 @@
-# 贡献指南
+# Contributing Guide
 
-感谢你对 VOXcpm2 的关注！我们欢迎所有形式的贡献，包括但不限于：报告 Bug、提出功能建议、改进文档、提交代码。
+Thank you for your interest in VOXcpm2! We welcome all kinds of contributions, including bug reports, feature suggestions, documentation improvements, and code.
 
-## 行为准则
+## Code of conduct
 
-请保持友善、尊重他人。我们希望社区对每一位贡献者都友好包容。
+Please be kind and respectful to others. We want the community to be welcoming and inclusive for every contributor.
 
-## 如何贡献
+## How to contribute
 
-### 报告 Bug
+### Report a bug
 
-1. 先搜索 [Issues](../../issues) 确认是否已有相同问题；
-2. 使用「Bug 报告」模板创建新 Issue；
-3. 尽量提供：运行环境（OS / Python 版本 / GPU 型号）、复现步骤、期望结果与实际结果、相关日志。
+1. Search [Issues](../../issues) to see if the same problem has already been reported.
+2. Open a new Issue using the "Bug report" template.
+3. Provide as much detail as possible: environment (OS / Python version / GPU model), reproduction steps, expected vs. actual behavior, and relevant logs.
 
-### 提出功能建议
+### Suggest a feature
 
-使用「功能建议」模板，说明需求背景、期望行为和可能的实现思路。
+Use the "Feature request" template, and describe the background, expected behavior, and any implementation ideas.
 
-### 提交代码（Pull Request）
+### Submit code (Pull Request)
 
-1. **Fork** 本仓库，克隆到你本地；
-2. 基于 `main` 分支创建新分支：`git checkout -b feat/your-feature`；
-3. 编写代码与测试，确保改动可运行；
-4. 提交前自检：`python -m py_compile` 校验语法，运行 `examples/test_infer.py` 做冒烟测试；
-5. 提交并推送，发起 Pull Request，填写 PR 模板。
+1. **Fork** this repository and clone it locally.
+2. Create a branch from `main`: `git checkout -b feat/your-feature`.
+3. Write code and tests; make sure your changes run.
+4. Self-check before committing: run `python -m py_compile` and `examples/test_infer.py` as a smoke test.
+5. Commit, push, and open a Pull Request using the PR template.
 
-## 开发环境
+## Development environment
 
 ```bash
-# 创建虚拟环境
+# Create a virtual environment
 python -m venv venv
 # Windows
 venv\Scripts\activate
 # Linux / macOS
 source venv/bin/activate
 
-# 安装依赖
+# Install dependencies
 pip install -r requirements.txt
-# CUDA 版 PyTorch
+# CUDA build of PyTorch
 pip install torch==2.9.1 torchaudio==2.9.1 --index-url https://download.pytorch.org/whl/cu128
 ```
 
-> 模型权重需单独下载，见 [README](./README.md#4-下载预训练权重)。
+> Model weights must be downloaded separately — see [README](./README.md#4-download-pretrained-weights).
 
-## 代码规范
+## Code style
 
-- 遵循 [PEP 8](https://pep8.org/)；
-- Python 代码使用 4 空格缩进；
-- 变量与函数命名清晰，中文注释说明关键逻辑；
-- 新增功能请补充必要的说明文档；
-- **不要提交**：模型权重、`credentials.json`、`env/`、缓存文件、生成的音频（这些已加入 `.gitignore`）。
+- Follow [PEP 8](https://pep8.org/).
+- Use 4-space indentation for Python.
+- Name variables and functions clearly; keep comments concise.
+- Document new features where appropriate.
+- **Do not commit**: model weights, `credentials.json`, `env/`, cache files, or generated audio (these are already in `.gitignore`).
 
-## 提交信息规范
+## Commit message convention
 
-建议使用约定式提交（Conventional Commits）：
-
-```
-feat: 新增音色包导出功能
-fix: 修复长文本音色漂移
-docs: 更新安装说明
-refactor: 重构音频后处理引擎
-```
-
-## 目录约定
+Use Conventional Commits:
 
 ```
-server.py                主服务
-audio_edit.py            音频后处理引擎
-voice_packs.py           音色包管理
-voice_clone/             克隆增强工具包
-scripts/                 启动脚本
-examples/                示例脚本
+feat: add voice pack export
+fix: fix long-text timbre drift
+docs: update installation instructions
+refactor: refactor the audio post-processing engine
 ```
 
-- 与语音克隆核心逻辑相关的改动放在 `voice_clone/` 或根目录对应模块；
-- 独立的小工具/脚本放在 `examples/`；
-- 跨平台的启动脚本放在 `scripts/`。
+## Directory conventions
 
-## 许可
+```
+server.py                Main service
+audio_edit.py            Audio post-processing engine
+voice_packs.py           Voice pack management
+voice_clone/             Voice-clone toolkit
+scripts/                 Launch scripts
+examples/                Example scripts
+```
 
-贡献的代码默认以 [Apache-2.0](./LICENSE) 许可发布。提交即表示你同意该许可条款。
+- Core voice-cloning logic goes in `voice_clone/` or the corresponding root modules.
+- Standalone tools/scripts go in `examples/`.
+- Cross-platform launch scripts go in `scripts/`.
 
-再次感谢你的贡献！
+## License
+
+Contributions are released under the [Apache-2.0](./LICENSE) license by default. Submitting a contribution means you agree to those terms.
+
+Thank you again for contributing!

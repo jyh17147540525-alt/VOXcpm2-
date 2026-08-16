@@ -1,66 +1,66 @@
 # VOXcpm2
 
-一个开箱即用的本地语音克隆（Voice Cloning）与文本转语音（TTS）服务。基于 [OpenBMB/VoxCPM](https://github.com/OpenBMB/VoxCPM)（`voxcpm 2.0.3`）核心模型，在其之上封装了一套完整的 Web 应用与克隆增强工具链，让语音克隆爱好者能**点开即用**，也便于二次开发与贡献。
+A ready-to-use local voice cloning and text-to-speech (TTS) service. Built on top of [OpenBMB/VoxCPM](https://github.com/OpenBMB/VoxCPM) (`voxcpm 2.0.3`), it wraps the core model with a complete web application and a voice-cloning toolchain, so voice-cloning enthusiasts can **run it out of the box** and contribute easily.
 
-> 本仓库仅包含**应用层代码与配置文件**，预训练模型权重体积较大（约 4.7 GB），需按下方说明单独下载。
-
----
-
-## ✨ 功能特性
-
-- **三种合成模式**
-  - **设计模式（Design）**：零样本 TTS，无需参考音频，直接文字转语音，支持 `（括号内设计文本）` 自动剥离。
-  - **克隆模式（Clone）**：上传参考音频（0.3s–10min）克隆目标音色。
-  - **极致克隆（HiFi）**：参考音频 + 逐字文本，实现更强的音色还原。
-- **音色包管理**：把参考音色提取、保存为可复用的"音色包"，后续克隆一键选用，无需重复上传长音频；支持**视频拖拽导入**（自动提取人声）。
-- **编辑音频（后处理引擎）**
-  - 音调 / 语速 / 音量独立调节（时域 WSOLA 算法，无相位声码器金属感）。
-  - 情绪预设（高兴/悲伤/严肃/温柔/愤怒等），情绪只改韵律、不改变音色。
-  - 自然停顿 + 换气声、呼吸声合成、SSML 标签解析。
-  - 发音校正（多音字检测）。
-- **长文本稳定合成**：自动分句、块级独立生成（参考锚定，杜绝音色漂移）、逗号/句号分级停顿、情绪统一控制（默认中性平稳），适合有声书、长段朗读。
-- **音频导出**：WAV / MP3 / M4A 多格式导出。
-- **Web 界面**：FastAPI + 令牌验证，浏览器一键登录，内置播放器与生成历史。
+> This repository contains only the **application-layer code and config files**. The pretrained model weights are large (~4.7 GB) and must be downloaded separately (see below).
 
 ---
 
-## 📦 项目结构
+## ✨ Features
+
+- **Three synthesis modes**
+  - **Design**: zero-shot TTS — text to speech without any reference audio. `(design text in parentheses)` is automatically stripped.
+  - **Clone**: upload a reference audio (0.3s–10min) to clone a target voice.
+  - **HiFi clone**: reference audio + verbatim transcript for stronger voice restoration.
+- **Voice pack management**: extract and save a reference voice as a reusable "voice pack", then reuse it for cloning with one click — no need to re-upload long audio. Supports **drag-and-drop video import** (voice is extracted automatically).
+- **Audio editing (post-processing engine)**
+  - Independent pitch / speed / volume control (time-domain WSOLA algorithm, no phase-vocoder artifacts).
+  - Emotion presets (happy / sad / serious / gentle / angry, etc.) — emotion only changes prosody, never the timbre.
+  - Natural pauses, breath sounds, SSML tag parsing.
+  - Pronunciation correction (polyphone detection).
+- **Long-text stable synthesis**: automatic sentence splitting, chunk-wise independent generation (reference-anchored, no timbre drift), graded pauses for commas/periods, unified emotion control (neutral & stable by default). Great for audiobooks and long passages.
+- **Audio export**: WAV / MP3 / M4A.
+- **Web UI**: FastAPI + token auth, one-click login in the browser, built-in player and generation history.
+
+---
+
+## 📦 Project structure
 
 ```
 .
-├── server.py                 # 主服务（FastAPI Web + API）
-├── audio_edit.py             # 音频后处理引擎（音调/语速/音量/情绪/呼吸/SSML）
-├── voice_packs.py            # 音色包管理
-├── tokenization_voxcpm2.py   # 分词器
-├── voice_clone/              # 克隆增强工具包
-│   ├── pipeline.py           #   参考音频预处理管线
-│   ├── preprocess.py         #   降噪 / 去背景 / 分段融合
-│   ├── length_adapter.py     #   长音频适配
-│   ├── synthesis_stab.py     #   长文本稳定合成 + 情绪控制
-│   └── cli.py                #   命令行入口
-├── config.json               # 模型配置（voxcpm2 架构）
-├── tokenizer.json            # 分词器词表
-├── tokenizer_config.json     # 分词器配置
-├── special_tokens_map.json   # 特殊 token 映射
-├── scripts/                  # 一键启动脚本（Windows .bat）
-├── examples/                 # 示例脚本（推理自检 / 管线测试 / 诊断）
-└── .github/                  # Issue / PR 模板
+├── server.py                 # Main service (FastAPI web + API)
+├── audio_edit.py             # Audio post-processing engine (pitch/speed/volume/emotion/breath/SSML)
+├── voice_packs.py            # Voice pack management
+├── tokenization_voxcpm2.py   # Tokenizer
+├── voice_clone/              # Voice-clone enhancement toolkit
+│   ├── pipeline.py           #   Reference audio preprocessing pipeline
+│   ├── preprocess.py         #   Denoise / remove background / segment fusion
+│   ├── length_adapter.py     #   Long-audio adaptation
+│   ├── synthesis_stab.py     #   Long-text stable synthesis + emotion control
+│   └── cli.py                #   CLI entry point
+├── config.json               # Model config (voxcpm2 architecture)
+├── tokenizer.json            # Tokenizer vocabulary
+├── tokenizer_config.json     # Tokenizer config
+├── special_tokens_map.json   # Special token mapping
+├── scripts/                  # One-click launch scripts (Windows .bat)
+├── examples/                 # Example scripts (inference self-test / pipeline test / diagnostics)
+└── .github/                  # Issue / PR templates
 ```
 
 ---
 
-## 🔧 安装步骤
+## 🔧 Installation
 
-### 1. 环境要求
+### 1. Requirements
 
-| 项目 | 要求 |
+| Item | Requirement |
 |---|---|
-| 操作系统 | Windows / Linux / macOS |
-| Python | 3.10 – 3.12（推荐 3.11） |
-| GPU | 推荐 NVIDIA（显存 ≥ 12GB，CUDA 12.x）；CPU 可运行但较慢 |
-| 磁盘 | 预留 ≥ 10GB（含模型权重） |
+| OS | Windows / Linux / macOS |
+| Python | 3.10 – 3.12 (3.11 recommended) |
+| GPU | NVIDIA recommended (VRAM ≥ 12GB, CUDA 12.x); CPU works but slower |
+| Disk | ≥ 10GB free (including model weights) |
 
-### 2. 创建虚拟环境
+### 2. Create a virtual environment
 
 ```bash
 python -m venv venv
@@ -70,136 +70,136 @@ venv\Scripts\activate
 source venv/bin/activate
 ```
 
-### 3. 安装依赖
+### 3. Install dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-> **CUDA 版 PyTorch 需单独安装**（PyPI 默认是 CPU 版）：
+> **The CUDA build of PyTorch must be installed separately** (PyPI defaults to CPU):
 > ```bash
 > pip install torch==2.9.1 torchaudio==2.9.1 --index-url https://download.pytorch.org/whl/cu128
 > ```
 
-### 4. 下载预训练权重
+### 4. Download pretrained weights
 
-模型权重**不包含在本仓库中**，请从以下任一来源下载，并放到项目根目录：
+The model weights are **not included in this repository**. Download them from one of the sources below and place them in the project root:
 
-| 文件 | 大小 | 说明 |
+| File | Size | Description |
 |---|---|---|
-| `model.safetensors` | ~4.3 GB | 主模型权重 |
-| `audiovae.pth` | ~360 MB | 音频 VAE 权重 |
+| `model.safetensors` | ~4.3 GB | Main model weights |
+| `audiovae.pth` | ~360 MB | Audio VAE weights |
 
-**方式一（推荐，ModelScope）**：
+**Option 1 (recommended, ModelScope)**:
 
 ```bash
 pip install modelscope
-# 下载到本地后，把权重文件复制到项目根目录
 git lfs install
 git clone https://www.modelscope.cn/OpenBMB/VoxCPM2.git
+# then copy the weight files into the project root
 ```
 
-**方式二（HuggingFace）**：
+**Option 2 (HuggingFace)**:
 
 ```bash
 pip install huggingface_hub
 huggingface-cli download OpenBMB/VoxCPM2 --local-dir .
 ```
 
-> 下载完成后，请确认项目根目录下存在 `model.safetensors`、`audiovae.pth`、`config.json`、`tokenizer.json` 等文件。
+> After downloading, make sure the project root contains `model.safetensors`, `audiovae.pth`, `config.json`, `tokenizer.json`, etc.
 
 ---
 
-## 🚀 使用方法
+## 🚀 Usage
 
-### 一键启动（Windows）
+### One-click launch (Windows)
 
 ```bash
 scripts\start.bat
 ```
 
-启动后浏览器访问 `http://localhost:8808`，访问令牌会自动生成在项目根目录的 `credentials.json` 中（首次启动时创建）。
+Then open `http://localhost:8808` in your browser. The access token is auto-generated in `credentials.json` (in the project root) on first launch.
 
-### 命令行启动
+### Command line
 
 ```bash
 python server.py
 ```
 
-常用环境变量：
+Common environment variables:
 
-| 变量 | 默认值 | 说明 |
+| Variable | Default | Description |
 |---|---|---|
-| `VOXCPM_PORT` | `8808` | 服务端口 |
-| `VOXCPM_HOST` | `127.0.0.1` | 监听地址（局域网访问改 `0.0.0.0`） |
-| `VOXCPM_HOME` | 项目根目录 | 权重所在目录（支持权重与代码分离） |
-| `VOXCPM_DEVICE` | `auto` | 推理设备（`auto`/`cuda`/`cpu`） |
-| `HF_HUB_OFFLINE` | — | 设为 `1` 可离线加载本地权重 |
+| `VOXCPM_PORT` | `8808` | Service port |
+| `VOXCPM_HOST` | `127.0.0.1` | Bind address (set `0.0.0.0` for LAN access) |
+| `VOXCPM_HOME` | project root | Directory containing the weights (allows separating weights from code) |
+| `VOXCPM_DEVICE` | `auto` | Inference device (`auto` / `cuda` / `cpu`) |
+| `HF_HUB_OFFLINE` | — | Set `1` to load local weights offline |
 
-### 命令行推理自检
+### Inference self-test
 
 ```bash
 python examples/test_infer.py
 ```
 
-### 直接调用 Python API
+### Python API
 
 ```python
 from voxcpm import VoxCPM
 
 model = VoxCPM.from_pretrained(".", load_denoiser=False, device="auto")
 wav = model.generate(
-    text="你好，欢迎使用语音合成。",
+    text="Hello, welcome to speech synthesis.",
     cfg_value=2.0,
     inference_timesteps=10,
     normalize=True,
 )
 ```
 
-### 调用 HTTP API
+### HTTP API
 
 ```bash
-# 设计模式（零样本 TTS）
+# Design mode (zero-shot TTS)
 curl -X POST http://127.0.0.1:8808/api/generate \
-  -H "X-API-Key: 你的令牌" \
-  -F "text=你好，这是测试" -F "mode=design"
+  -H "X-API-Key: YOUR_TOKEN" \
+  -F "text=Hello, this is a test" -F "mode=design"
 
-# 克隆模式（上传参考音频）
+# Clone mode (upload reference audio)
 curl -X POST http://127.0.0.1:8808/api/generate \
-  -H "X-API-Key: 你的令牌" \
-  -F "text=你好" -F "mode=clone" -F "reference=@ref.wav"
+  -H "X-API-Key: YOUR_TOKEN" \
+  -F "text=Hello" -F "mode=clone" -F "reference=@ref.wav"
 ```
 
-完整 API 说明见 [docs/API.md](docs/API.md)（如存在）。
+See [docs/API.md](docs/API.md) for the full API reference (if present).
 
 ---
 
-## 🎓 训练与推理流程
+## 🎓 Training and inference
 
-本仓库为**推理与克隆应用层**，模型本身由 OpenBMB 团队训练，本仓库不涉及训练。
+This repository is an **inference and cloning application layer** — the model itself is trained by OpenBMB, and this repository does not involve training.
 
-**推理流程（本仓库核心）**：
+**Inference pipeline (core of this repo)**:
 
-1. **加载**：`VoxCPM.from_pretrained()` 加载 `model.safetensors` + `audiovae.pth`；
-2. **参考处理**（克隆模式）：`voice_clone.pipeline` 对参考音频做降噪 / 去背景 / 长音频分段融合，得到干净代表参考；
-3. **生成**：`model.generate()` 或 `generate_with_prompt_cache()` 分块生成；
-4. **后处理**：`audio_edit` 应用音调 / 语速 / 音量 / 情绪 / 呼吸等；
-5. **拼接**：长文本按句子 + 分级停顿自然拼接，保证音色一致、情绪平稳。
+1. **Load**: `VoxCPM.from_pretrained()` loads `model.safetensors` + `audiovae.pth`.
+2. **Reference processing** (clone mode): `voice_clone.pipeline` denoises / removes background / fuses long-audio segments into a clean representative reference.
+3. **Generate**: `model.generate()` or `generate_with_prompt_cache()` generates chunk by chunk.
+4. **Post-process**: `audio_edit` applies pitch / speed / volume / emotion / breath, etc.
+5. **Concatenate**: long text is joined per sentence with graded pauses, keeping timbre consistent and emotion stable.
 
-> 若需训练或微调 VoxCPM 模型，请参考上游 [OpenBMB/VoxCPM](https://github.com/OpenBMB/VoxCPM) 的说明。
+> To train or fine-tune the VoxCPM model, refer to the upstream [OpenBMB/VoxCPM](https://github.com/OpenBMB/VoxCPM).
 
 ---
 
-## 🤝 参与贡献
+## 🤝 Contributing
 
-欢迎提交 Issue 与 Pull Request！请先阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。
+Issues and pull requests are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) first.
 
-## 📄 许可证
+## 📄 License
 
-本仓库代码采用 [Apache-2.0](LICENSE) 许可证。核心模型 `voxcpm` 及其预训练权重归 [OpenBMB](https://github.com/OpenBMB/VoxCPM) 所有，使用请遵循其 Apache-2.0 许可。
+The code in this repository is licensed under [Apache-2.0](LICENSE). The core model `voxcpm` and its pretrained weights belong to [OpenBMB](https://github.com/OpenBMB/VoxCPM) and are used under its Apache-2.0 license.
 
-## 🙏 致谢
+## 🙏 Acknowledgements
 
-- [OpenBMB/VoxCPM](https://github.com/OpenBMB/VoxCPM) — 底层 TTS 模型与预训练权重
-- [librosa](https://librosa.org/)、[soundfile](https://pypi.org/project/SoundFile/)、[SciPy](https://scipy.org/) — 音频处理
-- [FastAPI](https://fastapi.tiangolo.com/) — Web 框架
+- [OpenBMB/VoxCPM](https://github.com/OpenBMB/VoxCPM) — the underlying TTS model and pretrained weights
+- [librosa](https://librosa.org/), [soundfile](https://pypi.org/project/SoundFile/), [SciPy](https://scipy.org/) — audio processing
+- [FastAPI](https://fastapi.tiangolo.com/) — web framework

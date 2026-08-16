@@ -1,31 +1,31 @@
-## 变更类型
+## Type of change
 
-<!-- 在适用的项前打 [x] -->
+<!-- Check the applicable items with [x] -->
 
-- [ ] 🐞 修复 Bug
-- [ ] ✨ 新功能
-- [ ] 📝 文档更新
-- [ ] ♻️ 重构 / 优化
-- [ ] 🧪 测试
-- [ ] 🔧 其他（请说明）
+- [ ] 🐞 Bug fix
+- [ ] ✨ New feature
+- [ ] 📝 Documentation update
+- [ ] ♻️ Refactor / optimization
+- [ ] 🧪 Tests
+- [ ] 🔧 Other (please describe)
 
-## 变更说明
+## Description
 
-<!-- 清晰描述本次变更的内容和目的 -->
+<!-- A clear description of the change and its purpose -->
 
-## 关联 Issue
+## Related issue
 
-<!-- 关联的 Issue 编号，例如：Fixes #12、Closes #34 -->
+<!-- Link to related issues, e.g. Fixes #12, Closes #34 -->
 
-## 测试情况
+## Testing
 
-<!-- 描述你如何验证本次改动，例如： -->
-- [ ] `python -m py_compile` 语法校验通过
-- [ ] `examples/test_infer.py` 冒烟测试通过
-- [ ] 手动验证了某项功能
+<!-- Describe how you verified the change, e.g.: -->
+- [ ] `python -m py_compile` passes
+- [ ] `examples/test_infer.py` smoke test passes
+- [ ] Manually verified a feature
 
-## 检查清单
+## Checklist
 
-- [ ] 代码遵循项目规范（PEP 8、4 空格缩进）
-- [ ] 未提交模型权重、credentials.json、缓存等文件（已在 .gitignore）
-- [ ] 相关文档已更新
+- [ ] Code follows the project conventions (PEP 8, 4-space indentation)
+- [ ] No model weights, credentials.json, or cache files committed (already in .gitignore)
+- [ ] Documentation updated where relevant

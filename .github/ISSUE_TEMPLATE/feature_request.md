@@ -1,27 +1,27 @@
 ---
-name: 💡 功能建议
-about: 提出一个新功能或改进想法
+name: 💡 Feature request
+about: Suggest a new feature or improvement
 title: "[Feature] "
 labels: enhancement
 assignees: ""
 ---
 
-## 需求背景
+## Background
 
-<!-- 描述你遇到的问题或场景，为什么需要这个功能 -->
+<!-- The problem or scenario that motivates this feature -->
 
-## 功能描述
+## Description
 
-<!-- 清晰描述你期望的功能 -->
+<!-- A clear description of the feature you want -->
 
-## 期望行为
+## Expected behavior
 
-<!-- 具体描述功能应有的行为、交互方式 -->
+<!-- The specific behavior and interaction you expect -->
 
-## 可能的实现思路
+## Possible implementation
 
-<!-- 如果你有实现思路或建议，欢迎说明（可选） -->
+<!-- Any implementation ideas or suggestions (optional) -->
 
-## 附加信息
+## Additional context
 
-<!-- 其他相关信息、参考链接等 -->
+<!-- Any other relevant information or references -->

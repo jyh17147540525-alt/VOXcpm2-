@@ -1,37 +1,37 @@
 ---
-name: 🐞 Bug 报告
-about: 报告一个问题或异常，帮助我们改进
+name: 🐞 Bug report
+about: Report a problem or unexpected behavior to help us improve
 title: "[Bug] "
 labels: bug
 assignees: ""
 ---
 
-## 问题描述
+## Description
 
-<!-- 清晰简洁地描述问题是什么 -->
+<!-- A clear and concise description of the problem -->
 
-## 复现步骤
+## Steps to reproduce
 
-<!-- 详细描述如何复现该问题，例如： -->
-1. 运行 `python server.py`
-2. 访问 `http://localhost:8808`
-3. 点击 ...，出现 ...
+<!-- Detailed steps to reproduce the issue, e.g.: -->
+1. Run `python server.py`
+2. Open `http://localhost:8808`
+3. Click ..., then ...
 
-## 期望结果
+## Expected behavior
 
-<!-- 你期望发生什么 -->
+<!-- What you expected to happen -->
 
-## 实际结果
+## Actual behavior
 
-<!-- 实际发生了什么（附上报错信息、日志、截图） -->
+<!-- What actually happened (include error messages, logs, screenshots) -->
 
-## 运行环境
+## Environment
 
-- 操作系统：<!-- 例如 Windows 11 / Ubuntu 22.04 -->
-- Python 版本：<!-- 例如 3.11.9 -->
-- GPU 型号 / 显存：<!-- 例如 RTX 4070 / 16GB，或 CPU -->
-- 依赖版本：<!-- 例如 `voxcpm==2.0.3`，可用 `pip show voxcpm` 查看 -->
+- OS: <!-- e.g. Windows 11 / Ubuntu 22.04 -->
+- Python version: <!-- e.g. 3.11.9 -->
+- GPU / VRAM: <!-- e.g. RTX 4070 / 16GB, or CPU -->
+- Dependency versions: <!-- e.g. `voxcpm==2.0.3` (run `pip show voxcpm`) -->
 
-## 附加信息
+## Additional context
 
-<!-- 其他有助于定位问题的信息，例如 server_error.log 内容、相关代码片段 -->
+<!-- Anything else that helps locate the issue, e.g. server_error.log content, code snippets -->
