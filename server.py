@@ -589,10 +589,10 @@ border:1px solid #f1f5f9;border-radius:10px;margin-bottom:8px;background:#fff}
           <audio id="recPlay" controls></audio>
         </div>
       </div>
-      <div class="field">
+      <div class="field" id="vpDropZone" style="border:2px dashed #cbd5e1;border-radius:10px;padding:12px;transition:all .2s">
         <label>方式二：上传音频或拖拽视频（wav/mp3/flac/mp4/mov 等，视频自动提取人声）</label>
         <input type="file" id="vpFile" accept="audio/*,video/*">
-        <div class="muted" style="margin-top:6px">建议 10–60 秒清晰人声；超过 30 秒会自动分段并融合为约 25 秒的代表参考。视频文件会自动提取音轨（需已安装 ffmpeg）。</div>
+        <div class="muted" id="vpDropHint" style="margin-top:6px">建议 10–60 秒清晰人声；超过 30 秒会自动分段并融合为约 25 秒的代表参考。视频文件会自动提取音轨（需已安装 ffmpeg）。</div>
       </div>
       <div class="field">
         <label>音色包名称（便于识别）</label>
@@ -904,9 +904,11 @@ function showPackPane(which){
 
 function showVpErr(m){const e=document.getElementById('vpErr');e.textContent=m?('❌ '+m):'';e.classList.toggle('show',!!m);}
 
+let __droppedVpFile=null;  // 拖拽进来的视频/音频文件（savePack 优先使用）
+
 async function savePack(){
-  const file=document.getElementById('vpFile').files[0];
-  if(!file&&!recBlob){return showVpErr('请先录制或上传参考音频');}
+  const file=document.getElementById('vpFile').files[0]||__droppedVpFile;
+  if(!file&&!recBlob){return showVpErr('请先录制、上传或拖入参考音频/视频');}
   const fd=new FormData();
   fd.append('name',document.getElementById('vpName').value);
   fd.append('denoise',document.getElementById('vpDenoise').checked);
@@ -924,6 +926,8 @@ async function savePack(){
     if(!r.ok){let m='保存失败';try{const j=await r.json();m=j.detail||m;}catch(e){}showVpErr(m);st.classList.remove('show');return;}
     const d=await r.json();
     document.getElementById('vpFile').value='';
+    __droppedVpFile=null;
+    setVpDropHint('');
     document.getElementById('vpName').value='';
     resetRec();
     st.classList.remove('show');
@@ -933,6 +937,43 @@ async function savePack(){
   }catch(e){clearInterval(timer);st.classList.remove('show');showVpErr('请求失败：'+e.message);}
   finally{btn.disabled=false;}
 }
+
+// ===== 拖拽上传（视频/音频 → 音色包）=====
+function setVpDropHint(t){
+  const el=document.getElementById('vpDropHint');
+  if(!el)return;
+  el.textContent=t||'建议 10–60 秒清晰人声；超过 30 秒会自动分段并融合为约 25 秒的代表参考。视频文件会自动提取音轨（需已安装 ffmpeg）。';
+}
+(function(){
+  const dz=document.getElementById('vpDropZone');
+  if(!dz)return;
+  ['dragover','dragenter'].forEach(ev=>dz.addEventListener(ev,function(e){
+    e.preventDefault();e.stopPropagation();
+    dz.style.borderColor='#2563eb';dz.style.background='#eff6ff';
+  }));
+  ['dragleave','dragend'].forEach(ev=>dz.addEventListener(ev,function(e){
+    e.preventDefault();
+    dz.style.borderColor='#cbd5e1';dz.style.background='';
+  }));
+  dz.addEventListener('drop',function(e){
+    e.preventDefault();e.stopPropagation();
+    dz.style.borderColor='#cbd5e1';dz.style.background='';
+    const files=e.dataTransfer&&e.dataTransfer.files;
+    if(!files||!files.length)return;
+    const f=files[0];
+    const ok=/\.(wav|mp3|flac|m4a|aac|ogg|mp4|mov|mkv|avi|webm|flv|m4v|wmv|ts)$/i.test(f.name||'');
+    if(!ok){showVpErr('不支持的文件类型：'+(f.name||'')+'（请拖入 wav/mp3/flac/mp4/mov 等音视频文件）');return;}
+    __droppedVpFile=f;
+    try{
+      const dt=new DataTransfer();
+      dt.items.add(f);
+      document.getElementById('vpFile').files=dt.files;
+    }catch(_){}
+    setVpDropHint('✅ 已拖入：'+f.name+'（'+(f.size/1024/1024).toFixed(1)+' MB）—— 正在提取音色，请稍候…');
+    showVpErr('');
+    savePack();
+  });
+})();
 
 function onPackSel(){
   const sel=document.getElementById('packSel');
