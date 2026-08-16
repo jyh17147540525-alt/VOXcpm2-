@@ -249,6 +249,14 @@ def strip_design_annotations(text: str) -> str:
     return t.strip()
 
 
+def normalize_design_brackets(text: str) -> str:
+    """把中文括号（）统一成英文括号()。
+
+    VoxCPM 仅把英文括号识别为「设计提示」分隔符；中文括号会被当成普通文本朗读。
+    因此无论用户用哪种括号写提示词，都在传给模型前统一为英文括号。"""
+    return (text or "").replace("（", "(").replace("）", ")")
+
+
 def prepare_clone_reference(ref_path: str, denoise_on: bool, remove_bg_on: bool) -> str:
     """克隆/极致克隆参考音频增强（voice_clone 套件）：
     - 长音频(>30s)自动分段 + 声纹离群剔除 + 融合为有界代表参考（避免整段编码特征漂移）
@@ -1184,6 +1192,7 @@ def generate(
     # 仅用括号外台词做空校验；括号提示词保留，交由模型应用音色/风格
     if not strip_design_annotations(text):
         raise HTTPException(status_code=400, detail="文本不能为空")
+    text = normalize_design_brackets(text)  # 中文括号统一成英文括号，模型才能识别提示
 
     ref_path = None
     used_pack = False
@@ -1278,6 +1287,7 @@ async def tts_api(request: Request):
     # 仅用括号外台词做空校验；括号提示词保留，交由模型应用音色/风格
     if not strip_design_annotations(text):
         raise HTTPException(status_code=400, detail="文本不能为空")
+    text = normalize_design_brackets(text)  # 中文括号统一成英文括号，模型才能识别提示
     kwargs = dict(
         text=text,
         cfg_value=float(body.get("cfg_value", 2.0)),
