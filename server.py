@@ -8,9 +8,9 @@ VoxCPM2 本地推理服务 (FastAPI + 令牌验证)  ——  加固版
 - 模型自愈：单次推理抛异常后把 _model 置空，下次请求自动重新加载，避免损坏态卡死整个服务。
 - 参考音频上传后做格式/时长校验，坏文件返回清晰的 400 而非笼统 500。
 
-启动：  python server.py            （或 scripts/start.bat 一键启动）
-凭证：  项目根目录下 credentials.json（首次启动自动生成，含访问令牌）
-日志：  项目根目录下 server_error.log（推理/未捕获异常的完整 traceback）
+启动：  F:\\VoxCPM2\\start.bat        （或 env\\python.exe server.py）
+凭证：  F:\\VoxCPM2\\credentials.json
+日志：  F:\\VoxCPM2\\server_error.log （推理/未捕获异常的完整 traceback）
 """
 
 import io
@@ -69,9 +69,7 @@ def _restore_native_deletion() -> None:
 _restore_native_deletion()
 
 # ============================== 配置 ==============================
-# 默认以 server.py 所在目录为项目根目录（模型权重、配置、输出均在此目录下），
-# 也可通过环境变量 VOXCPM_HOME 指向权重所在目录（支持权重与代码分离部署）。
-BASE_DIR = Path(os.environ.get("VOXCPM_HOME", "") or Path(__file__).resolve().parent)
+BASE_DIR = Path(r"F:\VoxCPM2")
 MODEL_PATH = str(BASE_DIR)
 OUTPUT_DIR = BASE_DIR / "outputs"
 UPLOAD_DIR = BASE_DIR / "uploads"
@@ -257,6 +255,103 @@ def normalize_design_brackets(text: str) -> str:
     return (text or "").replace("（", "(").replace("）", ")")
 
 
+# ============================== Beta：多人朗读 + 情绪控制 ==============================
+# 已知情绪词（中英双语别名），命中即识别为情绪标记
+_BETA_EMOTION_WORDS = {
+    "高兴": "高兴", "开心": "高兴", "快乐": "高兴", "happy": "高兴",
+    "悲伤": "悲伤", "难过": "悲伤", "伤心": "悲伤", "sad": "悲伤",
+    "严肃": "严肃", "serious": "严肃",
+    "温柔": "温柔", "gentle": "温柔", "soft": "温柔",
+    "愤怒": "愤怒", "生气": "愤怒", "angry": "愤怒",
+    "平静": "平静", "calm": "平静", "neutral": "平静", "中性": "平静",
+}
+
+
+def parse_multi_speaker_text(text: str) -> list[dict]:
+    """解析多人朗读文本，把 (@音色包名) 音色切换标记和 (情绪词) 情绪标记拆出来。
+
+    规则：
+      - (@xxx)        → 后续文本切换到名为 xxx 的音色包（持续到下一个 @ 标记）
+      - (情绪词)      → 紧随其后的那段文本用该情绪（段级，到下一个标记为止）
+      - (@xxx,情绪词) → 同时切换音色并指定情绪
+      - 未知音色包名  → 该段标记为 missing，合成时回退默认音色并告警
+      - 未知括号内容  → 当普通文本保留，不当标记处理
+      - 括号标记本身不参与朗读
+    返回 [{"text", "voice"(音色包名或 None), "emotion"(情绪键或 "neutral"), "voice_missing"(bool)}]
+    """
+    t = normalize_design_brackets(text or "")
+    segments: list[dict] = []
+    cur_voice: str | None = None
+    cur_emotion = "neutral"
+    pos = 0
+    for m in re.finditer(r"\(([^()]*)\)", t):
+        before = t[pos:m.start()]
+        if before.strip():
+            segments.append({"text": before.strip(), "voice": cur_voice,
+                             "emotion": cur_emotion, "voice_missing": False})
+        content = m.group(1).strip()
+        if content.startswith("@"):
+            # 音色切换标记：@名 或 @名,情绪
+            body = content[1:]
+            parts = body.split(",", 1)
+            name = parts[0].strip()
+            if name:
+                cur_voice = name
+            if len(parts) > 1 and parts[1].strip():
+                emo = _BETA_EMOTION_WORDS.get(parts[1].strip().lower(), parts[1].strip())
+                cur_emotion = emo if emo in {"高兴", "悲伤", "严肃", "温柔", "愤怒", "平静"} else "neutral"
+            else:
+                cur_emotion = "neutral"  # 切换音色时重置情绪
+        else:
+            # 情绪标记
+            emo = _BETA_EMOTION_WORDS.get(content.lower(), content)
+            if emo in {"高兴", "悲伤", "严肃", "温柔", "愤怒", "平静"}:
+                cur_emotion = emo
+            else:
+                # 未知括号内容：当普通文本，不剥离（回填到前一段或新建）
+                if segments:
+                    segments[-1]["text"] += "(" + content + ")"
+                else:
+                    segments.append({"text": "(" + content + ")", "voice": cur_voice,
+                                     "emotion": cur_emotion, "voice_missing": False})
+        pos = m.end()
+    tail = t[pos:]
+    if tail.strip():
+        segments.append({"text": tail.strip(), "voice": cur_voice,
+                         "emotion": cur_emotion, "voice_missing": False})
+    # 标记未知音色包（合成时再校验名字是否存在）
+    return segments
+
+
+def parse_dialogue(text: str) -> list[dict]:
+    """解析多人对话文本，返回「参与列表」。每次 (@角色) 标记 = 一次参与。
+
+    返回 [{"role": 角色名, "seq": 该角色第几次参与, "text": 该次完整台词,
+           "emotion": 该次情绪, "narrative": 是否旁白(无 @ 角色)}]。
+    同一角色多次出现时 seq 递增，各次相互独立、互不影响。"""
+    segments = parse_multi_speaker_text(text)
+    participations: list[dict] = []
+    role_seq: dict[str, int] = {}
+    cur: dict | None = None
+    for seg in segments:
+        voice = seg.get("voice")
+        role = voice or "旁白"
+        emo = seg.get("emotion", "neutral")
+        if cur is None or cur["role"] != role:
+            if cur is not None:
+                participations.append(cur)
+            seq = role_seq.get(role, 0) + 1
+            role_seq[role] = seq
+            cur = {"role": role, "seq": seq, "text": "", "emotion": "neutral",
+                   "narrative": voice is None, "voice": voice}
+        cur["text"] += seg.get("text", "")
+        if emo != "neutral":
+            cur["emotion"] = emo
+    if cur is not None:
+        participations.append(cur)
+    return participations
+
+
 def prepare_clone_reference(ref_path: str, denoise_on: bool, remove_bg_on: bool) -> str:
     """克隆/极致克隆参考音频增强（voice_clone 套件）：
     - 长音频(>30s)自动分段 + 声纹离群剔除 + 融合为有界代表参考（避免整段编码特征漂移）
@@ -339,22 +434,33 @@ button:hover{background:#1d4ed8}
 code{background:#eef2ff;color:#3730a3;padding:1px 5px;border-radius:4px;font-size:11px}
 </style></head><body>
 <div class="card">
-  <h1>🎙️ VoxCPM2 本地服务</h1>
-  <p class="sub">该服务已启用访问验证，请输入访问令牌。</p>
-  <label>访问令牌 (Access Token)</label>
+  <h1>🎙️ VoxCPM2 <span data-i18n="loginLocal">本地服务</span></h1>
+  <p class="sub" data-i18n="loginSub">该服务已启用访问验证，请输入访问令牌。</p>
+  <label data-i18n="loginToken">访问令牌 (Access Token)</label>
   <input type="password" id="tk" placeholder="vox2_..." autofocus>
-  <button onclick="go()">进入</button>
+  <button onclick="go()" data-i18n="loginEnter">进入</button>
+  <div style="text-align:right;margin-top:6px">
+    <button onclick="lgLang('zh')" id="lgZh" style="border:none;background:none;cursor:pointer;font-size:12px">中</button>
+    <button onclick="lgLang('en')" id="lgEn" style="border:none;background:none;cursor:pointer;font-size:12px;opacity:.5">EN</button>
+  </div>
   <div class="err" id="err"></div>
-  <div class="hint">令牌保存在 <code>CRED_PATH_PLACEHOLDER</code><br>
-  也可用一键链接直接进入：<code>http://localhost:PORT_PLACEHOLDER/?token=你的令牌</code></div>
+  <div class="hint"><span data-i18n="loginHint1">令牌保存在</span> <code>CRED_PATH_PLACEHOLDER</code><br>
+  <span data-i18n="loginHint2">也可用一键链接直接进入：</span><code>http://localhost:PORT_PLACEHOLDER/?token=你的令牌</code></div>
 </div>
 <script>
+const LGI={zh:{loginLocal:'本地服务',loginSub:'该服务已启用访问验证，请输入访问令牌。',loginToken:'访问令牌 (Access Token)',loginEnter:'进入',loginEmpty:'请输入访问令牌',loginBad:'令牌不正确',loginHint1:'令牌保存在',loginHint2:'也可用一键链接直接进入：'},
+          en:{loginLocal:'Local Service',loginSub:'This service requires authentication. Enter your access token.',loginToken:'Access Token',loginEnter:'Enter',loginEmpty:'Please enter your access token',loginBad:'Invalid token',loginHint1:'Token stored at',loginHint2:'Or open the one-click link:'}};
+let lg='zh';
+function lgLang(l){lg=l;const d=LGI[l];
+  document.querySelectorAll('[data-i18n]').forEach(el=>{const k=el.getAttribute('data-i18n');if(d[k]!==undefined)el.textContent=d[k];});
+  document.getElementById('lgZh').style.opacity=(l==='zh')?'1':'.5';
+  document.getElementById('lgEn').style.opacity=(l==='en')?'1':'.5';}
 async function go(){
   const tk=document.getElementById('tk').value.trim();
-  if(!tk){show('请输入访问令牌');return;}
+  if(!tk){show(LGI[lg].loginEmpty);return;}
   const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({token:tk})});
-  if(r.ok){location.href='/';}else{show('令牌不正确');}
+  if(r.ok){location.href='/';}else{show(LGI[lg].loginBad);}
 }
 function show(m){const e=document.getElementById('err');e.textContent='❌ '+m;e.style.display='block';}
 document.getElementById('tk').addEventListener('keydown',e=>{if(e.key==='Enter')go();});
@@ -436,23 +542,26 @@ border:1px solid #f1f5f9;border-radius:10px;margin-bottom:8px;background:#fff}
 </style></head><body>
 <div class="wrap">
   <div class="top">
-    <h1>🎙️ VoxCPM2 <span class="muted" style="font-size:13px">本地部署</span></h1>
+    <h1>🎙️ VoxCPM2 <span class="muted" style="font-size:13px" data-i18n="localDeploy">本地部署</span></h1>
     <div class="badges">
       <span class="badge" id="devBadge">检测中…</span>
       <span class="badge ok">2B · 48kHz</span>
-      <span class="badge" id="modelBadge">模型未加载</span>
+      <span class="badge" id="modelBadge" data-i18n="modelNotLoaded">模型未加载</span>
+      <button class="badge" id="langZh" onclick="setLang('zh')" style="cursor:pointer;border:1px solid #d1d5db">中</button>
+      <button class="badge" id="langEn" onclick="setLang('en')" style="cursor:pointer;border:1px solid #d1d5db;opacity:.5">EN</button>
     </div>
   </div>
 
-  <div class="card">
-    <div class="tabs">
-      <button class="tab active" data-mode="design" onclick="setMode('design')">🎨 语音设计</button>
-      <button class="tab" data-mode="clone" onclick="setMode('clone')">🎛️ 音色克隆</button>
-      <button class="tab" data-mode="hifi" onclick="setMode('hifi')">🎙️ 极致克隆</button>
-    </div>
+  <div class="tabs" id="mainNav" style="margin-bottom:16px">
+    <button class="tab active" data-mode="design" onclick="setMode('design')" data-i18n="modeDesign">🎨 语音设计</button>
+    <button class="tab" data-mode="clone" onclick="setMode('clone')" data-i18n="modeClone">🎛️ 音色克隆</button>
+    <button class="tab" data-mode="hifi" onclick="setMode('hifi')" data-i18n="modeHifi">🎙️ 极致克隆</button>
+    <button class="tab" data-mode="beta" onclick="setMode('beta')" data-i18n="modeBeta">🧪 内测 Beta</button>
+  </div>
 
+  <div class="card" id="mainCard">
     <div class="field">
-      <label>合成文本</label>
+      <label data-i18n="synthText">合成文本</label>
       <textarea id="text">你好，这里是本地部署的 VoxCPM2 语音大模型，现在可以直接在浏览器里使用了。</textarea>
       <div class="chips" id="chips">
         <button class="chip" onclick="pre('(年轻女性，温柔甜美)')">年轻女性·温柔</button>
@@ -556,7 +665,7 @@ border:1px solid #f1f5f9;border-radius:10px;margin-bottom:8px;background:#fff}
       <label title="解析 <break>/<prosody>/<emotion> 等 SSML 标签，强制控制停顿/重音/语速"><input type="checkbox" id="ssml"> 启用 SSML 标签</label>
     </div>
 
-    <button class="gen" id="btn" onclick="generate()">🔊 生成语音</button>
+    <button class="gen" id="btn" onclick="generate()" data-i18n="genBtn">🔊 生成语音</button>
 
     <div class="status" id="status"><div class="spin"></div><div id="statusText">生成中…</div></div>
     <div class="err" id="err"></div>
@@ -574,19 +683,55 @@ border:1px solid #f1f5f9;border-radius:10px;margin-bottom:8px;background:#fff}
     </div>
   </div>
 
-  <div class="card">
-    <label>本次会话生成记录</label>
-    <div class="hist" id="hist"><div class="muted">还没有生成记录</div></div>
+  <div class="card" id="histCard">
+    <label data-i18n="history">本次会话生成记录</label>
+    <div class="hist" id="hist"><div class="muted" data-i18n="noHistory">还没有生成记录</div></div>
   </div>
 
-  <div class="card">
+  <div class="card hide" id="betaCard">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+      <button class="chip" onclick="setMode(prevMode||'design')" data-i18n="backBtn" style="padding:6px 12px;border:1px solid #d1d5db;border-radius:8px;background:#fff;cursor:pointer;font-size:13px">← 返回</button>
+      <span class="badge warn">Beta</span>
+      <label data-i18n="betaTitle" style="margin:0">多人朗读与情绪控制</label>
+    </div>
+    <div class="muted" style="margin-bottom:12px" data-i18n="betaDesc">用 (@音色包名) 切换角色，用 (情绪词) 控制语气。例：(@张三)你好，(开心)今天真不错！(@李四)是啊。</div>
+    <div class="field" style="position:relative">
+      <label data-i18n="betaTextLabel">朗读文本（输入 (@ 会弹出音色包，支持 情绪词）</label>
+      <textarea id="betaText" style="min-height:130px" oninput="betaOnInput()">(@磁性女声，我i的最爱)你好，欢迎使用多人朗读功能。(开心)今天真不错！</textarea>
+      <div id="betaAtMenu" style="display:none;position:absolute;z-index:20;background:#fff;border:1px solid #d1d5db;border-radius:8px;max-height:200px;overflow:auto;width:100%;box-shadow:0 4px 12px rgba(0,0,0,.1)"></div>
+    </div>
+    <div class="chips" id="betaChips" style="margin-bottom:12px">
+      <button class="chip" onclick="betaInsert('(@')">@音色</button>
+      <button class="chip" onclick="betaInsert('(开心)')" data-i18n="emoHappy">开心</button>
+      <button class="chip" onclick="betaInsert('(悲伤)')" data-i18n="emoSad">悲伤</button>
+      <button class="chip" onclick="betaInsert('(生气)')" data-i18n="emoAngry">生气</button>
+      <button class="chip" onclick="betaInsert('(严肃)')" data-i18n="emoSerious">严肃</button>
+      <button class="chip" onclick="betaInsert('(温柔)')" data-i18n="emoGentle">温柔</button>
+    </div>
+    <div class="field">
+      <label data-i18n="dialogueTitle">对话面板（每次参与一个独立面板，可折叠，参数独立调节）</label>
+      <div id="dialoguePanels"><div class="muted" data-i18n="dialogueEmpty">文本里用 (@音色包名) 指定角色后，这里会为每次参与生成独立面板。</div></div>
+    </div>
+    <div class="checks" style="margin-bottom:12px">
+      <label><input type="checkbox" id="betaDenoise"> <span data-i18n="betaDenoise">背景音降噪</span></label>
+    </div>
+    <button class="gen" id="betaBtn" onclick="betaGenerate()" data-i18n="betaGenerate">🎭 多人朗读生成</button>
+    <div class="status" id="betaStatus" style="display:none"><div class="spin"></div><div id="betaStatusText"></div></div>
+    <div class="err" id="betaErr"></div>
+    <div class="res" id="betaRes" style="display:none">
+      <div class="meta" id="betaMeta"></div>
+      <audio id="betaPlayer" controls></audio>
+    </div>
+  </div>
+
+  <div class="card" id="packCard">
     <div class="tabs">
-      <button class="ptab active" data-pane="manage" onclick="showPackPane('manage')">🎭 音色包管理</button>
+      <button class="ptab active" data-pane="manage" onclick="showPackPane('manage')" data-i18n="packManage">🎭 音色包管理</button>
       <button class="ptab" data-pane="save" onclick="showPackPane('save')">🎙️ 制作音色声线包</button>
     </div>
 
       <div id="packManage">
-        <div class="muted" style="margin-bottom:12px">已提取并保存在本地的音色声线包，后续克隆可直接选用，无需重复上传长音频。数据存于 <code>VOICE_PACK_DIR_PLACEHOLDER</code>，重启服务后依然保留。也可用 API：<code>POST /api/voicepacks</code> 保存，生成时传 <code>voice_pack_id</code>。带 <span style="color:#b45309">⚡加速</span> 标记的音色包在生成时自动提速。</div>
+        <div class="muted" style="margin-bottom:12px">已提取并保存在本地的音色声线包，后续克隆可直接选用，无需重复上传长音频。数据存于 <code>F:\VoxCPM2\voice_packs</code>，重启服务后依然保留。也可用 API：<code>POST /api/voicepacks</code> 保存，生成时传 <code>voice_pack_id</code>。带 <span style="color:#b45309">⚡加速</span> 标记的音色包在生成时自动提速。</div>
         <div id="packList"><div class="muted">还没有音色包，去“制作音色声线包”做一个吧。</div></div>
       </div>
 
@@ -633,12 +778,225 @@ border:1px solid #f1f5f9;border-radius:10px;margin-bottom:8px;background:#fff}
 <script>
 const API_TOKEN='TOKEN_PLACEHOLDER';
 let mode='design';
+let prevMode='design';
 let selectedPackId=null;
 let voicePacks=[];
 let lastOutputName=null;
+// ===== i18n 双语言 =====
+const I18N={
+  zh:{localDeploy:'本地部署',detecting:'检测中…',modelNotLoaded:'模型未加载',modelReady:'模型就绪',
+      modeDesign:'🎨 语音设计',modeClone:'🎛️ 音色克隆',modeHifi:'🎙️ 极致克隆',modeBeta:'🧪 内测 Beta',
+      history:'本次会话生成记录',noHistory:'还没有生成记录',
+      betaTitle:'多人朗读与情绪控制',
+      betaDesc:'用 (@音色包名) 切换角色，用 (情绪词) 控制语气。例：(@张三)你好，(开心)今天真不错！(@李四)是啊。',
+      betaTextLabel:'朗读文本（输入 (@ 会弹出音色包，支持 情绪词）',
+      emoHappy:'开心',emoSad:'悲伤',emoAngry:'生气',emoSerious:'严肃',emoGentle:'温柔',
+      betaGenerate:'🎭 多人朗读生成',betaLoading:'生成中…已用 ',betaSeconds:' 秒',betaFail:'请求失败',
+      dialogueTitle:'对话面板（每次参与一个独立面板，可折叠，参数独立调节）',
+      dialogueEmpty:'文本里用 (@音色包名) 指定角色后，这里会为每次参与生成独立面板。',
+      turnLabel:'第{n}次参与',
+      betaDenoise:'背景音降噪',
+      backBtn:'← 返回',
+      synthText:'合成文本',genBtn:'🔊 生成语音',
+      packManage:'🎭 音色包管理'},
+  en:{localDeploy:'Local',detecting:'Detecting…',modelNotLoaded:'Model not loaded',modelReady:'Model ready',
+      modeDesign:'🎨 Voice Design',modeClone:'🎛️ Voice Clone',modeHifi:'🎙️ HiFi Clone',modeBeta:'🧪 Beta',
+      history:'Generation history',noHistory:'No history yet',
+      betaTitle:'Multi-speaker & Emotion Control',
+      betaDesc:'Use (@pack_name) to switch speaker, (emotion) for tone. e.g. (@John)Hello, (happy)Great day! (@Jane)Yeah.',
+      betaTextLabel:'Text (type (@ to pick a voice pack, emotion tags supported)',
+      emoHappy:'Happy',emoSad:'Sad',emoAngry:'Angry',emoSerious:'Serious',emoGentle:'Gentle',
+      betaGenerate:'🎭 Multi-speaker Generate',betaLoading:'Generating… ',betaSeconds:'s elapsed',betaFail:'Request failed',
+      dialogueTitle:'Dialogue panels (one collapsible panel per turn, independent settings)',
+      dialogueEmpty:'Add (@pack_name) tags in the text; each turn gets its own panel here.',
+      turnLabel:'Turn {n}',
+      betaDenoise:'Background noise reduction',
+      backBtn:'← Back',
+      synthText:'Text to synthesize',genBtn:'🔊 Generate',
+      packManage:'🎭 Voice Packs'}
+};
+let curLang='zh';
+function setLang(l){
+  curLang=l;const d=I18N[l]||I18N.zh;
+  document.querySelectorAll('[data-i18n]').forEach(el=>{const k=el.getAttribute('data-i18n');if(d[k]!==undefined)el.textContent=d[k];});
+  document.getElementById('langZh').style.opacity=(l==='zh')?'1':'.5';
+  document.getElementById('langEn').style.opacity=(l==='en')?'1':'.5';
+  try{localStorage.setItem('voxcpm_lang',l);}catch(_){}
+}
+// ===== Beta：多人朗读 =====
+function betaInsert(tag){
+  const el=document.getElementById('betaText');const s=el.selectionStart||0,e=el.selectionEnd||0;
+  el.value=el.value.slice(0,s)+tag+el.value.slice(e);el.focus();
+  el.selectionStart=el.selectionEnd=s+tag.length;
+  renderDialoguePanels();
+}
+// @音色自动补全：输入 (@ 时弹出已有音色包列表
+function betaOnInput(){
+  const el=document.getElementById('betaText'),menu=document.getElementById('betaAtMenu');
+  const s=el.selectionStart||0,before=el.value.slice(0,s);
+  const m=before.match(/\(@([^()]*)$/);
+  if(!m){menu.style.display='none';return;}
+  const kw=m[1].trim();
+  const items=voicePacks.filter(p=>!kw||p.name.includes(kw));
+  if(!items.length){menu.style.display='none';return;}
+  // 用 DOM 创建 + 事件绑定，避免 innerHTML 字符串拼接的引号转义问题
+  menu.innerHTML='';
+  items.forEach(p=>{
+    const d=document.createElement('div');
+    d.style.cssText='padding:8px 12px;cursor:pointer;border-bottom:1px solid #f3f4f6;font-size:13px';
+    d.textContent=p.name;
+    d.onmousedown=function(){betaPickVoice(p.name);};
+    menu.appendChild(d);
+  });
+  menu.style.display='block';
+}
+function betaPickVoice(name){
+  const el=document.getElementById('betaText'),menu=document.getElementById('betaAtMenu');
+  const s=el.selectionStart||0,before=el.value.slice(0,s);
+  const idx=before.lastIndexOf('(@');
+  if(idx<0)return;
+  el.value=before.slice(0,idx+2)+name+')'+el.value.slice(s);
+  el.focus();const pos=idx+2+name.length+1;el.selectionStart=el.selectionEnd=pos;
+  menu.style.display='none';renderDialoguePanels();
+}
+// 渲染角色参数：解析文本里的 @音色，每个角色一组独立参数滑块
+let dialogues=[];   // 参与状态 [{role,seq,text,emotion,tone,action,volume,collapsed,voice,narrative}]
+const TONE_OPTS={zh:['自然','温柔','严肃','活泼','低沉'],en:['Natural','Gentle','Serious','Lively','Low']};
+const EMO_OPTS={zh:['无','高兴','悲伤','生气','严肃','温柔'],en:['None','Happy','Sad','Angry','Serious','Gentle']};
+function parseDialogue(text){
+  const t=(text||'').replace(/（/g,'(').replace(/）/g,')');
+  const EM={'高兴':'高兴','开心':'高兴','快乐':'高兴','happy':'高兴','悲伤':'悲伤','难过':'悲伤','伤心':'悲伤','sad':'悲伤','严肃':'严肃','serious':'严肃','温柔':'温柔','gentle':'温柔','soft':'温柔','愤怒':'愤怒','生气':'愤怒','angry':'愤怒','平静':'平静','calm':'平静','neutral':'平静','中性':'平静'};
+  const res=[];const seqMap={};
+  let cur=null;
+  const re=/\(([^()]*)\)/g;let pos=0,m;
+  function newCur(role,voice){
+    const seq=(seqMap[role]=(seqMap[role]||0)+1);
+    return {role:role,seq:seq,text:'',emotion:'neutral',tone:'自然',action:'',volume:1,collapsed:false,voice:voice,narrative:voice==null};
+  }
+  function flush(){ if(cur&&cur.text.trim())res.push(cur); }
+  function append(txt){ if(!txt)return; if(!cur)cur=newCur('旁白',null); cur.text+=(cur.text?' ':'')+txt; }
+  while((m=re.exec(t))){
+    const before=t.slice(pos,m.index); if(before.trim())append(before.trim());
+    const content=m[1].trim();
+    if(content.startsWith('@')){
+      const body=content.slice(1); const parts=body.split(',');
+      const name=parts[0].trim(); const role=name||'旁白';
+      flush(); cur=newCur(role,name||null);
+      if(parts.length>1){ const e=EM[parts[1].trim().toLowerCase()]; if(e&&e!=='平静')cur.emotion=e; }
+    } else {
+      const e=EM[content.toLowerCase()];
+      if(e){ if(cur)cur.emotion=(e==='平静'?'neutral':e); }
+      else append('('+content+')');
+    }
+    pos=m.index+m[0].length;
+  }
+  const tail=t.slice(pos); if(tail.trim())append(tail.trim());
+  flush();
+  return res;
+}
+function renderDialoguePanels(){
+  const box=document.getElementById('dialoguePanels');
+  const text=document.getElementById('betaText').value||'';
+  const fresh=parseDialogue(text);
+  // 保留用户已改参数：按 role+seq 合并（同一参与只更新台词/情绪，保留 tone/action/volume/collapsed）
+  const keep={};
+  dialogues.forEach(d=>{ if(d.role&&d.seq)keep[d.role+'#'+d.seq]=d; });
+  dialogues=fresh.map(d=>{ const k=keep[d.role+'#'+d.seq]; return k?Object.assign({},d,{tone:k.tone,action:k.action,volume:k.volume,collapsed:k.collapsed}):d; });
+  if(!dialogues.length){ box.innerHTML='<div class="muted" data-i18n="dialogueEmpty">文本里用 (@音色包名) 指定角色后，这里会为每次参与生成独立面板。</div>'; setLang(curLang); return; }
+  box.innerHTML='';
+  dialogues.forEach((d,idx)=>{
+    const panel=document.createElement('div');
+    panel.style.cssText='border:1px solid #e5e7eb;border-radius:10px;margin-bottom:10px;overflow:hidden';
+    // 头部：折叠箭头 + 角色标识
+    const head=document.createElement('div');
+    head.style.cssText='display:flex;align-items:center;gap:8px;padding:10px 12px;cursor:pointer;font-weight:600;background:#f9fafb;font-size:13px';
+    head.onclick=function(){toggleDp(idx);};
+    const arrow=document.createElement('span'); arrow.id='dp_arrow_'+idx; arrow.textContent=d.collapsed?'▸':'▾';
+    const label=document.createElement('span');
+    label.textContent=(curLang==='zh'?'':'')+d.role+' - '+I18N[curLang].turnLabel.replace('{n}',d.seq);
+    head.appendChild(arrow); head.appendChild(label);
+    panel.appendChild(head);
+    // 主体：参数
+    const body=document.createElement('div'); body.id='dp_body_'+idx;
+    body.style.cssText='padding:10px 12px;border-top:1px solid #f3f4f6'+(d.collapsed?';display:none':'');
+    const L=curLang;
+    function row(lbl){ const r=document.createElement('div'); r.style.cssText='margin-bottom:8px'; const s=document.createElement('div'); s.style.cssText='font-size:12px;color:#6b7280;margin-bottom:4px'; s.textContent=lbl; r.appendChild(s); return r; }
+    // 语气
+    const rTone=row(L==='zh'?'语气':'Tone'); const selTone=document.createElement('select');
+    selTone.style.cssText='width:100%;padding:6px;border:1px solid #d1d5db;border-radius:6px;font-size:13px';
+    TONE_OPTS[L].forEach(o=>{ const op=document.createElement('option'); op.textContent=o; op.value=o; if(o===d.tone)op.selected=true; selTone.appendChild(op); });
+    selTone.onchange=function(){d.tone=selTone.value;};
+    rTone.appendChild(selTone); body.appendChild(rTone);
+    // 台词
+    const rText=row(L==='zh'?'台词':'Line'); const ta=document.createElement('textarea');
+    ta.style.cssText='width:100%;padding:6px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;min-height:44px;font-family:inherit';
+    ta.value=d.text; ta.oninput=function(){d.text=ta.value;};
+    rText.appendChild(ta); body.appendChild(rText);
+    // 动作
+    const rAct=row(L==='zh'?'动作':'Action'); const inpAct=document.createElement('input');
+    inpAct.type='text'; inpAct.value=d.action||''; inpAct.placeholder=L==='zh'?'（可选）动作描述':'（optional）action description';
+    inpAct.style.cssText='width:100%;padding:6px;border:1px solid #d1d5db;border-radius:6px;font-size:13px';
+    inpAct.oninput=function(){d.action=inpAct.value;};
+    rAct.appendChild(inpAct); body.appendChild(rAct);
+    // 情绪
+    const rEmo=row(L==='zh'?'情绪':'Emotion'); const selEmo=document.createElement('select');
+    selEmo.style.cssText='width:100%;padding:6px;border:1px solid #d1d5db;border-radius:6px;font-size:13px';
+    const curEmo=(d.emotion==='neutral'||d.emotion==='平静')?'无':d.emotion;
+    EMO_OPTS[L].forEach(o=>{ const op=document.createElement('option'); op.textContent=o; op.value=o; if(o===curEmo)op.selected=true; selEmo.appendChild(op); });
+    selEmo.onchange=function(){ const v=selEmo.value; d.emotion=(v==='无'?'neutral':v); };
+    rEmo.appendChild(selEmo); body.appendChild(rEmo);
+    // 音量
+    const rVol=row(L==='zh'?'音量':'Volume'); const volWrap=document.createElement('div'); volWrap.style.cssText='display:flex;align-items:center;gap:10px';
+    const vol=document.createElement('input'); vol.type='range'; vol.min='0.3'; vol.max='2'; vol.step='0.05'; vol.value=d.volume; vol.style.cssText='flex:1';
+    const volV=document.createElement('span'); volV.style.cssText='width:36px;text-align:right;font-size:12px;color:#6b7280'; volV.textContent=d.volume;
+    vol.oninput=function(){d.volume=parseFloat(vol.value);volV.textContent=vol.value;};
+    volWrap.appendChild(vol); volWrap.appendChild(volV); rVol.appendChild(volWrap); body.appendChild(rVol);
+    panel.appendChild(body);
+    box.appendChild(panel);
+  });
+}
+function toggleDp(idx){
+  if(!dialogues[idx])return;
+  dialogues[idx].collapsed=!dialogues[idx].collapsed;
+  const body=document.getElementById('dp_body_'+idx),arrow=document.getElementById('dp_arrow_'+idx);
+  if(body)body.style.display=dialogues[idx].collapsed?'none':'';
+  if(arrow)arrow.textContent=dialogues[idx].collapsed?'▸':'▾';
+}
+async function betaGenerate(){
+  renderDialoguePanels();   // 确保 dialogues 与最新文本同步
+  if(!dialogues.length){const e=document.getElementById('betaErr');e.textContent='❌ '+(curLang==='zh'?'请先在文本里用 (@音色包名) 指定角色':'Add (@pack_name) tags first');e.classList.add('show');return;}
+  const btn=document.getElementById('betaBtn'),st=document.getElementById('betaStatus'),errEl=document.getElementById('betaErr');
+  btn.disabled=true;st.style.display='flex';errEl.textContent='';errEl.classList.remove('show');
+  document.getElementById('betaRes').style.display='none';
+  const t0=Date.now();
+  const timer=setInterval(()=>{document.getElementById('betaStatusText').textContent=
+    I18N[curLang].betaLoading+((Date.now()-t0)/1000).toFixed(1)+I18N[curLang].betaSeconds;},200);
+  const turns=dialogues.map(d=>({role:d.voice||d.role,text:d.text,tone:d.tone,emotion:d.emotion,volume:d.volume,action:d.action||''}));
+  const body={turns:turns,denoise:document.getElementById('betaDenoise').checked,cfg_value:2.0,inference_timesteps:10};
+  try{
+    const r=await fetch('/api/dialogue',{method:'POST',headers:Object.assign({'Content-Type':'application/json'},apiHeaders()),body:JSON.stringify(body)});
+    clearInterval(timer);
+    if(!r.ok){let m='Failed';try{const j=await r.json();m=j.detail||m;}catch(e){}errEl.textContent='❌ '+m;errEl.classList.add('show');st.style.display='none';return;}
+    const blob=await r.blob();
+    const segInfo=r.headers.get('X-Segments'),dur=r.headers.get('X-Duration'),name=r.headers.get('X-Output-Name');
+    document.getElementById('betaPlayer').src=URL.createObjectURL(blob);
+    let meta='✅ '+(curLang==='zh'?'多人朗读完成':'Done')+' · '+(curLang==='zh'?'时长':'duration')+' '+dur+'s · '+name;
+    if(segInfo){try{const si=JSON.parse(segInfo);meta+=' · '+si.n+(curLang==='zh'?' 段':' segments');
+      if(si.warnings&&si.warnings.length)meta+=' · ⚠️ '+si.warnings.join('; ');}catch(e){}}
+    document.getElementById('betaMeta').textContent=meta;
+    document.getElementById('betaRes').style.display='block';st.style.display='none';
+  }catch(e){clearInterval(timer);errEl.textContent='❌ '+I18N[curLang].betaFail+': '+e.message;errEl.classList.add('show');st.style.display='none';}
+  finally{btn.disabled=false;}
+}
 function setMode(m){
-  mode=m;
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.mode===m));
+  const beta=(m==='beta');
+  document.getElementById('mainCard').classList.toggle('hide',beta);
+  document.getElementById('histCard').classList.toggle('hide',beta);
+  document.getElementById('packCard').classList.toggle('hide',beta);
+  document.getElementById('betaCard').classList.toggle('hide',!beta);
+  if(beta){prevMode=mode||'design';renderDialoguePanels();return;}
+  mode=m;
   document.getElementById('refField').classList.toggle('hide',m==='design');
   document.getElementById('packSelField').classList.toggle('hide',m==='design');
   document.getElementById('chips').style.display=(m==='hifi')?'none':'flex';
@@ -713,6 +1071,8 @@ async function init(){
 }
 init();
 loadVoicePacks();
+// 初始化语言（从本地存储恢复，默认中文）
+try{const _sl=localStorage.getItem('voxcpm_lang');if(_sl)setLang(_sl);}catch(_){}
 
 // 真实调用一次：带超时(300s) + 失败自动重试一次
 async function callGenerate(fd, signal){
@@ -972,9 +1332,11 @@ function setVpDropHint(t){
     const files=e.dataTransfer&&e.dataTransfer.files;
     if(!files||!files.length)return;
     const f=files[0];
+    // 校验扩展名（视频/音频）
     const ok=/\.(wav|mp3|flac|m4a|aac|ogg|mp4|mov|mkv|avi|webm|flv|m4v|wmv|ts)$/i.test(f.name||'');
     if(!ok){showVpErr('不支持的文件类型：'+(f.name||'')+'（请拖入 wav/mp3/flac/mp4/mov 等音视频文件）');return;}
     __droppedVpFile=f;
+    // 更新 input 显示（部分浏览器支持 DataTransfer 赋值，失败不影响）
     try{
       const dt=new DataTransfer();
       dt.items.add(f);
@@ -982,7 +1344,7 @@ function setVpDropHint(t){
     }catch(_){}
     setVpDropHint('✅ 已拖入：'+f.name+'（'+(f.size/1024/1024).toFixed(1)+' MB）—— 正在提取音色，请稍候…');
     showVpErr('');
-    savePack();
+    savePack();   // 拖入即自动提取保存
   });
 })();
 
@@ -1103,11 +1465,7 @@ function encodeWav(samples,sr,ch){
 
 
 def render(html: str) -> str:
-    return (html
-            .replace("PORT_PLACEHOLDER", str(PORT))
-            .replace("TOKEN_PLACEHOLDER", ACCESS_TOKEN)
-            .replace("CRED_PATH_PLACEHOLDER", str(CRED_FILE))
-            .replace("VOICE_PACK_DIR_PLACEHOLDER", str(BASE_DIR / "voice_packs")))
+    return html.replace("PORT_PLACEHOLDER", str(PORT)).replace("TOKEN_PLACEHOLDER", ACCESS_TOKEN)
 
 
 # ============================== 路由 ==============================
@@ -1455,6 +1813,200 @@ def _do_generate(kwargs: dict):
         raise HTTPException(status_code=500, detail=f"推理失败: {type(e).__name__}: {e}")
 
 
+@app.post("/api/multi_speaker")
+def multi_speaker(request: Request,
+                  text: str = Form(...),
+                  cfg_value: float = Form(2.0),
+                  inference_timesteps: int = Form(10),
+                  voice_params: str = Form(""),
+                  denoise: str = Form("false")):
+    """Beta：多人朗读 + 情绪控制。
+    解析 (@音色包名) 音色切换标记和 (情绪词) 情绪标记，逐段用对应音色包 + 独立角色参数
+    + 情绪参数生成；长段走稳定合成（分块+参考锚定，避免机械音/崩溃），段间停顿拼接。"""
+    require_auth(request)
+    text = text or ""
+    if not text.strip():
+        raise HTTPException(status_code=400, detail="文本不能为空")
+    segments = parse_multi_speaker_text(text)
+    if not segments:
+        raise HTTPException(status_code=400, detail="未解析到可朗读的文本段")
+
+    # 角色参数映射：{音色包名: {pitch,speed,volume,pause,breath}}
+    vp_map: dict = {}
+    if voice_params:
+        try:
+            vp_map = json.loads(voice_params)
+        except Exception:
+            vp_map = {}
+    denoise_on = str(denoise).lower() == "true"
+
+    packs = vp_store.list_packs()
+    name_to_id = {p["name"]: p["id"] for p in packs}
+    model = get_model()
+    sr = _vc_stab._get_sample_rate(model)
+    try:
+        import audio_edit as _ae
+    except Exception:
+        _ae = None
+
+    pieces: list[np.ndarray] = []
+    seg_report: list[dict] = []
+    warnings: list[str] = []
+    with _infer_lock:
+        for i, seg in enumerate(segments):
+            voice_name = seg["voice"]
+            vpid = name_to_id.get(voice_name) if voice_name else None
+            missing = bool(voice_name) and not vpid
+            if missing:
+                warnings.append(f"未知音色包「{voice_name}」，该段用默认音色")
+            ref_path = None
+            if vpid:
+                vp_wav, _ = vp_store.get_pack_paths(vpid)
+                if vp_wav and vp_wav.exists():
+                    ref_path = str(vp_wav)
+
+            # 角色独立参数（默认中性）
+            rp = (vp_map.get(voice_name, {}) or {}) if voice_name else {}
+            r_pitch = float(rp.get("pitch", 0) or 0)
+            r_speed = float(rp.get("speed", 1) or 1)
+            r_volume = float(rp.get("volume", 1) or 1)
+            r_pause = float(rp.get("pause", 0.15) if rp.get("pause") is not None else 0.15)
+            r_breath = float(rp.get("breath", 0) if rp.get("breath") is not None else 0)
+
+            # 情绪参数（叠加到角色参数）
+            emo = seg["emotion"]
+            e_pitch, e_speed, e_volume = 0.0, 1.0, 1.0
+            if _ae and emo in {"高兴", "悲伤", "严肃", "温柔", "愤怒"}:
+                preset = _ae.EMOTION_PRESETS.get(emo)
+                if preset:
+                    e_pitch = preset.get("pitch", 0); e_speed = preset.get("speed", 1); e_volume = preset.get("volume", 1)
+            pitch = r_pitch + e_pitch
+            speed = r_speed * e_speed
+            volume = r_volume * e_volume
+
+            # 稳定合成（长段分块+参考锚定；短段直通 model.generate）
+            wav, _ = _vc_stab.synthesize_stable(
+                model, seg["text"], ref_path, sr,
+                pause=r_pause, breath=r_breath, emotion=emo,
+                cfg_value=float(cfg_value), inference_timesteps=int(inference_timesteps),
+                normalize=True, denoise=denoise_on,
+            )
+            if _ae:
+                if abs(pitch) > 0.01: wav = _ae.apply_pitch(wav, sr, pitch)
+                if abs(speed - 1) > 0.01: wav = _ae.apply_speed(wav, sr, speed)
+                if abs(volume - 1) > 0.01: wav = _ae.apply_volume(wav, volume)
+            wav = _vc_stab.declip(wav)
+            pieces.append(wav)
+            seg_report.append({"i": i, "voice": voice_name or "默认", "emotion": emo,
+                               "text": seg["text"][:24], "missing": missing})
+            print(f"[VoxCPM2][Beta] 段{i}: 音色={voice_name or '默认'} 情绪={emo}"
+                  f"{' (未知音色!)' if missing else ''}", flush=True)
+
+    # 段间 0.3s 静音停顿拼接
+    pause = np.zeros(int(sr * 0.3), dtype=np.float32)
+    final = pieces[0]
+    for p in pieces[1:]:
+        final = np.concatenate([final, pause, p])
+    name = f"multi_{time.strftime('%m%d_%H%M%S')}_{secrets.token_hex(2)}.wav"
+    sf.write(str(OUTPUT_DIR / name), final, sr, format="WAV")
+    buf = io.BytesIO(); sf.write(buf, final, sr, format="WAV"); buf.seek(0)
+    dur = round(len(final) / sr, 2)
+    headers = {
+        "X-Output-Name": name, "X-Duration": str(dur),
+        "X-Segments": json.dumps({"n": len(segments), "segments": seg_report,
+                                  "warnings": warnings}, ensure_ascii=True),
+        "Content-Disposition": f'inline; filename="{name}"',
+    }
+    return Response(content=buf.read(), media_type="audio/wav", headers=headers)
+
+
+@app.post("/api/dialogue")
+async def dialogue(request: Request):
+    """Beta：多人多轮对话合成。接收 turns 列表（每次参与一个 turn），
+    逐 turn 用对应音色包 + 语气/情绪/音量参数生成，段间停顿拼接。"""
+    require_auth(request)
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="请求体需为 JSON")
+    turns = body.get("turns") or []
+    if not turns:
+        raise HTTPException(status_code=400, detail="turns 不能为空")
+    denoise_on = bool(body.get("denoise", False))
+    cfg = float(body.get("cfg_value", 2.0))
+    steps = int(body.get("inference_timesteps", 10))
+
+    TONE_MAP = {"自然": (0, 1.0), "温柔": (0, 0.95), "严肃": (0, 0.92), "活泼": (1, 1.05), "低沉": (-2, 0.9),
+                "Natural": (0, 1.0), "Gentle": (0, 0.95), "Serious": (0, 0.92), "Lively": (1, 1.05), "Low": (-2, 0.9)}
+    packs = vp_store.list_packs()
+    name_to_id = {p["name"]: p["id"] for p in packs}
+    model = get_model()
+    sr = _vc_stab._get_sample_rate(model)
+    try:
+        import audio_edit as _ae
+    except Exception:
+        _ae = None
+
+    pieces: list[np.ndarray] = []
+    seg_report: list[dict] = []
+    warnings: list[str] = []
+    with _infer_lock:
+        for i, turn in enumerate(turns):
+            role = str(turn.get("role") or "").strip()
+            text = str(turn.get("text") or "").strip()
+            if not text:
+                continue
+            tone = turn.get("tone") or "自然"
+            emotion = turn.get("emotion") or "neutral"
+            volume = float(turn.get("volume") or 1)
+            vpid = name_to_id.get(role) if (role and role != "旁白") else None
+            missing = bool(role and role != "旁白") and not vpid
+            if missing:
+                warnings.append(f"未知音色包「{role}」，该段用默认音色")
+            ref_path = None
+            if vpid:
+                vp_wav, _ = vp_store.get_pack_paths(vpid)
+                if vp_wav and vp_wav.exists():
+                    ref_path = str(vp_wav)
+            tp, ts = TONE_MAP.get(tone, (0, 1.0))
+            e_pitch, e_speed, e_volume = 0.0, 1.0, 1.0
+            if _ae and emotion in {"高兴", "悲伤", "严肃", "温柔", "愤怒"}:
+                preset = _ae.EMOTION_PRESETS.get(emotion)
+                if preset:
+                    e_pitch = preset.get("pitch", 0); e_speed = preset.get("speed", 1); e_volume = preset.get("volume", 1)
+            pitch = tp + e_pitch
+            speed = ts * e_speed
+            vol = volume * e_volume
+            wav, _ = _vc_stab.synthesize_stable(
+                model, text, ref_path, sr, pause=0.15, breath=0, emotion=emotion,
+                cfg_value=cfg, inference_timesteps=steps, normalize=True, denoise=denoise_on)
+            if _ae:
+                if abs(pitch) > 0.01: wav = _ae.apply_pitch(wav, sr, pitch)
+                if abs(speed - 1) > 0.01: wav = _ae.apply_speed(wav, sr, speed)
+                if abs(vol - 1) > 0.01: wav = _ae.apply_volume(wav, vol)
+            wav = _vc_stab.declip(wav)
+            pieces.append(wav)
+            seg_report.append({"i": i, "voice": role, "emotion": emotion, "tone": tone,
+                               "text": text[:24], "missing": missing})
+            print(f"[VoxCPM2][Dialogue] turn{i}: {role} 语气={tone} 情绪={emotion}", flush=True)
+
+    if not pieces:
+        raise HTTPException(status_code=400, detail="没有可合成的台词")
+    pause = np.zeros(int(sr * 0.3), dtype=np.float32)
+    final = pieces[0]
+    for p in pieces[1:]:
+        final = np.concatenate([final, pause, p])
+    name = f"dialogue_{time.strftime('%m%d_%H%M%S')}_{secrets.token_hex(2)}.wav"
+    sf.write(str(OUTPUT_DIR / name), final, sr, format="WAV")
+    buf = io.BytesIO(); sf.write(buf, final, sr, format="WAV"); buf.seek(0)
+    dur = round(len(final) / sr, 2)
+    headers = {"X-Output-Name": name, "X-Duration": str(dur),
+               "X-Segments": json.dumps({"n": len(seg_report), "segments": seg_report,
+                                         "warnings": warnings}, ensure_ascii=True),
+               "Content-Disposition": f'inline; filename="{name}"'}
+    return Response(content=buf.read(), media_type="audio/wav", headers=headers)
+
+
 @app.get("/api/outputs/{name}")
 def get_output(name: str, request: Request):
     require_auth(request)
@@ -1475,17 +2027,18 @@ def _find_ffmpeg():
         return _FFMPEG_PATH
     import glob as _g
     candidates = [os.environ.get("VOXCPM_FFMPEG", "")]
-    # 项目目录下的 ffmpeg（如 ffmpeg/bin/ffmpeg.exe）
-    for pat in ("ffmpeg/bin/ffmpeg.exe", "ffmpeg.exe"):
-        p = BASE_DIR / pat
-        if p.exists():
-            candidates.append(str(p))
+    # conda/miniforge 安装的 ffmpeg
+    candidates += [
+        "F:/miniforge3/Library/bin/ffmpeg.exe",
+        "F:/miniforge3/Scripts/ffmpeg.exe",
+        "F:/miniconda3/Library/bin/ffmpeg.exe",
+    ]
     for c in candidates:
         if c and os.path.exists(c):
             _FFMPEG_PATH = c
             return c
-    for pat in ("ffmpeg*/bin/ffmpeg.exe", "ffmpeg.exe"):
-        for c in _g.glob(str(BASE_DIR / pat)):
+    for pat in ("F:/ffmpeg*/bin/ffmpeg.exe", "F:/VoxCPM2/ffmpeg*/bin/ffmpeg.exe"):
+        for c in _g.glob(pat):
             if os.path.exists(c):
                 _FFMPEG_PATH = c
                 return c
