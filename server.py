@@ -860,7 +860,7 @@ function betaPickVoice(name){
   menu.style.display='none';renderDialoguePanels();
 }
 // 渲染角色参数：解析文本里的 @音色，每个角色一组独立参数滑块
-let dialogues=[];   // 参与状态 [{role,seq,text,emotion,tone,action,volume,collapsed,voice,narrative}]
+let dialogues=[];   // 参与状态 [{role,seq,text,emotion,tone,volume,pitch,speed,pause,breath,collapsed,voice,narrative}]
 const TONE_OPTS={zh:['自然','温柔','严肃','活泼','低沉'],en:['Natural','Gentle','Serious','Lively','Low']};
 const EMO_OPTS={zh:['无','高兴','悲伤','生气','严肃','温柔'],en:['None','Happy','Sad','Angry','Serious','Gentle']};
 function parseDialogue(text){
@@ -871,7 +871,7 @@ function parseDialogue(text){
   const re=/\(([^()]*)\)/g;let pos=0,m;
   function newCur(role,voice){
     const seq=(seqMap[role]=(seqMap[role]||0)+1);
-    return {role:role,seq:seq,text:'',emotion:'neutral',tone:'自然',action:'',volume:1,pitch:0,speed:1,pause:0.15,breath:0.4,collapsed:false,voice:voice,narrative:voice==null};
+    return {role:role,seq:seq,text:'',emotion:'neutral',tone:'自然',volume:1,pitch:0,speed:1,pause:0.15,breath:0.4,collapsed:false,voice:voice,narrative:voice==null};
   }
   function flush(){ if(cur&&cur.text.trim())res.push(cur); }
   function append(txt){ if(!txt)return; if(!cur)cur=newCur('旁白',null); cur.text+=(cur.text?' ':'')+txt; }
@@ -898,11 +898,11 @@ function renderDialoguePanels(){
   const box=document.getElementById('dialoguePanels');
   const text=document.getElementById('betaText').value||'';
   const fresh=parseDialogue(text);
-  // 保留用户已改参数：按 role+seq 合并（同一参与只更新台词/情绪，保留 tone/action/volume/collapsed）
+  // 保留用户已改参数：按 role+seq 合并（同一参与只更新台词/情绪，保留 tone/volume/pitch/speed/pause/breath/collapsed）
   const keep={};
   dialogues.forEach(d=>{ if(d.role&&d.seq)keep[d.role+'#'+d.seq]=d; });
   dialogues=fresh.map(d=>{ const k=keep[d.role+'#'+d.seq];
-    return k?Object.assign({},d,{tone:k.tone,action:k.action,volume:k.volume,pitch:k.pitch,speed:k.speed,pause:k.pause,breath:k.breath,collapsed:k.collapsed}):d; });
+    return k?Object.assign({},d,{tone:k.tone,volume:k.volume,pitch:k.pitch,speed:k.speed,pause:k.pause,breath:k.breath,collapsed:k.collapsed}):d; });
   if(!dialogues.length){ box.innerHTML='<div class="muted" data-i18n="dialogueEmpty">文本里用 (@音色包名) 指定角色后，这里会为每次参与生成独立面板。</div>'; setLang(curLang); return; }
   box.innerHTML='';
   dialogues.forEach((d,idx)=>{
@@ -934,12 +934,6 @@ function renderDialoguePanels(){
     ta.style.cssText='width:100%;padding:6px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;min-height:44px;font-family:inherit';
     ta.value=d.text; ta.oninput=function(){d.text=ta.value;};
     rText.appendChild(ta); body.appendChild(rText);
-    // 动作
-    const rAct=row(L==='zh'?'动作':'Action'); const inpAct=document.createElement('input');
-    inpAct.type='text'; inpAct.value=d.action||''; inpAct.placeholder=L==='zh'?'（可选）动作描述':'（optional）action description';
-    inpAct.style.cssText='width:100%;padding:6px;border:1px solid #d1d5db;border-radius:6px;font-size:13px';
-    inpAct.oninput=function(){d.action=inpAct.value;};
-    rAct.appendChild(inpAct); body.appendChild(rAct);
     // 情绪
     const rEmo=row(L==='zh'?'情绪':'Emotion'); const selEmo=document.createElement('select');
     selEmo.style.cssText='width:100%;padding:6px;border:1px solid #d1d5db;border-radius:6px;font-size:13px';
@@ -978,7 +972,7 @@ async function betaGenerate(){
   const t0=Date.now();
   const timer=setInterval(()=>{document.getElementById('betaStatusText').textContent=
     I18N[curLang].betaLoading+((Date.now()-t0)/1000).toFixed(1)+I18N[curLang].betaSeconds;},200);
-  const turns=dialogues.map(d=>({role:d.voice||d.role,text:d.text,tone:d.tone,emotion:d.emotion,volume:d.volume,pitch:d.pitch||0,speed:d.speed||1,pause:d.pause||0.15,breath:d.breath||0.4,action:d.action||''}));
+  const turns=dialogues.map(d=>({role:d.voice||d.role,text:d.text,tone:d.tone,emotion:d.emotion,volume:d.volume,pitch:d.pitch||0,speed:d.speed||1,pause:d.pause||0.15,breath:d.breath||0.4}));
   const body={turns:turns,denoise:document.getElementById('betaDenoise').checked,cfg_value:2.0,inference_timesteps:10};
   try{
     const r=await fetch('/api/dialogue',{method:'POST',headers:Object.assign({'Content-Type':'application/json'},apiHeaders()),body:JSON.stringify(body)});
