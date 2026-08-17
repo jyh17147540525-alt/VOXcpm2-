@@ -871,7 +871,7 @@ function parseDialogue(text){
   const re=/\(([^()]*)\)/g;let pos=0,m;
   function newCur(role,voice){
     const seq=(seqMap[role]=(seqMap[role]||0)+1);
-    return {role:role,seq:seq,text:'',emotion:'neutral',tone:'自然',action:'',volume:1,collapsed:false,voice:voice,narrative:voice==null};
+    return {role:role,seq:seq,text:'',emotion:'neutral',tone:'自然',action:'',volume:1,pitch:0,speed:1,pause:0.15,breath:0.4,collapsed:false,voice:voice,narrative:voice==null};
   }
   function flush(){ if(cur&&cur.text.trim())res.push(cur); }
   function append(txt){ if(!txt)return; if(!cur)cur=newCur('旁白',null); cur.text+=(cur.text?' ':'')+txt; }
@@ -901,7 +901,8 @@ function renderDialoguePanels(){
   // 保留用户已改参数：按 role+seq 合并（同一参与只更新台词/情绪，保留 tone/action/volume/collapsed）
   const keep={};
   dialogues.forEach(d=>{ if(d.role&&d.seq)keep[d.role+'#'+d.seq]=d; });
-  dialogues=fresh.map(d=>{ const k=keep[d.role+'#'+d.seq]; return k?Object.assign({},d,{tone:k.tone,action:k.action,volume:k.volume,collapsed:k.collapsed}):d; });
+  dialogues=fresh.map(d=>{ const k=keep[d.role+'#'+d.seq];
+    return k?Object.assign({},d,{tone:k.tone,action:k.action,volume:k.volume,pitch:k.pitch,speed:k.speed,pause:k.pause,breath:k.breath,collapsed:k.collapsed}):d; });
   if(!dialogues.length){ box.innerHTML='<div class="muted" data-i18n="dialogueEmpty">文本里用 (@音色包名) 指定角色后，这里会为每次参与生成独立面板。</div>'; setLang(curLang); return; }
   box.innerHTML='';
   dialogues.forEach((d,idx)=>{
@@ -921,6 +922,7 @@ function renderDialoguePanels(){
     body.style.cssText='padding:10px 12px;border-top:1px solid #f3f4f6'+(d.collapsed?';display:none':'');
     const L=curLang;
     function row(lbl){ const r=document.createElement('div'); r.style.cssText='margin-bottom:8px'; const s=document.createElement('div'); s.style.cssText='font-size:12px;color:#6b7280;margin-bottom:4px'; s.textContent=lbl; r.appendChild(s); return r; }
+    function slider(lbl,min,max,step,val,cb){ const r=row(lbl); const w=document.createElement('div'); w.style.cssText='display:flex;align-items:center;gap:10px'; const inp=document.createElement('input'); inp.type='range'; inp.min=min; inp.max=max; inp.step=step; inp.value=val; inp.style.cssText='flex:1'; const v=document.createElement('span'); v.style.cssText='width:36px;text-align:right;font-size:12px;color:#6b7280'; v.textContent=val; inp.oninput=function(){ v.textContent=inp.value; cb(parseFloat(inp.value)); }; w.appendChild(inp); w.appendChild(v); r.appendChild(w); return r; }
     // 语气
     const rTone=row(L==='zh'?'语气':'Tone'); const selTone=document.createElement('select');
     selTone.style.cssText='width:100%;padding:6px;border:1px solid #d1d5db;border-radius:6px;font-size:13px';
@@ -951,6 +953,11 @@ function renderDialoguePanels(){
     const volV=document.createElement('span'); volV.style.cssText='width:36px;text-align:right;font-size:12px;color:#6b7280'; volV.textContent=d.volume;
     vol.oninput=function(){d.volume=parseFloat(vol.value);volV.textContent=vol.value;};
     volWrap.appendChild(vol); volWrap.appendChild(volV); rVol.appendChild(volWrap); body.appendChild(rVol);
+    // 音调 / 语速 / 句间停顿 / 呼吸 —— 每次参与独立调节，区别于其他参与
+    body.appendChild(slider(L==='zh'?'音调':'Pitch',-6,6,0.5,d.pitch||0,x=>{d.pitch=x;}));
+    body.appendChild(slider(L==='zh'?'语速':'Speed',0.5,2,0.05,d.speed||1,x=>{d.speed=x;}));
+    body.appendChild(slider(L==='zh'?'句间停顿':'Pause',0,1,0.05,d.pause||0.15,x=>{d.pause=x;}));
+    body.appendChild(slider(L==='zh'?'呼吸':'Breath',0,1,0.05,d.breath||0.4,x=>{d.breath=x;}));
     panel.appendChild(body);
     box.appendChild(panel);
   });
@@ -971,7 +978,7 @@ async function betaGenerate(){
   const t0=Date.now();
   const timer=setInterval(()=>{document.getElementById('betaStatusText').textContent=
     I18N[curLang].betaLoading+((Date.now()-t0)/1000).toFixed(1)+I18N[curLang].betaSeconds;},200);
-  const turns=dialogues.map(d=>({role:d.voice||d.role,text:d.text,tone:d.tone,emotion:d.emotion,volume:d.volume,action:d.action||''}));
+  const turns=dialogues.map(d=>({role:d.voice||d.role,text:d.text,tone:d.tone,emotion:d.emotion,volume:d.volume,pitch:d.pitch||0,speed:d.speed||1,pause:d.pause||0.15,breath:d.breath||0.4,action:d.action||''}));
   const body={turns:turns,denoise:document.getElementById('betaDenoise').checked,cfg_value:2.0,inference_timesteps:10};
   try{
     const r=await fetch('/api/dialogue',{method:'POST',headers:Object.assign({'Content-Type':'application/json'},apiHeaders()),body:JSON.stringify(body)});
@@ -1959,6 +1966,11 @@ async def dialogue(request: Request):
             tone = turn.get("tone") or "自然"
             emotion = turn.get("emotion") or "neutral"
             volume = float(turn.get("volume") or 1)
+            pitch_user = float(turn.get("pitch") or 0)      # 独立音调（半音，叠加在语气/情绪预设之上）
+            speed_user = float(turn.get("speed") or 1)      # 独立语速（倍率，乘以语气/情绪预设）
+            pause_turn = float(turn.get("pause") or 0.15)   # 独立句间停顿（秒）
+            _b = turn.get("breath")
+            breath_turn = float(_b) if _b is not None else 0.4  # 独立呼吸轻重（0 关 ~ 1 重）
             vpid = name_to_id.get(role) if (role and role != "旁白") else None
             missing = bool(role and role != "旁白") and not vpid
             if missing:
@@ -1974,11 +1986,11 @@ async def dialogue(request: Request):
                 preset = _ae.EMOTION_PRESETS.get(emotion)
                 if preset:
                     e_pitch = preset.get("pitch", 0); e_speed = preset.get("speed", 1); e_volume = preset.get("volume", 1)
-            pitch = tp + e_pitch
-            speed = ts * e_speed
+            pitch = tp + e_pitch + pitch_user
+            speed = ts * e_speed * speed_user
             vol = volume * e_volume
             wav, _ = _vc_stab.synthesize_stable(
-                model, text, ref_path, sr, pause=0.15, breath=0, emotion=emotion,
+                model, text, ref_path, sr, pause=pause_turn, breath=breath_turn, emotion=emotion,
                 cfg_value=cfg, inference_timesteps=steps, normalize=True, denoise=denoise_on)
             if _ae:
                 if abs(pitch) > 0.01: wav = _ae.apply_pitch(wav, sr, pitch)
@@ -1987,7 +1999,9 @@ async def dialogue(request: Request):
             wav = _vc_stab.declip(wav)
             pieces.append(wav)
             seg_report.append({"i": i, "voice": role, "emotion": emotion, "tone": tone,
-                               "text": text[:24], "missing": missing})
+                               "text": text[:24], "missing": missing,
+                               "pitch": round(pitch, 2), "speed": round(speed, 3),
+                               "volume": round(vol, 2), "pause": pause_turn, "breath": breath_turn})
             print(f"[VoxCPM2][Dialogue] turn{i}: {role} 语气={tone} 情绪={emotion}", flush=True)
 
     if not pieces:

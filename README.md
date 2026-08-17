@@ -20,7 +20,7 @@ A ready-to-use local voice cloning and text-to-speech (TTS) service. Built on to
   - Pronunciation correction (polyphone detection).
 - **Long-text stable synthesis**: automatic sentence splitting, chunk-wise independent generation (reference-anchored, no timbre drift), graded pauses for commas/periods, unified emotion control (neutral & stable by default). Great for audiobooks and long passages.
 - **Audio export**: WAV / MP3 / M4A.
-- **Beta module — multi-role dialogue**: a dynamic panel builder for multi-speaker / multi-turn scripts. Mark a speaker with `(@Name)` and an emotion with `(emotion)` (full-width Chinese parentheses such as `（情绪）` are normalized automatically). The UI generates an **independent, collapsible control panel for every single participation** (labelled "角色-第N次参与"), so the same character appearing multiple times gets separate, non-interfering panels. Each panel tunes tone / lines / action / emotion / volume in real time while the rest of the cast stays untouched.
+- **Beta module — multi-role dialogue**: a dynamic panel builder for multi-speaker / multi-turn scripts. Mark a speaker with `(@Name)` and an emotion with `(emotion)` (full-width Chinese parentheses such as `（情绪）` are normalized automatically). The UI generates an **independent, collapsible control panel for every single participation** (labelled "角色-第N次参与"), so the same character appearing multiple times gets separate, non-interfering panels. Every panel carries its **own set of 5 sliders — volume, pitch, speed, inter-sentence pause and breath intensity** — adjusted in real time for that turn only, while all other turns keep their settings untouched.
 - **Web UI**: FastAPI + token auth, one-click login in the browser, built-in player and generation history.
 
 ---
