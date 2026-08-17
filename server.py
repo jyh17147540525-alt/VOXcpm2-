@@ -564,45 +564,45 @@ border:1px solid #f1f5f9;border-radius:10px;margin-bottom:8px;background:#fff}
       <label data-i18n="synthText">合成文本</label>
       <textarea id="text">你好，这里是本地部署的 VoxCPM2 语音大模型，现在可以直接在浏览器里使用了。</textarea>
       <div class="chips" id="chips">
-        <button class="chip" onclick="pre('(年轻女性，温柔甜美)')">年轻女性·温柔</button>
-        <button class="chip" onclick="pre('(中年男性，沉稳有磁性)')">中年男性·沉稳</button>
-        <button class="chip" onclick="pre('(活力少年，语速偏快)')">活力少年</button>
-        <button class="chip" onclick="pre('(广东话，中年男性)')">粤语</button>
-        <button class="chip" onclick="pre('(四川话，年轻女性)')">四川话</button>
-        <button class="chip" onclick="pre('(新闻播报腔，字正腔圆)')">新闻播报</button>
+        <button class="chip" onclick="pre('(年轻女性，温柔甜美)')" data-i18n="chip1">年轻女性·温柔</button>
+        <button class="chip" onclick="pre('(中年男性，沉稳有磁性)')" data-i18n="chip2">中年男性·沉稳</button>
+        <button class="chip" onclick="pre('(活力少年，语速偏快)')" data-i18n="chip3">活力少年</button>
+        <button class="chip" onclick="pre('(广东话，中年男性)')" data-i18n="chip4">粤语</button>
+        <button class="chip" onclick="pre('(四川话，年轻女性)')" data-i18n="chip5">四川话</button>
+        <button class="chip" onclick="pre('(新闻播报腔，字正腔圆)')" data-i18n="chip6">新闻播报</button>
       </div>
-      <div class="muted" style="margin-top:8px">语音设计模式：用「()」在文本开头描述想要的音色、情绪、语速，例如「(年轻女性，温柔甜美)你好」。</div>
+      <div class="muted" style="margin-top:8px" data-i18n="designHint">语音设计模式：用「()」在文本开头描述想要的音色、情绪、语速，例如「(年轻女性，温柔甜美)你好」。</div>
     </div>
 
     <div class="field hide" id="refField">
-      <label>参考音频（0.3 秒 – 10 分钟，wav/mp3/flac）</label>
+      <label data-i18n="refLabel">参考音频（0.3 秒 – 10 分钟，wav/mp3/flac）</label>
       <input type="file" id="refFile" accept="audio/*">
-      <div class="muted" style="margin-top:6px">克隆模式必填，模型会复刻这段音频的音色。</div>
+      <div class="muted" style="margin-top:6px" data-i18n="refHint">克隆模式必填，模型会复刻这段音频的音色。</div>
     </div>
 
     <div class="field hide" id="packSelField">
-      <label>或选择已保存音色包（免重复上传长音频）</label>
+      <label data-i18n="packSelLabel">或选择已保存音色包（免重复上传长音频）</label>
       <select class="vp-sel" id="packSel" onchange="onPackSel()">
-        <option value="">— 不使用音色包，改为上传音频 —</option>
+        <option value="" data-i18n="noPackOpt">— 不使用音色包，改为上传音频 —</option>
       </select>
       <div class="muted" style="margin-top:6px" id="packSelHint"></div>
     </div>
 
     <div class="field hide" id="ptField">
-      <label>参考音频的逐字文本（极致克隆必填）</label>
+      <label data-i18n="ptLabel">参考音频的逐字文本（极致克隆必填）</label>
       <input type="file" id="refFile2" accept="audio/*" style="display:none">
-      <input type="text" id="promptText" placeholder="必须与参考音频内容完全一致">
+      <input type="text" id="promptText" data-i18n-ph="ptPh" placeholder="必须与参考音频内容完全一致">
     </div>
 
     <div class="grid">
       <div class="pbox">
-        <label>CFG 引导强度（1.0-3.0，默认 2.0）</label>
+        <label data-i18n="cfgLabel">CFG 引导强度（1.0-3.0，默认 2.0）</label>
         <div class="prow"><input type="range" id="cfg" min="1" max="3" step="0.1" value="2"
           oninput="document.getElementById('cfgv').textContent=this.value">
           <span class="pv" id="cfgv">2.0</span></div>
       </div>
       <div class="pbox">
-        <label>扩散步数（4-30，越大越细腻越慢）</label>
+        <label data-i18n="stepsLabel">扩散步数（4-30，越大越细腻越慢）</label>
         <div class="prow"><input type="range" id="steps" min="4" max="30" step="1" value="10"
           oninput="document.getElementById('stv').textContent=this.value">
           <span class="pv" id="stv">10</span></div>
@@ -610,64 +610,64 @@ border:1px solid #f1f5f9;border-radius:10px;margin-bottom:8px;background:#fff}
     </div>
 
     <div class="checks">
-      <label><input type="checkbox" id="normalize" checked> 文本规范化（数字/日期正确读出）</label>
-      <label title="谱门控降噪，去除稳态/环境噪声（离线可用）"><input type="checkbox" id="denoise" checked> 参考音频降噪</label>
-      <label title="分离并抑制背景音乐/环境音，突出人声"><input type="checkbox" id="remove_bg"> 去除背景音/音乐</label>
-      <label title="长台词按句分块生成并交叉淡化拼接，避免断裂/突变"><input type="checkbox" id="stable"> 长文本稳定合成</label>
+      <label><input type="checkbox" id="normalize" checked> <span data-i18n="normalizeLabel">文本规范化（数字/日期正确读出）</span></label>
+      <label title="谱门控降噪，去除稳态/环境噪声（离线可用）"><input type="checkbox" id="denoise" checked> <span data-i18n="denoiseLabel">参考音频降噪</span></label>
+      <label title="分离并抑制背景音乐/环境音，突出人声"><input type="checkbox" id="remove_bg"> <span data-i18n="removeBgLabel">去除背景音/音乐</span></label>
+      <label title="长台词按句分块生成并交叉淡化拼接，避免断裂/突变"><input type="checkbox" id="stable"> <span data-i18n="stableLabel">长文本稳定合成</span></label>
     </div>
-    <div class="muted" style="font-size:12px;margin:-6px 0 10px">提示：参考音频超过 30 秒时会自动分段，按说话人声纹融合为约 25 秒的代表音频，显著缓解长音频克隆的失真与音色漂移。</div>
+    <div class="muted" style="font-size:12px;margin:-6px 0 10px" data-i18n="refTip">提示：参考音频超过 30 秒时会自动分段，按说话人声纹融合为约 25 秒的代表音频，显著缓解长音频克隆的失真与音色漂移。</div>
 
     <div class="field">
-      <label>🎭 情绪语气（可选，套用一组音调/语速/停顿预设，可再手动微调）</label>
+      <label data-i18n="emoLabel">🎭 情绪语气（可选，套用一组音调/语速/停顿预设，可再手动微调）</label>
       <select id="emotionSel" class="vp-sel" onchange="applyEmotion(this.value)">
-        <option value="">— 不指定情绪 —</option>
-        <option value="高兴">高兴</option>
-        <option value="悲伤">悲伤</option>
-        <option value="严肃">严肃</option>
-        <option value="温柔">温柔</option>
-        <option value="愤怒">愤怒</option>
-        <option value="平静">平静</option>
+        <option value="" data-i18n="emoNone">— 不指定情绪 —</option>
+        <option value="高兴" data-i18n="emoHappy">高兴</option>
+        <option value="悲伤" data-i18n="emoSad">悲伤</option>
+        <option value="严肃" data-i18n="emoSerious">严肃</option>
+        <option value="温柔" data-i18n="emoGentle">温柔</option>
+        <option value="愤怒" data-i18n="emoAngry">愤怒</option>
+        <option value="平静" data-i18n="emoCalm">平静</option>
       </select>
     </div>
     <div class="grid">
       <div class="pbox">
-        <label>音调（半音，0=原音）</label>
+        <label data-i18n="pitchLabel">音调（半音，0=原音）</label>
         <div class="prow"><input type="range" id="pitch" min="-12" max="12" step="1" value="0"
           oninput="document.getElementById('pitchv').textContent=this.value">
           <span class="pv" id="pitchv">0</span></div>
       </div>
       <div class="pbox">
-        <label>语速（0.5x-2.0x）</label>
+        <label data-i18n="speedLabel">语速（0.5x-2.0x）</label>
         <div class="prow"><input type="range" id="speed" min="0.5" max="2" step="0.05" value="1"
           oninput="document.getElementById('speedv').textContent=this.value">
           <span class="pv" id="speedv">1.0</span></div>
       </div>
       <div class="pbox">
-        <label>音量（0.1x-2.0x）</label>
+        <label data-i18n="volumeLabel">音量（0.1x-2.0x）</label>
         <div class="prow"><input type="range" id="volume" min="0.1" max="2" step="0.05" value="1"
           oninput="document.getElementById('volumev').textContent=this.value">
           <span class="pv" id="volumev">1.0</span></div>
       </div>
       <div class="pbox">
-        <label>句间停顿（秒，0=无）</label>
+        <label data-i18n="pauseLabel">句间停顿（秒，0=无）</label>
         <div class="prow"><input type="range" id="pause" min="0" max="1.5" step="0.05" value="0.15"
           oninput="document.getElementById('pausev').textContent=this.value">
           <span class="pv" id="pausev">0.15</span></div>
       </div>
       <div class="pbox">
-        <label>呼吸声轻重（0=无）</label>
+        <label data-i18n="breathLabel">呼吸声轻重（0=无）</label>
         <div class="prow"><input type="range" id="breath" min="0" max="1" step="0.05" value="0"
           oninput="document.getElementById('breathv').textContent=this.value">
           <span class="pv" id="breathv">0</span></div>
       </div>
     </div>
     <div class="checks">
-      <label title="解析 <break>/<prosody>/<emotion> 等 SSML 标签，强制控制停顿/重音/语速"><input type="checkbox" id="ssml"> 启用 SSML 标签</label>
+      <label title="解析 <break>/<prosody>/<emotion> 等 SSML 标签，强制控制停顿/重音/语速"><input type="checkbox" id="ssml"> <span data-i18n="ssmlLabel">启用 SSML 标签</span></label>
     </div>
 
     <button class="gen" id="btn" onclick="generate()" data-i18n="genBtn">🔊 生成语音</button>
 
-    <div class="status" id="status"><div class="spin"></div><div id="statusText">生成中…</div></div>
+    <div class="status" id="status"><div class="spin"></div><div id="statusText" data-i18n="statusIdle">生成中…</div></div>
     <div class="err" id="err"></div>
     <div class="res" id="res">
       <div class="meta" id="resMeta"></div>
@@ -678,7 +678,7 @@ border:1px solid #f1f5f9;border-radius:10px;margin-bottom:8px;background:#fff}
           <option value="wav">导出 WAV</option>
           <option value="m4a">导出 M4A</option>
         </select>
-        <button id="exportBtn" onclick="exportAudio()" style="padding:8px 14px;border:1px solid #d1d5db;border-radius:8px;background:#fff;cursor:pointer;font-size:13px">⬇️ 导出</button>
+        <button id="exportBtn" onclick="exportAudio()" data-i18n="exportLabel" style="padding:8px 14px;border:1px solid #d1d5db;border-radius:8px;background:#fff;cursor:pointer;font-size:13px">⬇️ 导出</button>
       </div>
     </div>
   </div>
@@ -701,7 +701,7 @@ border:1px solid #f1f5f9;border-radius:10px;margin-bottom:8px;background:#fff}
       <div id="betaAtMenu" style="display:none;position:absolute;z-index:20;background:#fff;border:1px solid #d1d5db;border-radius:8px;max-height:200px;overflow:auto;width:100%;box-shadow:0 4px 12px rgba(0,0,0,.1)"></div>
     </div>
     <div class="chips" id="betaChips" style="margin-bottom:12px">
-      <button class="chip" onclick="betaInsert('(@')">@音色</button>
+      <button class="chip" onclick="betaInsert('(@')" data-i18n="betaAtTag">@音色</button>
       <button class="chip" onclick="betaInsert('(开心)')" data-i18n="emoHappy">开心</button>
       <button class="chip" onclick="betaInsert('(悲伤)')" data-i18n="emoSad">悲伤</button>
       <button class="chip" onclick="betaInsert('(生气)')" data-i18n="emoAngry">生气</button>
@@ -727,48 +727,48 @@ border:1px solid #f1f5f9;border-radius:10px;margin-bottom:8px;background:#fff}
   <div class="card" id="packCard">
     <div class="tabs">
       <button class="ptab active" data-pane="manage" onclick="showPackPane('manage')" data-i18n="packManage">🎭 音色包管理</button>
-      <button class="ptab" data-pane="save" onclick="showPackPane('save')">🎙️ 制作音色声线包</button>
+      <button class="ptab" data-pane="save" onclick="showPackPane('save')" data-i18n="packMake">🎙️ 制作音色声线包</button>
     </div>
 
       <div id="packManage">
-        <div class="muted" style="margin-bottom:12px">已提取并保存在本地的音色声线包，后续克隆可直接选用，无需重复上传长音频。数据存于 <code>F:\VoxCPM2\voice_packs</code>，重启服务后依然保留。也可用 API：<code>POST /api/voicepacks</code> 保存，生成时传 <code>voice_pack_id</code>。带 <span style="color:#b45309">⚡加速</span> 标记的音色包在生成时自动提速。</div>
-        <div id="packList"><div class="muted">还没有音色包，去“制作音色声线包”做一个吧。</div></div>
+        <div class="muted" style="margin-bottom:12px" data-i18n="packDesc">已提取并保存在本地的音色声线包，后续克隆可直接选用，无需重复上传长音频。数据存于 <code>voice_packs/</code> 目录，重启服务后依然保留。也可用 API：<code>POST /api/voicepacks</code> 保存，生成时传 <code>voice_pack_id</code>。带 <span style="color:#b45309">⚡加速</span> 标记的音色包在生成时自动提速。</div>
+        <div id="packList"><div class="muted" data-i18n="packEmpty">还没有音色包，去“制作音色声线包”做一个吧。</div></div>
       </div>
 
     <div id="packSave" class="hide">
       <div class="field">
-        <label>方式一：实时录制（直接用麦克风，无需上传文件）</label>
-        <button class="gen" id="recBtn" onclick="startRec()" style="background:#0ea5e9">🎤 开始录制</button>
-        <div class="muted" id="recStatus" style="margin-top:6px;color:#0369a1">点击下方按钮授权麦克风后开始朗读，建议 10–30 秒清晰语句；录制完可回放确认。</div>
+        <label data-i18n="recMethod">方式一：实时录制（直接用麦克风，无需上传文件）</label>
+        <button class="gen" id="recBtn" onclick="startRec()" style="background:#0ea5e9" data-i18n="recStart">🎤 开始录制</button>
+        <div class="muted" id="recStatus" style="margin-top:6px;color:#0369a1" data-i18n="recHint">点击下方按钮授权麦克风后开始朗读，建议 10–30 秒清晰语句；录制完可回放确认。</div>
         <div class="field hide" id="recWrap" style="margin-top:10px">
-          <label>录制回放（确认无误再保存）</label>
+          <label data-i18n="recPlayback">录制回放（确认无误再保存）</label>
           <audio id="recPlay" controls></audio>
         </div>
       </div>
       <div class="field" id="vpDropZone" style="border:2px dashed #cbd5e1;border-radius:10px;padding:12px;transition:all .2s">
-        <label>方式二：上传音频或拖拽视频（wav/mp3/flac/mp4/mov 等，视频自动提取人声）</label>
+        <label data-i18n="upMethod">方式二：上传音频或拖拽视频（wav/mp3/flac/mp4/mov 等，视频自动提取人声）</label>
         <input type="file" id="vpFile" accept="audio/*,video/*">
-        <div class="muted" id="vpDropHint" style="margin-top:6px">建议 10–60 秒清晰人声；超过 30 秒会自动分段并融合为约 25 秒的代表参考。视频文件会自动提取音轨（需已安装 ffmpeg）。</div>
+        <div class="muted" id="vpDropHint" style="margin-top:6px" data-i18n="vpDropHint">建议 10–60 秒清晰人声；超过 30 秒会自动分段并融合为约 25 秒的代表参考。视频文件会自动提取音轨（需已安装 ffmpeg）。</div>
       </div>
       <div class="field">
-        <label>音色包名称（便于识别）</label>
-        <input type="text" id="vpName" placeholder="例如：客服小美 / 讲师老王">
+        <label data-i18n="vpNameLabel">音色包名称（便于识别）</label>
+        <input type="text" id="vpName" data-i18n-ph="vpNamePh" placeholder="例如：客服小美 / 讲师老王">
       </div>
       <div class="checks">
-        <label><input type="checkbox" id="vpDenoise" checked> 参考音频降噪</label>
-        <label><input type="checkbox" id="vpRemoveBg"> 去除背景音/音乐</label>
-        <label title="开启后，使用该音色包克隆生成时会自动采用更少扩散步数，生成更快（音质略降）"><input type="checkbox" id="vpAccel"> 🚀 加速模式（生成更快）</label>
+        <label><input type="checkbox" id="vpDenoise" checked> <span data-i18n="vpDenoise">参考音频降噪</span></label>
+        <label><input type="checkbox" id="vpRemoveBg"> <span data-i18n="vpRemoveBg">去除背景音/音乐</span></label>
+        <label title="开启后，使用该音色包克隆生成时会自动采用更少扩散步数，生成更快（音质略降）"><input type="checkbox" id="vpAccel"> <span data-i18n="vpAccel">🚀 加速模式（生成更快）</span></label>
       </div>
-      <button class="gen" id="vpSaveBtn" onclick="savePack()">🔒 提取并保存音色包</button>
-      <div class="status" id="vpStatus"><div class="spin"></div><div id="vpStatusText">提取中…（首次需加载模型，请稍候）</div></div>
+      <button class="gen" id="vpSaveBtn" onclick="savePack()" data-i18n="vpSaveBtn">🔒 提取并保存音色包</button>
+      <div class="status" id="vpStatus"><div class="spin"></div><div id="vpStatusText" data-i18n="vpStatusIdle">提取中…（首次需加载模型，请稍候）</div></div>
       <div class="err" id="vpErr"></div>
     </div>
   </div>
 
   <div class="card">
-    <label>API 调用示例（令牌放请求头）</label>
+    <label data-i18n="apiLabel">API 调用示例（令牌放请求头）</label>
     <div class="api" id="apiSample">curl -X POST http://localhost:PORT_PLACEHOLDER/api/tts \\
-  -H "X-API-Key: 你的访问令牌" \\
+  -H "X-API-Key: <span data-i18n="apiToken">你的访问令牌</span>" \\
   -H "Content-Type: application/json" \\
   -d "{\\"text\\":\\"你好世界\\",\\"cfg_value\\":2.0,\\"inference_timesteps\\":10}" \\
   --output out.wav</div>
@@ -798,7 +798,32 @@ const I18N={
       betaDenoise:'背景音降噪',
       backBtn:'← 返回',
       synthText:'合成文本',genBtn:'🔊 生成语音',
-      packManage:'🎭 音色包管理'},
+      packManage:'🎭 音色包管理',
+      textDefault:'你好，这里是本地部署的 VoxCPM2 语音大模型，现在可以直接在浏览器里使用了。',
+      chip1:'年轻女性·温柔',chip2:'中年男性·沉稳',chip3:'活力少年',chip4:'粤语',chip5:'四川话',chip6:'新闻播报',
+      designHint:'语音设计模式：用「()」在文本开头描述想要的音色、情绪、语速，例如「(年轻女性，温柔甜美)你好」。',
+      refLabel:'参考音频（0.3 秒 – 10 分钟，wav/mp3/flac）',refHint:'克隆模式必填，模型会复刻这段音频的音色。',
+      packSelLabel:'或选择已保存音色包（免重复上传长音频）',noPackOpt:'— 不使用音色包，改为上传音频 —',
+      ptLabel:'参考音频的逐字文本（极致克隆必填）',ptPh:'必须与参考音频内容完全一致',
+      cfgLabel:'CFG 引导强度（1.0-3.0，默认 2.0）',stepsLabel:'扩散步数（4-30，越大越细腻越慢）',
+      normalizeLabel:'文本规范化（数字/日期正确读出）',denoiseLabel:'参考音频降噪',removeBgLabel:'去除背景音/音乐',stableLabel:'长文本稳定合成',
+      refTip:'提示：参考音频超过 30 秒时会自动分段，按说话人声纹融合为约 25 秒的代表音频，显著缓解长音频克隆的失真与音色漂移。',
+      emoLabel:'🎭 情绪语气（可选，套用一组音调/语速/停顿预设，可再手动微调）',emoNone:'— 不指定情绪 —',emoCalm:'平静',
+      pitchLabel:'音调（半音，0=原音）',speedLabel:'语速（0.5x-2.0x）',volumeLabel:'音量（0.1x-2.0x）',pauseLabel:'句间停顿（秒，0=无）',breathLabel:'呼吸声轻重（0=无）',
+      ssmlLabel:'启用 SSML 标签',statusIdle:'生成中…',exportLabel:'⬇️ 导出',
+      betaAtTag:'@音色',
+      betaDefault:'(@磁性女声，我i的最爱)你好，欢迎使用多人朗读功能。(开心)今天真不错！',
+      packMake:'🎙️ 制作音色声线包',
+      packDesc:'已提取并保存在本地的音色声线包，后续克隆可直接选用，无需重复上传长音频。数据存于 voice_packs/ 目录，重启服务后依然保留。也可用 API：POST /api/voicepacks 保存，生成时传 voice_pack_id。带 ⚡加速 标记的音色包在生成时自动提速。',
+      packEmpty:'还没有音色包，去“制作音色声线包”做一个吧。',
+      recMethod:'方式一：实时录制（直接用麦克风，无需上传文件）',recStart:'🎤 开始录制',
+      recHint:'点击下方按钮授权麦克风后开始朗读，建议 10–30 秒清晰语句；录制完可回放确认。',recPlayback:'录制回放（确认无误再保存）',
+      upMethod:'方式二：上传音频或拖拽视频（wav/mp3/flac/mp4/mov 等，视频自动提取人声）',
+      vpDropHint:'建议 10–60 秒清晰人声；超过 30 秒会自动分段并融合为约 25 秒的代表参考。视频文件会自动提取音轨（需已安装 ffmpeg）。',
+      vpNameLabel:'音色包名称（便于识别）',vpNamePh:'例如：客服小美 / 讲师老王',
+      vpDenoise:'参考音频降噪',vpRemoveBg:'去除背景音/音乐',vpAccel:'🚀 加速模式（生成更快）',
+      vpSaveBtn:'🔒 提取并保存音色包',vpStatusIdle:'提取中…（首次需加载模型，请稍候）',
+      apiLabel:'API 调用示例（令牌放请求头）',apiToken:'你的访问令牌'},
   en:{localDeploy:'Local',detecting:'Detecting…',modelNotLoaded:'Model not loaded',modelReady:'Model ready',
       modeDesign:'🎨 Voice Design',modeClone:'🎛️ Voice Clone',modeHifi:'🎙️ HiFi Clone',modeBeta:'🧪 Beta',
       history:'Generation history',noHistory:'No history yet',
@@ -813,16 +838,48 @@ const I18N={
       betaDenoise:'Background noise reduction',
       backBtn:'← Back',
       synthText:'Text to synthesize',genBtn:'🔊 Generate',
-      packManage:'🎭 Voice Packs'}
+      packManage:'🎭 Voice Packs',
+      textDefault:'Hi, this is the locally-deployed VoxCPM2 voice model. You can use it right in your browser.',
+      chip1:'Young woman, gentle',chip2:'Mature man, deep voice',chip3:'Lively teenager',chip4:'Cantonese',chip5:'Sichuan dialect',chip6:'News anchor',
+      designHint:'Design mode: describe the voice, emotion or speed in "()" at the start of the text, e.g. "(young woman, sweet)Hello".',
+      refLabel:'Reference audio (0.3s – 10min, wav/mp3/flac)',refHint:'Required for Clone mode. The model replicates the timbre of this audio.',
+      packSelLabel:'Or pick a saved voice pack (no re-upload needed)',noPackOpt:'— No voice pack, upload audio instead —',
+      ptLabel:'Verbatim transcript of the reference (required for HiFi)',ptPh:'Must match the reference audio exactly',
+      cfgLabel:'CFG guidance (1.0-3.0, default 2.0)',stepsLabel:'Diffusion steps (4-30, higher = finer & slower)',
+      normalizeLabel:'Text normalization (numbers/dates read correctly)',denoiseLabel:'Reference denoise',removeBgLabel:'Remove background/music',stableLabel:'Long-text stable synthesis',
+      refTip:'Tip: audio over 30s is auto-segmented and fused by voiceprint into a ~25s representative clip, reducing distortion and timbre drift in long-audio cloning.',
+      emoLabel:'🎭 Emotion & tone (optional preset, fine-tune below)',emoNone:'— No emotion —',emoCalm:'Calm',
+      pitchLabel:'Pitch (semitones, 0=original)',speedLabel:'Speed (0.5x-2.0x)',volumeLabel:'Volume (0.1x-2.0x)',pauseLabel:'Pause between sentences (s, 0=none)',breathLabel:'Breath intensity (0=none)',
+      ssmlLabel:'Enable SSML tags',statusIdle:'Generating…',exportLabel:'⬇️ Export',
+      betaAtTag:'@Pack',
+      betaDefault:'(@John)Hello! Welcome to multi-speaker reading. (happy)What a nice day!',
+      packMake:'🎙️ Create Voice Pack',
+      packDesc:'Voice packs are extracted and saved locally for reuse, so you never re-upload long audio. Stored under the voice_packs/ directory and persist across restarts. Save via POST /api/voicepacks and pass voice_pack_id when generating. Packs marked ⚡accelerated generate faster automatically.',
+      packEmpty:'No voice packs yet. Go to "Create Voice Pack" to make one.',
+      recMethod:'Method 1: record live (microphone, no file upload)',recStart:'🎤 Start Recording',
+      recHint:'Click the button, allow microphone access, then read for 10–30s. Playback to confirm after recording.',recPlayback:'Playback (confirm before saving)',
+      upMethod:'Method 2: upload audio or drag a video (wav/mp3/flac/mp4/mov; voice auto-extracted from video)',
+      vpDropHint:'10–60s of clear voice is recommended; over 30s is auto-segmented and fused into a ~25s representative clip. Video audio is auto-extracted (ffmpeg required).',
+      vpNameLabel:'Voice pack name (for identification)',vpNamePh:'e.g. Support-Xiaomei / Trainer-LaoWang',
+      vpDenoise:'Reference denoise',vpRemoveBg:'Remove background/music',vpAccel:'🚀 Accelerated mode (faster generation)',
+      vpSaveBtn:'🔒 Extract & Save Voice Pack',vpStatusIdle:'Extracting… (model loads on first run, please wait)',
+      apiLabel:'API examples (token in header)',apiToken:'YOUR_TOKEN'}
 };
 let curLang='zh';
 function setLang(l){
   curLang=l;const d=I18N[l]||I18N.zh;
   document.querySelectorAll('[data-i18n]').forEach(el=>{const k=el.getAttribute('data-i18n');if(d[k]!==undefined)el.textContent=d[k];});
+  document.querySelectorAll('[data-i18n-ph]').forEach(el=>{const k=el.getAttribute('data-i18n-ph');if(d[k]!==undefined)el.placeholder=d[k];});
+  // 示例文本：仅当用户尚未修改时随语言切换
+  const t1=document.getElementById('text'),t2=document.getElementById('betaText');
+  const zh1=I18N.zh.textDefault,en1=I18N.en.textDefault,zh2=I18N.zh.betaDefault,en2=I18N.en.betaDefault;
+  if(t1&&(!t1.value||t1.value===zh1||t1.value===en1))t1.value=d.textDefault;
+  if(t2&&(!t2.value||t2.value===zh2||t2.value===en2))t2.value=d.betaDefault;
   document.getElementById('langZh').style.opacity=(l==='zh')?'1':'.5';
   document.getElementById('langEn').style.opacity=(l==='en')?'1':'.5';
   try{localStorage.setItem('voxcpm_lang',l);}catch(_){}
 }
+function tr(zh,en){return curLang==='zh'?zh:en;}
 // ===== Beta：多人朗读 =====
 function betaInsert(tag){
   const el=document.getElementById('betaText');const s=el.selectionStart||0,e=el.selectionEnd||0;
@@ -937,9 +994,9 @@ function renderDialoguePanels(){
     // 情绪
     const rEmo=row(L==='zh'?'情绪':'Emotion'); const selEmo=document.createElement('select');
     selEmo.style.cssText='width:100%;padding:6px;border:1px solid #d1d5db;border-radius:6px;font-size:13px';
-    const curEmo=(d.emotion==='neutral'||d.emotion==='平静')?'无':d.emotion;
+    const curEmo=(d.emotion==='neutral'||d.emotion==='平静')?(L==='zh'?'无':'None'):d.emotion;
     EMO_OPTS[L].forEach(o=>{ const op=document.createElement('option'); op.textContent=o; op.value=o; if(o===curEmo)op.selected=true; selEmo.appendChild(op); });
-    selEmo.onchange=function(){ const v=selEmo.value; d.emotion=(v==='无'?'neutral':v); };
+    selEmo.onchange=function(){ const v=selEmo.value; d.emotion=(v==='无'||v==='None')?'neutral':v; };
     rEmo.appendChild(selEmo); body.appendChild(rEmo);
     // 音量
     const rVol=row(L==='zh'?'音量':'Volume'); const volWrap=document.createElement('div'); volWrap.style.cssText='display:flex;align-items:center;gap:10px';
@@ -1039,15 +1096,15 @@ function apiHeaders(){return {'x-api-key':API_TOKEN};}
 
 function setModelBadge(state,extra){
   const b=document.getElementById('modelBadge');
-  if(state==='loading'){b.textContent='模型加载中…(约20-60秒)';b.className='badge';b.style.cursor='default';b.onclick=null;}
-  else if(state==='error'){b.textContent='模型加载失败 · 点此重试';b.className='badge warn';b.style.cursor='pointer';b.onclick=()=>warmupModel();}
-  else if(state==='ready'){b.textContent='模型已加载 · '+(extra||'');b.className='badge ok';b.style.cursor='default';b.onclick=null;}
-  else {b.textContent=extra||'模型未加载';b.className='badge';b.style.cursor='default';b.onclick=null;}
+    if(state==='loading'){b.textContent=tr('模型加载中…(约20-60秒)','Loading model…(20-60s)');b.className='badge';b.style.cursor='default';b.onclick=null;}
+    else if(state==='error'){b.textContent=tr('模型加载失败 · 点此重试','Model load failed · click to retry');b.className='badge warn';b.style.cursor='pointer';b.onclick=()=>warmupModel();}
+    else if(state==='ready'){b.textContent=tr('模型已加载 · ','Model ready · ')+(extra||'');b.className='badge ok';b.style.cursor='default';b.onclick=null;}
+    else {b.textContent=extra||tr('模型未加载','Model not loaded');b.className='badge';b.style.cursor='default';b.onclick=null;}
 }
 async function refreshStatus(){
   try{
     const r=await fetch('/api/health');const d=await r.json();
-    document.getElementById('devBadge').textContent=d.device||'未知设备';
+    document.getElementById('devBadge').textContent=d.device||tr('未知设备','Unknown device');
     document.getElementById('devBadge').className='badge '+(d.cuda?'ok':'warn');
     if(d.model_loaded)setModelBadge('ready',(d.sample_rate/1000)+'kHz');
     else setModelBadge('notloaded');
@@ -1064,7 +1121,7 @@ async function warmupModel(){
 async function init(){
   try{
     const r=await fetch('/api/health');const d=await r.json();
-    document.getElementById('devBadge').textContent=d.device||'未知设备';
+    document.getElementById('devBadge').textContent=d.device||tr('未知设备','Unknown device');
     document.getElementById('devBadge').className='badge '+(d.cuda?'ok':'warn');
     if(d.model_loaded)setModelBadge('ready',(d.sample_rate/1000)+'kHz');
     else warmupModel();   // 自动加载模型，避免一直显示“模型未加载”
@@ -1079,7 +1136,7 @@ try{const _sl=localStorage.getItem('voxcpm_lang');if(_sl)setLang(_sl);}catch(_){
 async function callGenerate(fd, signal){
   const r=await fetch('/api/generate',{method:'POST',body:fd,signal,headers:apiHeaders()});
   if(!r.ok){
-    let detail='生成失败';
+    let detail=tr('生成失败','Generation failed');
     try{const j=await r.json();detail=j.detail||detail;}catch(e){}
     throw new Error(detail+'  (HTTP '+r.status+')');
   }
@@ -1091,18 +1148,18 @@ async function generate(){
   const err=document.getElementById('err'),st=document.getElementById('status'),
         res=document.getElementById('res'),btn=document.getElementById('btn');
   err.classList.remove('show');res.classList.remove('show');
-  if(!text){return showErr('请输入要合成的文本');}
+  if(!text){return showErr(tr('请输入要合成的文本','Please enter text to synthesize'));}
   const refFile=document.getElementById('refFile').files[0];
-  if(mode!=='design'&&!refFile&&!selectedPackId){return showErr('该模式需要上传参考音频，或从“已保存音色包”中选择一个');}
+  if(mode!=='design'&&!refFile&&!selectedPackId){return showErr(tr('该模式需要上传参考音频，或从“已保存音色包”中选择一个','This mode requires a reference audio upload, or pick one from the saved voice packs'));}
   const promptText=document.getElementById('promptText').value.trim();
   // 极致克隆：选用音色包时无需逐字文本；上传参考音频时才需填写
-  if(mode==='hifi'&&!selectedPackId&&!promptText){return showErr('极致克隆请上传参考音频并填写其逐字文本；或直接选用音色包（无需逐字文本）');}
+  if(mode==='hifi'&&!selectedPackId&&!promptText){return showErr(tr('极致克隆请上传参考音频并填写其逐字文本；或直接选用音色包（无需逐字文本）','HiFi clone: upload a reference audio and its verbatim transcript; or just pick a voice pack (no transcript needed)'));}
 
   btn.disabled=true;st.classList.add('show');
-  document.getElementById('statusText').textContent='生成中…';
+  document.getElementById('statusText').textContent=tr('生成中…','Generating…');
   const t0=Date.now();
   const timer=setInterval(()=>{document.getElementById('statusText').textContent=
-    '生成中… 已用 '+((Date.now()-t0)/1000).toFixed(1)+' 秒（首次需加载模型，请耐心等待）';},100);
+    tr('生成中… 已用 ','Generating… ')+((Date.now()-t0)/1000).toFixed(1)+tr(' 秒（首次需加载模型，请耐心等待）','s (first run loads the model, please wait)');},100);
 
   let attempt=0;
   while(true){
@@ -1139,7 +1196,7 @@ async function generate(){
       const oldUrl=player.src;
       if(oldUrl&&oldUrl.indexOf('blob:')===0){try{URL.revokeObjectURL(oldUrl);}catch(_){}}
       player.src=URL.createObjectURL(blob);
-      document.getElementById('resMeta').textContent='✅ 生成成功 · 耗时 '+secs+' 秒 · 文件 '+name+'（已保存到 F:\\\\VoxCPM2\\\\outputs）';
+      document.getElementById('resMeta').textContent=tr('✅ 生成成功 · 耗时 ','✅ Done · ')+secs+tr(' 秒 · 文件 ','s · file ')+name+tr('（已保存到 F:\\\\VoxCPM2\\\\outputs）',' (saved to F:\\\\VoxCPM2\\\\outputs)');
       res.classList.add('show');addHist(name,text);refreshStatus();
       clearInterval(timer);btn.disabled=false;st.classList.remove('show');
       return;
@@ -1147,13 +1204,13 @@ async function generate(){
       clearTimeout(to);
       const canRetry = attempt===1 && (/Failed to fetch|网络|HTTP 5/.test(e.message));
       if(canRetry){
-        document.getElementById('statusText').textContent='连接异常，正在自动重试（第 2 次）…';
+        document.getElementById('statusText').textContent=tr('连接异常，正在自动重试（第 2 次）…','Connection error, auto-retrying (attempt 2)…');
         await new Promise(s=>setTimeout(s,800));
         continue; // 重试一次
       }
       clearInterval(timer);
-      let msg=e.message||'请求失败';
-      if(e.name==='AbortError')msg='请求超时（>30 分钟）。参考音频过长或文本太多，请缩短后重试';
+      let msg=e.message||tr('请求失败','Request failed');
+      if(e.name==='AbortError')msg=tr('请求超时（>30 分钟）。参考音频过长或文本太多，请缩短后重试','Request timed out (>30min). Shorten the reference audio or text and retry.');
       showErr(msg);btn.disabled=false;st.classList.remove('show');
       return;
     }finally{
@@ -1174,20 +1231,20 @@ function addHist(name,text){
 
 async function exportAudio(){
   const fmt=document.getElementById('exportFmt').value;
-  if(!lastOutputName){return alert('请先生成音频');}
+  if(!lastOutputName){return alert(tr('请先生成音频','Generate audio first'));}
   const fd=new FormData();
   fd.append('format',fmt);
   fd.append('name',lastOutputName);
   try{
     const r=await fetch('/api/export',{method:'POST',headers:apiHeaders(),body:fd});
-    if(!r.ok){let m='导出失败';try{const j=await r.json();m=j.detail||m;}catch(e){}return alert(m);}
+    if(!r.ok){let m=tr('导出失败','Export failed');try{const j=await r.json();m=j.detail||m;}catch(e){}return alert(m);}
     const blob=await r.blob();
     const a=document.createElement('a');
     a.href=URL.createObjectURL(blob);
     a.download=lastOutputName.replace(/\.wav$/i,'')+'.'+fmt;
     document.body.appendChild(a);a.click();a.remove();
     setTimeout(()=>URL.revokeObjectURL(a.href),1000);
-  }catch(e){alert('导出失败：'+e.message);}
+  }catch(e){alert(tr('导出失败：','Export failed: ')+e.message);}
 }
 
 // ============ 音色包管理 ============
@@ -1207,12 +1264,12 @@ async function loadVoicePacks(){
 function renderPacks(){
   const el=document.getElementById('packList');
   el.innerHTML='';
-  if(!voicePacks.length){el.innerHTML='<div class="muted">还没有音色包，去“制作音色声线包”做一个吧。</div>';return;}
+  if(!voicePacks.length){el.innerHTML='<div class="muted">'+tr('还没有音色包，去“制作音色声线包”做一个吧。','No voice packs yet. Go to "Create Voice Pack" to make one.')+'</div>';return;}
   for(const p of voicePacks){
     const dur=p.processed_duration!=null?p.processed_duration+'s':'';
     const src=p.source_duration!=null?p.source_duration+'s':'';
     const accel=p.accelerated?' <span style="color:#b45309">⚡加速</span>':'';
-    const meta=[dur?('代表参考 '+dur):'', src?('原片 '+src):'', p.created_at].filter(Boolean).join(' · ');
+    const meta=[dur?(tr('代表参考 ','Ref ')+dur):'', src?(tr('原片 ','Src ')+src):'', p.created_at].filter(Boolean).join(' · ');
     const row=document.createElement('div');
     row.className='pack'; row.dataset.id=p.id;
     const info=document.createElement('div'); info.className='info';
@@ -1227,9 +1284,9 @@ function renderPacks(){
       b.dataset.act=act;
       return b;
     }
-    acts.appendChild(btn('▶ 试听','', 'preview'));
-    acts.appendChild(btn('选用','use','use'));
-    acts.appendChild(btn('删除','del','delete'));
+    acts.appendChild(btn(tr('▶ 试听','▶ Preview'),'', 'preview'));
+    acts.appendChild(btn(tr('选用','Use'),'use','use'));
+    acts.appendChild(btn(tr('删除','Delete'),'del','delete'));
     row.appendChild(info); row.appendChild(acts);
     el.appendChild(row);
   }
@@ -1262,7 +1319,7 @@ document.getElementById('refFile').addEventListener('change', function(){
 function fillPackSel(){
   const sel=document.getElementById('packSel');
   const cur=sel.value;
-  sel.innerHTML='<option value="">— 不使用音色包，改为上传音频 —</option>'+
+  sel.innerHTML='<option value="">'+tr('— 不使用音色包，改为上传音频 —','— No voice pack, upload audio instead —')+'</option>'+
     voicePacks.map(p=>'<option value="'+p.id+'">'+esc(p.name)+(p.processed_duration!=null?(' ('+p.processed_duration+'s)'):'')+'</option>').join('');
   if(cur)sel.value=cur;
 }
@@ -1280,7 +1337,7 @@ let __droppedVpFile=null;  // 拖拽进来的视频/音频文件（savePack 优�
 
 async function savePack(){
   const file=document.getElementById('vpFile').files[0]||__droppedVpFile;
-  if(!file&&!recBlob){return showVpErr('请先录制、上传或拖入参考音频/视频');}
+  if(!file&&!recBlob){return showVpErr(tr('请先录制、上传或拖入参考音频/视频','Record, upload or drop a reference audio/video first'));}
   const fd=new FormData();
   fd.append('name',document.getElementById('vpName').value);
   fd.append('denoise',document.getElementById('vpDenoise').checked);
@@ -1291,11 +1348,11 @@ async function savePack(){
   const btn=document.getElementById('vpSaveBtn'),st=document.getElementById('vpStatus');
   btn.disabled=true;st.classList.add('show');showVpErr('');
   const t0=Date.now();
-  const timer=setInterval(()=>{document.getElementById('vpStatusText').textContent='提取中… 已用 '+((Date.now()-t0)/1000).toFixed(1)+' 秒';},200);
+  const timer=setInterval(()=>{document.getElementById('vpStatusText').textContent=tr('提取中… 已用 ','Extracting… ')+((Date.now()-t0)/1000).toFixed(1)+tr(' 秒','s');},200);
   try{
     const r=await fetch('/api/voicepacks',{method:'POST',body:fd,headers:apiHeaders()});
     clearInterval(timer);
-    if(!r.ok){let m='保存失败';try{const j=await r.json();m=j.detail||m;}catch(e){}showVpErr(m);st.classList.remove('show');return;}
+    if(!r.ok){let m=tr('保存失败','Save failed');try{const j=await r.json();m=j.detail||m;}catch(e){}showVpErr(m);st.classList.remove('show');return;}
     const d=await r.json();
     document.getElementById('vpFile').value='';
     __droppedVpFile=null;
@@ -1305,8 +1362,8 @@ async function savePack(){
     st.classList.remove('show');
     await loadVoicePacks();
     showPackPane('manage');
-    alert('已保存音色包：'+d.pack.name+(d.pack.accelerated?'（⚡已开启加速模式）':''));
-  }catch(e){clearInterval(timer);st.classList.remove('show');showVpErr('请求失败：'+e.message);}
+    alert(tr('已保存音色包：','Voice pack saved: ')+d.pack.name+(d.pack.accelerated?tr('（⚡已开启加速模式）',' (⚡accelerated mode)') :''));
+  }catch(e){clearInterval(timer);st.classList.remove('show');showVpErr(tr('请求失败：','Request failed: ')+e.message);}
   finally{btn.disabled=false;}
 }
 
@@ -1314,7 +1371,7 @@ async function savePack(){
 function setVpDropHint(t){
   const el=document.getElementById('vpDropHint');
   if(!el)return;
-  el.textContent=t||'建议 10–60 秒清晰人声；超过 30 秒会自动分段并融合为约 25 秒的代表参考。视频文件会自动提取音轨（需已安装 ffmpeg）。';
+  el.textContent=t||tr('建议 10–60 秒清晰人声；超过 30 秒会自动分段并融合为约 25 秒的代表参考。视频文件会自动提取音轨（需已安装 ffmpeg）。','10–60s of clear voice is recommended; over 30s is auto-segmented and fused into a ~25s representative clip. Video audio is auto-extracted (ffmpeg required).');
 }
 (function(){
   const dz=document.getElementById('vpDropZone');
@@ -1335,7 +1392,7 @@ function setVpDropHint(t){
     const f=files[0];
     // 校验扩展名（视频/音频）
     const ok=/\.(wav|mp3|flac|m4a|aac|ogg|mp4|mov|mkv|avi|webm|flv|m4v|wmv|ts)$/i.test(f.name||'');
-    if(!ok){showVpErr('不支持的文件类型：'+(f.name||'')+'（请拖入 wav/mp3/flac/mp4/mov 等音视频文件）');return;}
+    if(!ok){showVpErr(tr('不支持的文件类型：','Unsupported file type: ')+(f.name||'')+tr('（请拖入 wav/mp3/flac/mp4/mov 等音视频文件）','(drop wav/mp3/flac/mp4/mov etc.)'));return;}
     __droppedVpFile=f;
     // 更新 input 显示（部分浏览器支持 DataTransfer 赋值，失败不影响）
     try{
@@ -1343,7 +1400,7 @@ function setVpDropHint(t){
       dt.items.add(f);
       document.getElementById('vpFile').files=dt.files;
     }catch(_){}
-    setVpDropHint('✅ 已拖入：'+f.name+'（'+(f.size/1024/1024).toFixed(1)+' MB）—— 正在提取音色，请稍候…');
+    setVpDropHint(tr('✅ 已拖入：','✅ Dropped: ')+f.name+tr('（',' (')+(f.size/1024/1024).toFixed(1)+tr(' MB）—— 正在提取音色，请稍候…',' MB) — extracting voice, please wait…'));
     showVpErr('');
     savePack();   // 拖入即自动提取保存
   });
@@ -1355,8 +1412,8 @@ function onPackSel(){
   selectedPackId=v||null;
   const hint=document.getElementById('packSelHint');
   if(v){const p=voicePacks.find(x=>x.id===v);
-    let t='✅ 已选用：'+(p?p.name:v)+'（无需再上传音频，直接点生成即可）';
-    if(p&&p.accelerated)t+='  ⚡加速模式已启用，生成更快';
+    let t=tr('✅ 已选用：','✅ Selected: ')+(p?p.name:v)+tr('（无需再上传音频，直接点生成即可）',' (no re-upload needed, just generate)');
+    if(p&&p.accelerated)t+=tr('  ⚡加速模式已启用，生成更快','  ⚡Accelerated mode on, faster generation');
     hint.textContent=t;
     document.getElementById('refField').classList.add('hide');
     document.getElementById('refFile').value='';   // 二选一互斥：清空参考音频
@@ -1371,8 +1428,8 @@ function usePack(id){
   setMode('clone');
   document.getElementById('packSel').value=id;
   const hint=document.getElementById('packSelHint');
-  let t='✅ 已选用音色包：'+(p?p.name:id)+'（无需再上传音频，直接点生成即可）';
-  if(p&&p.accelerated)t+='  ⚡加速模式已启用，生成更快';
+  let t=tr('✅ 已选用音色包：','✅ Voice pack selected: ')+(p?p.name:id)+tr('（无需再上传音频，直接点生成即可）',' (no re-upload needed, just generate)');
+  if(p&&p.accelerated)t+=tr('  ⚡加速模式已启用，生成更快','  ⚡Accelerated mode on, faster generation');
   hint.textContent=t;
   document.getElementById('refField').classList.add('hide');
   document.getElementById('refFile').value='';
@@ -1384,20 +1441,20 @@ async function previewPack(id){
   if(!vpAudio)vpAudio=new Audio();
   try{
     const r=await fetch('/api/voicepacks/'+id+'/preview',{headers:apiHeaders()});
-    if(!r.ok){alert('试听失败（'+r.status+'）');return;}
+    if(!r.ok){alert(tr('试听失败（','Preview failed (')+r.status+tr('）',')'));return;}
     const blob=await r.blob();
     vpAudio.src=URL.createObjectURL(blob);
     vpAudio.play().catch(()=>{});
-  }catch(e){alert('试听失败：'+e.message);}
+  }catch(e){alert(tr('试听失败：','Preview failed: ')+e.message);}
 }
 
 async function deletePack(id){
-  if(!confirm('确定删除该音色包？此操作不可撤销。'))return;
+  if(!confirm(tr('确定删除该音色包？此操作不可撤销。','Delete this voice pack? This cannot be undone.')))return;
   try{
     const r=await fetch('/api/voicepacks/'+id,{method:'DELETE',headers:apiHeaders()});
     if(r.ok){if(selectedPackId===id)selectedPackId=null;await loadVoicePacks();}
-    else{let m='删除失败';try{const j=await r.json();m=j.detail||m;}catch(e){}alert(m);}
-  }catch(e){alert('请求失败：'+e.message);}
+    else{let m=tr('删除失败','Delete failed');try{const j=await r.json();m=j.detail||m;}catch(e){}alert(m);}
+  }catch(e){alert(tr('请求失败：','Request failed: ')+e.message);}
 }
 
 // ============ 录制音色（MediaRecorder → WAV） ============
@@ -1415,30 +1472,30 @@ async function startRec(){
         document.getElementById('recPlay').src=URL.createObjectURL(recBlob);
         document.getElementById('recWrap').classList.remove('hide');
         document.getElementById('vpFile').value=''; // 录制优先，清空上传
-      }catch(e){showVpErr('录音转码失败：'+e.message);}
+      }catch(e){showVpErr(tr('录音转码失败：','Audio conversion failed: ')+e.message);}
       if(recStream)recStream.getTracks().forEach(t=>t.stop());
     };
     mediaRec.start();
     recSecs=0;
     const btn=document.getElementById('recBtn');
-    btn.textContent='⏹ 停止录制';btn.style.background='#dc2626';btn.onclick=stopRec;
-    document.getElementById('recStatus').textContent='录制中 0.0s';
-    recTimer=setInterval(()=>{recSecs+=0.1;document.getElementById('recStatus').textContent='录制中 '+recSecs.toFixed(1)+'s';},100);
-  }catch(e){showVpErr('无法访问麦克风：'+(e.message||e.name)+'（请允许浏览器麦克风权限）');}
+    btn.textContent=tr('⏹ 停止录制','⏹ Stop Recording');btn.style.background='#dc2626';btn.onclick=stopRec;
+    document.getElementById('recStatus').textContent=tr('录制中 ','Recording ')+'0.0s';
+    recTimer=setInterval(()=>{recSecs+=0.1;document.getElementById('recStatus').textContent=tr('录制中 ','Recording ')+recSecs.toFixed(1)+'s';},100);
+  }catch(e){showVpErr(tr('无法访问麦克风：','Microphone access failed: ')+(e.message||e.name)+tr('（请允许浏览器麦克风权限）','(please allow microphone permission)'));}
 }
 function stopRec(){
   if(mediaRec&&mediaRec.state!=='inactive')mediaRec.stop();
   clearInterval(recTimer);
   const btn=document.getElementById('recBtn');
-  btn.textContent='🎤 重新录制';btn.style.background='#0ea5e9';btn.onclick=startRec;
-  document.getElementById('recStatus').textContent='录制完成，可回放或重新录制';
+  btn.textContent=tr('🎤 重新录制','🎤 Re-record');btn.style.background='#0ea5e9';btn.onclick=startRec;
+  document.getElementById('recStatus').textContent=tr('录制完成，可回放或重新录制','Recording done. Playback or re-record.');
 }
 function resetRec(){
   recBlob=null;recChunks=[];recSecs=0;
   const btn=document.getElementById('recBtn');
-  if(btn){btn.textContent='🎤 开始录制';btn.style.background='#0ea5e9';btn.onclick=startRec;}
+  if(btn){btn.textContent=tr('🎤 开始录制','🎤 Start Recording');btn.style.background='#0ea5e9';btn.onclick=startRec;}
   const w=document.getElementById('recWrap');if(w)w.classList.add('hide');
-  const s=document.getElementById('recStatus');if(s)s.textContent='点击下方按钮授权麦克风后开始朗读，建议 10–30 秒清晰语句；录制完可回放确认。';
+  const s=document.getElementById('recStatus');if(s)s.textContent=tr('点击下方按钮授权麦克风后开始朗读，建议 10–30 秒清晰语句；录制完可回放确认。','Click the button, allow microphone access, then read for 10–30s. Playback to confirm after recording.');
 }
 async function blobToWav(blob){
   const arr=await blob.arrayBuffer();
