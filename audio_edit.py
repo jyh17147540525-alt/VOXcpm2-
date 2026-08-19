@@ -321,3 +321,26 @@ def split_sentences(text: str) -> list[str]:
     """按句末标点切分（用于停顿/呼吸定位）。"""
     parts = [s.strip() for s in re.split(rf"(?<=[{_SENT_END}])", text) if s.strip()]
     return parts or [text.strip()]
+
+
+# ----------------------------------------------------------------------------- 清晰度增强
+def enhance_clarity(y: np.ndarray, sr: int, amount: float = 0.94) -> np.ndarray:
+    """温和的清晰度增强：一阶高通 pre-emphasis（衰减 6dB/oct 的低频倾斜），
+    相对提升辅音/齿音/爆破音能量，改善长音频中个别词语咬字不清的问题。
+    - amount 越接近 1 高频提升越强（语音常用 0.9~0.97）；
+    - 处理后 RMS 对齐回原值，整体响度不变、音色不飘，并做防爆音限幅。"""
+    y = np.asarray(y, dtype=np.float32)
+    if y.ndim > 1:
+        y = y.mean(axis=1)
+    if len(y) < 2:
+        return y.astype(np.float32)
+    out = np.empty_like(y)
+    out[0] = y[0]
+    out[1:] = y[1:] - amount * y[:-1]
+    rms_in = float(np.sqrt(np.mean(y ** 2)) + 1e-8)
+    rms_out = float(np.sqrt(np.mean(out ** 2)) + 1e-8)
+    out = out * (rms_in / rms_out)
+    peak = float(np.max(np.abs(out))) + 1e-12
+    if peak > 0.99:
+        out = out * (0.99 / peak)
+    return out.astype(np.float32)

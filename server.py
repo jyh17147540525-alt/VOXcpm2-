@@ -1767,15 +1767,13 @@ def _do_generate(kwargs: dict):
             import audio_edit as _ae
         except Exception:
             _ae = None
+        # 情绪预设（延迟应用，需先判断是否走稳定合成，避免块间情绪混入）
+        emotion_preset = None
         if emotion and _ae is not None:
             name = _ae.EMOTION_ALIAS.get(emotion.lower(), emotion)
-            preset = _ae.EMOTION_PRESETS.get(name) or _ae.EMOTION_PRESETS.get(emotion)
-            if preset:
-                pitch = pitch if abs(pitch) > 0.01 else preset.get("pitch", 0.0)
-                speed = speed if abs(speed - 1.0) > 0.01 else preset.get("speed", 1.0)
-                volume = volume if abs(volume - 1.0) > 0.01 else preset.get("volume", 1.0)
-                pause = pause if abs(pause - 0.15) > 0.01 else preset.get("pause", 0.15)
-                breath = breath if breath > 0.01 else preset.get("breath", 0.4)
+            emotion_preset = _ae.EMOTION_PRESETS.get(name) or _ae.EMOTION_PRESETS.get(emotion)
+
+        # SSML 解析（优先级高于情绪预设）
         if _ssml and _ae is not None:
             text_str, sp = _ae.parse_ssml(str(kwargs.get("text", "")))
             kwargs["text"] = text_str
@@ -1784,6 +1782,24 @@ def _do_generate(kwargs: dict):
             volume = sp.get("volume", volume)
             pause = sp.get("pause", pause)
             breath = sp.get("breath", breath)
+
+        # 是否走稳定合成（长文本 / 勾选稳定）
+        use_stable = _stable or len(str(kwargs.get("text", ""))) >= LONG_TEXT_CHARS
+
+        # 应用情绪预设：
+        # - 稳定路径：情绪韵律交由 synthesize_stable 逐块统一施加，此处只取停顿/呼吸，
+        #   避免 pitch/speed/volume 双重施加与块间情绪不一致
+        # - 短文本直通：情绪用全局韵律（pitch/speed/volume/pause/breath）
+        if emotion_preset:
+            if use_stable:
+                pause = pause if abs(pause - 0.15) > 0.01 else emotion_preset.get("pause", 0.15)
+                breath = breath if breath > 0.01 else emotion_preset.get("breath", 0.4)
+            else:
+                pitch = pitch if abs(pitch) > 0.01 else emotion_preset.get("pitch", 0.0)
+                speed = speed if abs(speed - 1.0) > 0.01 else emotion_preset.get("speed", 1.0)
+                volume = volume if abs(volume - 1.0) > 0.01 else emotion_preset.get("volume", 1.0)
+                pause = pause if abs(pause - 0.15) > 0.01 else emotion_preset.get("pause", 0.15)
+                breath = breath if breath > 0.01 else emotion_preset.get("breath", 0.4)
 
         # 发音校正：检测多音字/生僻字并记录（模型本身具备 LLM 级多音字上下文理解）
         if _ae is not None:
@@ -1799,9 +1815,9 @@ def _do_generate(kwargs: dict):
         sr = _vc_stab._get_sample_rate(model)
         with _infer_lock:                         # 串行推理，防并发打爆显存
             text_str = str(kwargs.get("text", ""))
-            # 长文本/稳定合成：句末+逗号分块 + 每块独立生成(参考锚定) + 分级停顿拼接，
-            # 根治音色漂移 / 机械感累积 / 语速越来越快 / 逗号无停顿。
-            if _stable or len(text_str) >= LONG_TEXT_CHARS:
+            # 长文本/稳定合成：句末+逗号+换行分块 + 每块独立生成(参考锚定) + 分级停顿拼接，
+            # 根治音色漂移 / 机械感累积 / 语速越来越快 / 逗号无停顿 / 情绪块间混入。
+            if use_stable:
                 wav, stab_rep = _vc_stab.synthesize_stable(
                     model,
                     text_str,
@@ -1835,6 +1851,10 @@ def _do_generate(kwargs: dict):
         if _ae is not None:
             wav = _ae.apply_volume(wav, volume)
         wav = _vc_stab.declip(wav)
+        # 长音频清晰度增强：约 30s 以上的成品做温和 pre-emphasis，
+        # 相对提升辅音/齿音能量，改善长音频中个别词语咬字不清的问题
+        if _ae is not None and (len(wav) / sr) >= 30.0:
+            wav = _ae.enhance_clarity(wav, sr)
         elapsed = round(time.time() - t0, 2)
 
         name = f"tts_{time.strftime('%m%d_%H%M%S')}_{uuid.uuid4().hex[:4]}.wav"
@@ -1931,16 +1951,12 @@ def multi_speaker(request: Request,
             r_pause = float(rp.get("pause", 0.15) if rp.get("pause") is not None else 0.15)
             r_breath = float(rp.get("breath", 0) if rp.get("breath") is not None else 0)
 
-            # 情绪参数（叠加到角色参数）
+            # 情绪参数：情绪韵律交由 synthesize_stable 逐块统一施加（严格一致），
+            # 这里只叠加角色独立参数，避免情绪预设 double-apply 与块间情绪混入
             emo = seg["emotion"]
-            e_pitch, e_speed, e_volume = 0.0, 1.0, 1.0
-            if _ae and emo in {"高兴", "悲伤", "严肃", "温柔", "愤怒"}:
-                preset = _ae.EMOTION_PRESETS.get(emo)
-                if preset:
-                    e_pitch = preset.get("pitch", 0); e_speed = preset.get("speed", 1); e_volume = preset.get("volume", 1)
-            pitch = r_pitch + e_pitch
-            speed = r_speed * e_speed
-            volume = r_volume * e_volume
+            pitch = r_pitch
+            speed = r_speed
+            volume = r_volume
 
             # 稳定合成（长段分块+参考锚定；短段直通 model.generate）
             wav, _ = _vc_stab.synthesize_stable(
@@ -2032,14 +2048,11 @@ async def dialogue(request: Request):
                 if vp_wav and vp_wav.exists():
                     ref_path = str(vp_wav)
             tp, ts = TONE_MAP.get(tone, (0, 1.0))
-            e_pitch, e_speed, e_volume = 0.0, 1.0, 1.0
-            if _ae and emotion in {"高兴", "悲伤", "严肃", "温柔", "愤怒"}:
-                preset = _ae.EMOTION_PRESETS.get(emotion)
-                if preset:
-                    e_pitch = preset.get("pitch", 0); e_speed = preset.get("speed", 1); e_volume = preset.get("volume", 1)
-            pitch = tp + e_pitch + pitch_user
-            speed = ts * e_speed * speed_user
-            vol = volume * e_volume
+            # 情绪韵律交由 synthesize_stable 逐块统一施加（严格一致），
+            # 这里只叠加「语气 + 用户独立参数」，避免情绪预设 double-apply 与块间混入
+            pitch = tp + pitch_user
+            speed = ts * speed_user
+            vol = volume
             wav, _ = _vc_stab.synthesize_stable(
                 model, text, ref_path, sr, pause=pause_turn, breath=breath_turn, emotion=emotion,
                 cfg_value=cfg, inference_timesteps=steps, normalize=True, denoise=denoise_on)

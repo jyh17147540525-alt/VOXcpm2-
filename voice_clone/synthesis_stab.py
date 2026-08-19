@@ -27,6 +27,9 @@ import numpy as np
 
 _SENT_END = "。！？!?；;…"
 _CLAUSE = "，、：,:"
+# 硬切时的「可断字」：纯中文连续串超长时，切点优先落在这些虚词/语气词之后，
+# 避免把多字词从中间切断导致拼接处咬字不清。
+_CJK_BREAK_CHARS = "的了呢吗啊吧呀么与和或在是对就都还把被给让向跟从把又再也都"
 
 
 # ----------------------------------------------------------------------------- 限幅 / 后处理
@@ -71,6 +74,52 @@ def _hard_split(s: str, max_chars: int) -> list[str]:
     return out
 
 
+def _hard_split_chunk(s: str, max_chars: int) -> list[str]:
+    """把超长无标点块硬切成 <= max_chars 的片段，尽量不切到词/字中间。
+    - 有空格：按空格（词）边界切（英文/中英混排）；
+    - 纯中文连续串：按 max_chars 切，切点优先落在虚词/语气词（_CJK_BREAK_CHARS）之后，
+      避免把多字词从中间切断导致拼接处咬字不清。"""
+    if len(s) <= max_chars:
+        return [s]
+    # 有空格 → 按词边界切
+    if " " in s:
+        out, cur = [], ""
+        for word in s.split():
+            if not cur:
+                cur = word
+            elif len(cur) + 1 + len(word) <= max_chars:
+                cur = cur + " " + word
+            else:
+                out.append(cur)
+                cur = word
+            while len(cur) > max_chars:
+                out.append(cur[:max_chars])
+                cur = cur[max_chars:]
+        if cur:
+            out.append(cur)
+        return out
+    # 纯中文/无空格：按 max_chars 切，切点优先落在可断字之后
+    n = len(s)
+    out, start = [], 0
+    while start < n:
+        end = min(start + max_chars, n)
+        if end < n:
+            lo = max(start + max_chars // 2, start + 1)
+            cut = end
+            for i in range(end - 1, lo - 1, -1):
+                if s[i] in _CJK_BREAK_CHARS:
+                    cut = i + 1
+                    break
+            if cut <= start:
+                cut = end
+            out.append(s[start:cut])
+            start = cut
+        else:
+            out.append(s[start:end])
+            start = end
+    return out
+
+
 def _split_sentence(s: str, max_chars: int) -> list[str]:
     """把超长单句按子句标点（，、：,）切分；仍超长则按空格硬切。"""
     parts = [p.strip() for p in re.split(rf"(?<=[{_CLAUSE}])", s) if p.strip()]
@@ -89,41 +138,50 @@ def split_long_text(text: str, max_chars: int = 80) -> list[str]:
 
 
 def split_with_pauses(text: str, max_chars: int = 60) -> list[tuple[str, str]]:
-    """长台词分块：句末标点与逗号都作为停顿点，返回 [(text, pause_type)]。
+    """长台词分块：句末标点、逗号、换行符都作为停顿点，返回 [(text, pause_type)]。
     pause_type:
       - 'end'    句末标点（。！？；…）结尾 → 长停顿
       - 'comma'  逗号/顿号/冒号（，、：）结尾 → 短停顿
+      - 'line'   换行结尾（诗歌/跨行文本）→ 诗行停顿（介于句末与逗号之间）
       - 'hard'   无标点超长硬切 → 极短停顿
-    规则：每个分句独立成块（逗号处自然停顿），仅 <4 字的碎片并入前块；
-    无标点超长串按 max_chars 硬切，避免切到词中间。"""
-    text = text.strip()
+    规则：每个分句/诗行独立成块（逗号、换行处自然停顿），仅 <4 字的碎片并入前块；
+    无标点超长串按 max_chars 硬切，尽量不切到词中间。"""
+    text = (text or "").strip()
     if not text:
         return []
-    parts = [p.strip() for p in re.split(rf"(?<=[{_SENT_END}{_CLAUSE}])", text) if p.strip()]
-    if not parts:
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    # 先按换行拆行（诗歌/跨行文本），行内再按句末+子句标点分句
+    lines = [ln.strip() for ln in text.split("\n") if ln.strip()]
+    if not lines:
         return []
     chunks: list[tuple[str, str]] = []
-    cur, cur_type = "", "comma"
-    for p in parts:
-        ptype = "end" if p[-1] in _SENT_END else "comma"
-        if cur and len(p) < 4:
-            # 极短碎片（如"他说"）并入前块，避免过度碎片化
-            cur += p
-            cur_type = ptype
-        else:
-            if cur:
-                chunks.append((cur, cur_type))
-            cur, cur_type = p, ptype
-    if cur:
-        chunks.append((cur, cur_type))
-    # 无标点超长块硬切
-    out: list[tuple[str, str]] = []
+    for ln in lines:
+        parts = [p.strip() for p in re.split(rf"(?<=[{_SENT_END}{_CLAUSE}])", ln) if p.strip()]
+        if not parts:
+            parts = [ln]
+        for pi, p in enumerate(parts):
+            if p[-1] in _SENT_END:
+                ptype = "end"
+            elif p[-1] in _CLAUSE:
+                ptype = "comma"
+            else:
+                # 行末无标点 → 诗行停顿（跨行/诗歌）
+                ptype = "line" if pi == len(parts) - 1 else "comma"
+            chunks.append((p, ptype))
+    # 合并 <4 字碎片到前块
+    merged: list[tuple[str, str]] = []
     for t, typ in chunks:
-        while len(t) > max_chars:
-            out.append((t[:max_chars], "hard"))
-            t = t[max_chars:]
-        if t:
-            out.append((t, typ))
+        if merged and len(t) < 4:
+            merged[-1] = (merged[-1][0] + t, typ)
+        else:
+            merged.append((t, typ))
+    # 无标点超长块硬切（尽量不切词中间）
+    out: list[tuple[str, str]] = []
+    for t, typ in merged:
+        parts = _hard_split_chunk(t, max_chars)
+        for idx, part in enumerate(parts):
+            is_last = idx == len(parts) - 1
+            out.append((part, typ if is_last else "hard"))
     return out
 
 
@@ -337,11 +395,18 @@ def _detect_f0(y: np.ndarray, sr: int) -> float | None:
 
 def _align_pitch(pieces: list[np.ndarray], sr: int,
                  threshold_st: float = 4.0, max_correct_st: float = 1.5,
-                 keep_st: float = 2.0) -> tuple[list[np.ndarray], list[tuple]]:
+                 keep_st: float = 2.0, strict: bool = False) -> tuple[list[np.ndarray], list[tuple]]:
     """块级基频离群校正（保守版）：仅对 F0 偏离全局中位数超过 threshold_st(4) 半音的
     明显离群块做轻微拉回（单块最多 max_correct_st(1.5) 半音，拉回到偏离 keep_st(2) 以内）。
     先做八度误差修正（pyin 常把基频误判为高/低一个八度，那并非真实语调突变），
-    避免把正常音调误当突变强行拉平（否则会引入机械感）。"""
+    避免把正常音调误当突变强行拉平（否则会引入机械感）。
+
+    strict=True 时（显式情绪/需严格音色统一），阈值收紧到 2 半音、拉回更充分，
+    把模型因文本内容自主产生的语调起伏压到最小，保证整段语调/音色一致。"""
+    if strict:
+        threshold_st = 2.0
+        max_correct_st = 1.0
+        keep_st = 0.5
     if len(pieces) < 3:
         return pieces, []
     f0s = [_detect_f0(p, sr) for p in pieces]
@@ -399,6 +464,49 @@ def _apply_emotion(pieces: list[np.ndarray], emotions: list[tuple[str, float]],
     return out, report
 
 
+# 显式情绪的「严格一致」韵律表：与 audio_edit.EMOTION_PRESETS 对齐。
+# 用户选定预设情绪时，对每一块施加完全相同的韵律，杜绝块间情绪混入。
+_EMOTION_UNIFORM = {
+    "高兴": {"pitch": 1, "speed": 1.08, "volume": 1.12},
+    "悲伤": {"pitch": -1, "speed": 0.86, "volume": 0.90},
+    "严肃": {"pitch": 0, "speed": 0.92, "volume": 1.00},
+    "温柔": {"pitch": 0, "speed": 0.95, "volume": 0.95},
+    "愤怒": {"pitch": 0, "speed": 1.15, "volume": 1.25},
+    "平静": {"pitch": 0, "speed": 1.00, "volume": 1.00},
+}
+
+_EMOTION_UNIFORM_ALIAS = {
+    "happy": "高兴", "sad": "悲伤", "serious": "严肃", "gentle": "温柔",
+    "angry": "愤怒", "calm": "平静", "neutral": "平静", "中性": "平静",
+    "开心": "高兴", "快乐": "高兴", "难过": "悲伤", "伤心": "悲伤", "生气": "愤怒",
+}
+
+
+def _apply_emotion_uniform(pieces: list[np.ndarray], emotion: str,
+                           sr: int) -> tuple[list[np.ndarray], list[tuple]]:
+    """显式情绪严格一致：对每一块施加完全相同的情绪韵律（音调/语速/音量），
+    强度恒为 1.0、无过渡系数波动、无自动检测，保证整段音频情绪定量一致、
+    不混入其他情绪。情绪只改韵律，不改变参考音色。"""
+    key = _EMOTION_UNIFORM_ALIAS.get((emotion or "").strip().lower(),
+                                     (emotion or "").strip())
+    acoustic = _EMOTION_UNIFORM.get(key)
+    if acoustic is None:
+        return pieces, []
+    from audio_edit import apply_pitch, apply_speed, apply_volume
+    out = list(pieces)
+    pitch_delta = float(acoustic["pitch"])
+    speed_factor = float(acoustic["speed"])
+    volume_factor = float(acoustic["volume"])
+    for i in range(len(out)):
+        if abs(pitch_delta) > 0.05:
+            out[i] = apply_pitch(out[i], sr, pitch_delta)
+        if abs(speed_factor - 1.0) > 0.01:
+            out[i] = apply_speed(out[i], sr, speed_factor)
+        if abs(volume_factor - 1.0) > 0.01:
+            out[i] = apply_volume(out[i], volume_factor)
+    return out, [(i, key, 1.0, 1.0) for i in range(len(out))]
+
+
 def synthesize_stable(model, text: str, reference_wav_path: str | None,
                       sr_tts: int, prompt_wav_path: str | None = None,
                       prompt_text: str | None = None, max_chars: int = 60,
@@ -440,6 +548,11 @@ def synthesize_stable(model, text: str, reference_wav_path: str | None,
     if len(chunks_text) <= 1:
         audio = model.generate(text=text, **full_kwargs)
         wav = postprocess_output(_to_numpy(audio))
+        # 单块也要应用显式情绪韵律，保证「勾选稳定 + 短文本 + 预设情绪」时情绪不丢失
+        user_emotion = (emotion or "").strip()
+        if user_emotion:
+            wav_list, _ = _apply_emotion_uniform([wav], user_emotion, sr_tts)
+            wav = wav_list[0]
         report.update(compute_stability_metrics([wav], wav, sr_tts))
         return wav, report
 
@@ -481,9 +594,17 @@ def synthesize_stable(model, text: str, reference_wav_path: str | None,
             report.setdefault("independent_ok", []).append(False)
         pieces.append(postprocess_output(audio_np))
 
-    # 情绪感知：仅在用户未显式指定情绪时，做「默认中性 + 明确提示才平滑过渡」的控制
+    # 情绪处理：
+    # - 显式指定情绪 → 逐块施加完全相同的情绪韵律（严格一致，不混入其他情绪）
+    # - 未指定 → 默认中性平稳，仅标点/情感词明确提示才平滑过渡
     user_emotion = (emotion or "").strip()
-    if not user_emotion:
+    strict_pitch = False
+    if user_emotion:
+        pieces, emotion_uniform = _apply_emotion_uniform(pieces, user_emotion, sr_tts)
+        if emotion_uniform:
+            report["emotion_uniform"] = user_emotion
+        strict_pitch = True
+    else:
         control = dict(EMOTION_CONTROL)
         if emotion_control:
             control.update(emotion_control)
@@ -492,8 +613,9 @@ def synthesize_stable(model, text: str, reference_wav_path: str | None,
         if emotion_transitions:
             report["emotion_transitions"] = emotion_transitions
 
-    # 块级基频离群校正：消除个别句子语调突变，让整段音调平稳过渡
-    pieces, pitch_corrections = _align_pitch(pieces, sr_tts)
+    # 块级基频离群校正：消除个别句子语调突变，让整段音调平稳过渡；
+    # 显式情绪时用严格模式，进一步保证整段语调/音色一致
+    pieces, pitch_corrections = _align_pitch(pieces, sr_tts, strict=strict_pitch)
     if pitch_corrections:
         report["pitch_corrected"] = pitch_corrections
 
@@ -530,6 +652,7 @@ def _join_pieces(pieces: list[np.ndarray], chunks_with_pause: list[tuple[str, st
 
     pause_end = max(0.30, pause * 2.0)     # 句末长停顿
     pause_comma = max(0.10, pause)         # 逗号短停顿
+    pause_line = max(0.18, pause * 1.35)   # 诗行停顿（介于句末与逗号之间，适合诗歌/跨行）
     pause_hard = 0.05                      # 硬切极短停顿
 
     out: np.ndarray | None = None
@@ -550,6 +673,9 @@ def _join_pieces(pieces: list[np.ndarray], chunks_with_pause: list[tuple[str, st
                 out = np.concatenate([out, gap, c])
         elif ptype == "comma":
             gap = np.zeros(int(pause_comma * sr), dtype=np.float32)
+            out = np.concatenate([out, gap, c])
+        elif ptype == "line":
+            gap = np.zeros(int(pause_line * sr), dtype=np.float32)
             out = np.concatenate([out, gap, c])
         else:  # hard
             gap = np.zeros(int(pause_hard * sr), dtype=np.float32)
