@@ -90,6 +90,9 @@ REF_TARGET_DUR = float(os.environ.get("VOXCPM_REF_TARGET_DUR", "25.0"))  # 融�
 ACCEL_STEPS = int(os.environ.get("VOXCPM_ACCEL_STEPS", "4"))
 # 长文本自动稳定合成阈值（超过此长度强制分块，避免单次超长生成导致音色漂移/机械感）
 LONG_TEXT_CHARS = int(os.environ.get("VOXCPM_LONG_TEXT_CHARS", "100"))
+# 显存保护阈值（GB）：VoxCPM 连续推理会在内部累积显存缓存，超过此阈值先优雅卸载
+# 并重载模型回收，避免长期连续生成触发 CUDA OOM / native crash。
+MEMORY_RESET_THRESHOLD_GB = float(os.environ.get("VOXCPM_MEM_RESET_GB", "11.0"))
 sys.path.insert(0, str(BASE_DIR))  # 让 voice_clone 包可被导入
 from voice_clone import prepare_reference as _vc_prepare_reference
 from voice_clone import synthesis_stab as _vc_stab
@@ -1596,7 +1599,7 @@ def generate(
     breath: float = Form(0.0),
     emotion: str = Form(""),
     default_emotion: str = Form("neutral"),
-    trigger_threshold: float = Form(0.5),
+    trigger_threshold: float = Form(0.6),
     transition_smoothness: float = Form(0.5),
     timbre_lock: str = Form("true"),
     ssml: str = Form("false"),
@@ -1744,6 +1747,18 @@ def _do_generate(kwargs: dict):
     t0 = time.time()
     try:
         model = get_model()                       # 加载也可能抛异常，一并捕获
+        # 显存保护：VoxCPM 连续推理会累积显存缓存（内部泄漏，无法从外部根治），
+        # 超过阈值先优雅卸载并重载模型回收，避免 CUDA OOM / native crash
+        try:
+            import torch
+            if torch.cuda.is_available():
+                _mem_gb = torch.cuda.memory_allocated() / (1024 ** 3)
+                if _mem_gb > MEMORY_RESET_THRESHOLD_GB:
+                    print(f"[VoxCPM2] 显存占用 {_mem_gb:.1f}GB 超阈值，主动重载模型释放泄漏", flush=True)
+                    unload_model()
+                    model = get_model()
+        except Exception:
+            pass
         _stable = kwargs.pop("_stable", False)
         _ssml = kwargs.pop("_ssml", False)
         pitch = float(kwargs.pop("pitch", 0.0) or 0.0)

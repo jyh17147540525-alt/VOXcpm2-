@@ -565,10 +565,16 @@ def synthesize_stable(model, text: str, reference_wav_path: str | None,
         full_kwargs["prompt_wav_path"] = prompt_wav_path
         full_kwargs["prompt_text"] = prompt_text
 
-    if len(chunks_text) <= 1:
+    # 整段一次生成的两类情况：
+    # 1) 单块文本；
+    # 2) 无参考音色、无 prompt（zero-shot 设计模式）——build_prompt_cache 必然失败，
+    #    分块独立生成会退化成 N 次完整 model.generate，既无音色锚定收益，又带来
+    #    N 倍耗时与连续推理的 CUDA 稳定性风险（连续多次后 native crash）。
+    #    整段一次生成，天然音色/情绪一致，又快又稳。
+    if len(chunks_text) <= 1 or (not use_ref and not use_prompt):
         audio = model.generate(text=text, **full_kwargs)
         wav = postprocess_output(_to_numpy(audio))
-        # 单块也要应用显式情绪韵律，保证「勾选稳定 + 短文本 + 预设情绪」时情绪不丢失
+        # 显式情绪韵律仍需应用（单块/整段同样）
         user_emotion = (emotion or "").strip()
         if user_emotion:
             wav_list, _ = _apply_emotion_uniform([wav], user_emotion, sr_tts)
@@ -613,6 +619,13 @@ def synthesize_stable(model, text: str, reference_wav_path: str | None,
             audio_np = _to_numpy(model.generate(text=ct, **full_kwargs))
             report.setdefault("independent_ok", []).append(False)
         pieces.append(postprocess_output(audio_np))
+        # 每块生成后释放 GPU 缓存，避免连续多次推理累积碎片化导致 CUDA native crash
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
 
     # 情绪处理：
     # - 显式指定情绪 → 逐块施加完全相同的情绪韵律（严格一致，不混入其他情绪）
