@@ -261,7 +261,7 @@ def parse_ssml(text: str) -> tuple[str, dict]:
     """解析 SSML 标签，返回 (纯净文本, 全局参数)。
     支持 <break time>、<emotion name>、<prosody rate/pitch/volume>、<emphasis>。
     """
-    params: dict = {"pitch": 0.0, "speed": 1.0, "volume": 1.0, "pause": 0.15, "breath": 0.4}
+    params: dict = {"pitch": 0.0, "speed": 1.0, "volume": 1.0, "pause": 0.15, "breath": 0.0}
     out = text
     # 情绪
     m = _EMOTION_RE.search(out)

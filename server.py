@@ -1787,19 +1787,19 @@ def _do_generate(kwargs: dict):
         use_stable = _stable or len(str(kwargs.get("text", ""))) >= LONG_TEXT_CHARS
 
         # 应用情绪预设：
-        # - 稳定路径：情绪韵律交由 synthesize_stable 逐块统一施加，此处只取停顿/呼吸，
+        # - 稳定路径：情绪韵律交由 synthesize_stable 逐块统一施加，此处只取停顿，
         #   避免 pitch/speed/volume 双重施加与块间情绪不一致
-        # - 短文本直通：情绪用全局韵律（pitch/speed/volume/pause/breath）
+        # - 短文本直通：情绪用全局韵律（pitch/speed/volume/pause）
+        # - 呼吸(breath)是用户显式可控参数（默认 0 = 无呼吸），情绪预设绝不覆盖它，
+        #   否则用户把呼吸调到 0 仍会因情绪预设冒出呼吸声
         if emotion_preset:
             if use_stable:
                 pause = pause if abs(pause - 0.15) > 0.01 else emotion_preset.get("pause", 0.15)
-                breath = breath if breath > 0.01 else emotion_preset.get("breath", 0.4)
             else:
                 pitch = pitch if abs(pitch) > 0.01 else emotion_preset.get("pitch", 0.0)
                 speed = speed if abs(speed - 1.0) > 0.01 else emotion_preset.get("speed", 1.0)
                 volume = volume if abs(volume - 1.0) > 0.01 else emotion_preset.get("volume", 1.0)
                 pause = pause if abs(pause - 0.15) > 0.01 else emotion_preset.get("pause", 0.15)
-                breath = breath if breath > 0.01 else emotion_preset.get("breath", 0.4)
 
         # 发音校正：检测多音字/生僻字并记录（模型本身具备 LLM 级多音字上下文理解）
         if _ae is not None:
@@ -1875,7 +1875,7 @@ def _do_generate(kwargs: dict):
         }
         if stability_report:
             try:
-                headers["X-Stability"] = json.dumps(stability_report, ensure_ascii=False)
+                headers["X-Stability"] = json.dumps(stability_report, ensure_ascii=True)
             except Exception:
                 pass
         return Response(
