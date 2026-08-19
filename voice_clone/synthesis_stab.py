@@ -317,7 +317,7 @@ def _maybe_normalize_text(text: str, normalize: bool) -> str:
 
 EMOTION_CONTROL = {
     "default_emotion": "neutral",           # 默认情绪（未指定时）
-    "trigger_threshold": 0.5,               # 情绪切换触发阈值（情感强度 0~1，低于此一律中性）
+    "trigger_threshold": 0.6,               # 情绪切换触发阈值（情感强度 0~1，低于此一律中性）
     "transition_smoothness": 0.5,           # 情绪过渡平滑度（0=最弱/最平滑，1=最强）
     "timbre_lock": True,                    # 音色一致性锁定（True=全程同参考，情绪不改音色）
     "keep_default_when_unspecified": True,  # 未特调时保持默认中性、音色不变
@@ -375,16 +375,22 @@ def detect_emotion(text: str) -> tuple[str, float]:
 
 
 def _detect_f0(y: np.ndarray, sr: int) -> float | None:
-    """检测音频块的中位基频（pyin）。要求足够长的有效浊音帧，否则判为不可靠返回 None，
-    避免对短块/清音块的误判导致过度校正。"""
+    """检测音频块的中位基频（pyin）。短块/清音块 F0 不可靠，返回 None 跳过校正，
+    避免对不可靠块做错误的音调拉回导致整段「乱变调」。"""
+    y = np.asarray(y, dtype=np.float32)
+    if y.ndim > 1:
+        y = y.mean(axis=1)
+    # 短块保护：< 0.3s 的块 pyin 检测不可靠，直接跳过
+    if len(y) < int(sr * 0.3):
+        return None
     try:
         import librosa
         f0, _, _ = librosa.pyin(y, fmin=60, fmax=500, sr=sr)
         voiced = f0[~np.isnan(f0)]
         if len(f0) == 0:
             return None
-        # 有效浊音帧占比不足 25% 视为检测不可靠（短块/偏清音的块）
-        if len(voiced) / len(f0) < 0.25:
+        # 有效浊音帧占比不足 35% 视为检测不可靠（短块/偏清音的块）
+        if len(voiced) / len(f0) < 0.35:
             return None
         if len(voiced) < 3:
             return None
@@ -401,11 +407,11 @@ def _align_pitch(pieces: list[np.ndarray], sr: int,
     先做八度误差修正（pyin 常把基频误判为高/低一个八度，那并非真实语调突变），
     避免把正常音调误当突变强行拉平（否则会引入机械感）。
 
-    strict=True 时（显式情绪/需严格音色统一），阈值收紧到 2 半音、拉回更充分，
-    把模型因文本内容自主产生的语调起伏压到最小，保证整段语调/音色一致。"""
+    strict=True 时（显式情绪/需严格音色统一），阈值收紧到 3 半音、但单块拉回更克制，
+    在「压住模型自主语调起伏」与「不误伤正常语调、不引入伪影」之间取平衡。"""
     if strict:
-        threshold_st = 2.0
-        max_correct_st = 1.0
+        threshold_st = 3.0
+        max_correct_st = 0.8
         keep_st = 0.5
     if len(pieces) < 3:
         return pieces, []
@@ -416,15 +422,29 @@ def _align_pitch(pieces: list[np.ndarray], sr: int,
     median_f0 = float(np.median([f for _, f in valid]))
     if median_f0 <= 0:
         return pieces, []
+
+    # 先做八度误差折回，得到每块相对中位数的偏差（半音）
+    def _fold_octave(f: float) -> float:
+        s = 12.0 * float(np.log2(f / median_f0))
+        if abs(s) > 10.0:
+            f = f / 2.0 if s > 0 else f * 2.0
+            s = 12.0 * float(np.log2(f / median_f0))
+        return s
+
+    sts = {i: _fold_octave(f) for i, f in valid}
+    # 离群块占比过高（>40%）说明全局音调本就不稳，校正只会越校越乱，整体放弃
+    n_out = sum(1 for s in sts.values() if abs(s) > threshold_st)
+    if n_out / max(1, len(sts)) > 0.4:
+        return pieces, []
+
     from audio_edit import apply_pitch
     out = list(pieces)
     corrected: list[tuple] = []
     for i, f in valid:
-        # 八度误差修正：偏离接近 ±12 半音（0.85~1.15 个八度）视为 pyin 误判，折回同八度
-        st = 12.0 * float(np.log2(f / median_f0))
-        if abs(st) > 10.0:
-            f = f / 2.0 if st > 0 else f * 2.0
-            st = 12.0 * float(np.log2(f / median_f0))
+        st = sts[i]
+        # 折回八度后仍偏离过大（>6 半音）说明该块 F0 检测不可靠，跳过而非强行拉回
+        if abs(st) > 6.0:
+            continue
         if abs(st) > threshold_st:
             target_st = -np.sign(st) * min(abs(st) - keep_st, max_correct_st)
             out[i] = apply_pitch(pieces[i], sr, target_st)

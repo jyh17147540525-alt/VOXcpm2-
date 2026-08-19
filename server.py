@@ -1756,7 +1756,7 @@ def _do_generate(kwargs: dict):
         # 情绪控制参数（长文本默认中性、情绪切换阈值、过渡平滑度、音色锁定）
         emotion_control = {
             "default_emotion": kwargs.pop("default_emotion", "neutral") or "neutral",
-            "trigger_threshold": float(kwargs.pop("trigger_threshold", 0.5) or 0.5),
+            "trigger_threshold": float(kwargs.pop("trigger_threshold", 0.6) or 0.6),
             "transition_smoothness": float(kwargs.pop("transition_smoothness", 0.5) or 0.5),
             "timbre_lock": bool(kwargs.pop("timbre_lock", True)),
             "keep_default_when_unspecified": True,
