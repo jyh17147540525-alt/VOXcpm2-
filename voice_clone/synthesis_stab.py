@@ -484,11 +484,13 @@ def _apply_emotion(pieces: list[np.ndarray], emotions: list[tuple[str, float]],
     return out, report
 
 
-# 显式情绪的「严格一致」韵律表：与 audio_edit.EMOTION_PRESETS 对齐。
+# 显式情绪的「严格一致」韵律表：与 audio_edit.EMOTION_PRESETS 对齐（pitch 除外）。
 # 用户选定预设情绪时，对每一块施加完全相同的韵律，杜绝块间情绪混入。
+# pitch 一律为 0：情绪只通过语速/音量/停顿/呼吸表达，**不改音调**（语调保持不变，
+# 避免整体升降调带来的"变调感"；块间语调由 _align_pitch 统一拉平）。
 _EMOTION_UNIFORM = {
-    "高兴": {"pitch": 1, "speed": 1.08, "volume": 1.12},
-    "悲伤": {"pitch": -1, "speed": 0.86, "volume": 0.90},
+    "高兴": {"pitch": 0, "speed": 1.08, "volume": 1.12},
+    "悲伤": {"pitch": 0, "speed": 0.86, "volume": 0.90},
     "严肃": {"pitch": 0, "speed": 0.92, "volume": 1.00},
     "温柔": {"pitch": 0, "speed": 0.95, "volume": 0.95},
     "愤怒": {"pitch": 0, "speed": 1.15, "volume": 1.25},

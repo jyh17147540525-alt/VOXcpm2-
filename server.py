@@ -90,9 +90,10 @@ REF_TARGET_DUR = float(os.environ.get("VOXCPM_REF_TARGET_DUR", "25.0"))  # 融�
 ACCEL_STEPS = int(os.environ.get("VOXCPM_ACCEL_STEPS", "4"))
 # 长文本自动稳定合成阈值（超过此长度强制分块，避免单次超长生成导致音色漂移/机械感）
 LONG_TEXT_CHARS = int(os.environ.get("VOXCPM_LONG_TEXT_CHARS", "100"))
-# 显存保护阈值（GB）：VoxCPM 连续推理会在内部累积显存缓存，超过此阈值先优雅卸载
-# 并重载模型回收，避免长期连续生成触发 CUDA OOM / native crash。
-MEMORY_RESET_THRESHOLD_GB = float(os.environ.get("VOXCPM_MEM_RESET_GB", "11.0"))
+# 显存保护阈值（GB）：按「进程总显存」判断（mem_get_info），VoxCPM 连续推理会在
+# 内部累积显存缓存，超过此阈值先优雅卸载并重载模型回收，避免长期连续生成触发
+# CUDA OOM / native crash。默认 12.5GB（4070Ti 16GB，预留约 3.5GB）。
+MEMORY_RESET_THRESHOLD_GB = float(os.environ.get("VOXCPM_MEM_RESET_GB", "12.5"))
 sys.path.insert(0, str(BASE_DIR))  # 让 voice_clone 包可被导入
 from voice_clone import prepare_reference as _vc_prepare_reference
 from voice_clone import synthesis_stab as _vc_stab
@@ -1747,16 +1748,31 @@ def _do_generate(kwargs: dict):
     t0 = time.time()
     try:
         model = get_model()                       # 加载也可能抛异常，一并捕获
-        # 显存保护：VoxCPM 连续推理会累积显存缓存（内部泄漏，无法从外部根治），
-        # 超过阈值先优雅卸载并重载模型回收，避免 CUDA OOM / native crash
+        # CUDA 健康检查 + 显存保护：
+        # - VoxCPM 连续推理会累积显存缓存（内部泄漏，无法从外部根治），总显存超阈值
+        #   先优雅卸载并重载模型回收，避免 CUDA OOM / native crash；
+        # - native crash 后 CUDA 上下文可能损坏（健康检查用轻量 tensor 操作暴露）。
         try:
             import torch
             if torch.cuda.is_available():
-                _mem_gb = torch.cuda.memory_allocated() / (1024 ** 3)
-                if _mem_gb > MEMORY_RESET_THRESHOLD_GB:
-                    print(f"[VoxCPM2] 显存占用 {_mem_gb:.1f}GB 超阈值，主动重载模型释放泄漏", flush=True)
+                _cuda_ok = True
+                try:
+                    _x = torch.zeros(4, device="cuda")
+                    _ = _x.sum()
+                    del _x
+                except Exception:
+                    _cuda_ok = False
+                if not _cuda_ok:
+                    print("[VoxCPM2] CUDA 健康检查失败，重载模型", flush=True)
                     unload_model()
                     model = get_model()
+                else:
+                    _free, _total = torch.cuda.mem_get_info()
+                    _used_gb = (_total - _free) / (1024 ** 3)
+                    if _used_gb > MEMORY_RESET_THRESHOLD_GB:
+                        print(f"[VoxCPM2] 显存占用 {_used_gb:.1f}GB 超阈值，主动重载模型释放泄漏", flush=True)
+                        unload_model()
+                        model = get_model()
         except Exception:
             pass
         _stable = kwargs.pop("_stable", False)
@@ -1811,7 +1827,7 @@ def _do_generate(kwargs: dict):
             if use_stable:
                 pause = pause if abs(pause - 0.15) > 0.01 else emotion_preset.get("pause", 0.15)
             else:
-                pitch = pitch if abs(pitch) > 0.01 else emotion_preset.get("pitch", 0.0)
+                # 情绪不改音调（语调保持不变），只取语速/音量/停顿
                 speed = speed if abs(speed - 1.0) > 0.01 else emotion_preset.get("speed", 1.0)
                 volume = volume if abs(volume - 1.0) > 0.01 else emotion_preset.get("volume", 1.0)
                 pause = pause if abs(pause - 0.15) > 0.01 else emotion_preset.get("pause", 0.15)
