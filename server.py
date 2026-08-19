@@ -1927,7 +1927,9 @@ def _do_generate(kwargs: dict):
         raise
     except Exception as e:
         log_error("推理失败", e)
-        reset_model()                             # 自愈：下次请求自动重新加载
+        # 彻底卸载模型释放显存（比仅置空更彻底：del + empty_cache + gc.collect），
+        # 避免失败后模型进入损坏态导致后续请求持续失败
+        unload_model()
         raise HTTPException(status_code=500, detail=f"推理失败: {type(e).__name__}: {e}")
 
 
