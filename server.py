@@ -92,8 +92,10 @@ ACCEL_STEPS = int(os.environ.get("VOXCPM_ACCEL_STEPS", "4"))
 LONG_TEXT_CHARS = int(os.environ.get("VOXCPM_LONG_TEXT_CHARS", "100"))
 # 显存保护阈值（GB）：按「进程总显存」判断（mem_get_info），VoxCPM 连续推理会在
 # 内部累积显存缓存，超过此阈值先优雅卸载并重载模型回收，避免长期连续生成触发
-# CUDA OOM / native crash。默认 12.5GB（4070Ti 16GB，预留约 3.5GB）。
-MEMORY_RESET_THRESHOLD_GB = float(os.environ.get("VOXCPM_MEM_RESET_GB", "12.5"))
+# CUDA OOM / native crash。默认 11GB（4070Ti 16GB）：偏保守，宁可偶尔重载一次
+# （约 15s），也不要让显存累积到临界后 native crash（克隆/极致克隆的参考编码
+# 峰值显存最高，最容易触发）。
+MEMORY_RESET_THRESHOLD_GB = float(os.environ.get("VOXCPM_MEM_RESET_GB", "11.0"))
 sys.path.insert(0, str(BASE_DIR))  # 让 voice_clone 包可被导入
 from voice_clone import prepare_reference as _vc_prepare_reference
 from voice_clone import synthesis_stab as _vc_stab
@@ -1882,10 +1884,17 @@ def _do_generate(kwargs: dict):
         if _ae is not None:
             wav = _ae.apply_volume(wav, volume)
         wav = _vc_stab.declip(wav)
-        # 长音频清晰度增强：约 30s 以上的成品做温和 pre-emphasis，
-        # 相对提升辅音/齿音能量，改善长音频中个别词语咬字不清的问题
-        if _ae is not None and (len(wav) / sr) >= 30.0:
-            wav = _ae.enhance_clarity(wav, sr)
+        # 清晰度增强：温和 pre-emphasis（辅音/齿音提升），改善个别词语咬字不清。
+        # 对全部成品启用（不止 30s 以上），amount 取温和值避免音色变尖。
+        if _ae is not None:
+            wav = _ae.enhance_clarity(wav, sr, amount=0.92)
+        # 推理结束后主动释放 GPU 缓存，减少连续生成时的显存累积
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
         elapsed = round(time.time() - t0, 2)
 
         name = f"tts_{time.strftime('%m%d_%H%M%S')}_{uuid.uuid4().hex[:4]}.wav"
