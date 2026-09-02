@@ -114,6 +114,7 @@ import voice_clone.trainer as trainer
 tstore.init(BASE_DIR)
 # 长音频自动转写（faster-whisper，离线切句生成训练样本候选）
 import voice_clone.transcriber as transcriber
+import voice_clone.preprocess as vc_preprocess
 transcriber.init(BASE_DIR)
 
 
@@ -801,6 +802,10 @@ border:1px solid #f1f5f9;border-radius:10px;margin-bottom:8px;background:#fff}
       <label data-i18n="trainAddLabel">➕ 添加训练样本</label>
       <input type="file" id="trainFile" accept="audio/*">
       <textarea id="trainText" data-i18n-ph="trainTextPh" style="min-height:54px;margin-top:6px" placeholder="逐字填写这段语音说的内容（与音频完全一致）"></textarea>
+      <div style="display:flex;gap:14px;margin-top:6px;flex-wrap:wrap;font-size:12px;color:#374151">
+        <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="tsDenoise"> <span data-i18n="enDenoise">🔊 导入前降噪（去除底噪/电流声）</span></label>
+        <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="tsVocal"> <span data-i18n="enVocalOnly">🎤 只保留纯净人声（去背景音乐）</span></label>
+      </div>
       <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
         <input type="text" id="trainName" data-i18n-ph="trainNamePh" placeholder="备注名（可选）" style="flex:1;min-width:140px">
         <button class="chip" id="trainAddBtn" style="padding:8px 16px" data-i18n="trainAddBtn">添加样本</button>
@@ -813,6 +818,10 @@ border:1px solid #f1f5f9;border-radius:10px;margin-bottom:8px;background:#fff}
       <div style="margin-top:10px">
         <div class="muted" style="margin-bottom:8px;line-height:1.6" data-i18n="trDesc">上传 1~10 分钟的语音（清晰人声、无背景乐效果最佳），会自动按静音切句并逐句转写。核对/修改每段文本后勾选导入为训练样本。首次转写需下载约 460MB 模型（一次性）。</div>
         <input type="file" id="trFile" accept="audio/*">
+        <div style="display:flex;gap:14px;margin-top:6px;flex-wrap:wrap;font-size:12px;color:#374151">
+          <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="trDenoise"> <span data-i18n="enDenoise">🔊 导入前降噪（去除底噪/电流声）</span></label>
+          <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="trVocal"> <span data-i18n="enVocalOnly">🎤 只保留纯净人声（去背景音乐）</span></label>
+        </div>
         <div style="margin-top:8px">
           <div style="font-size:12px;font-weight:600;color:#374151" data-i18n="trTranscriptLabel">📝 有完整台词？粘贴全文，自动逐句匹配到各分段（免手动逐条修改）</div>
           <textarea id="trTranscript" rows="4" style="width:100%;margin-top:4px;font-size:13px;box-sizing:border-box" data-i18n-ph="trTranscriptPh" placeholder="把与音频完全一致的完整台词粘贴到这里（每行一句效果最佳）。可先转写后再粘贴点「按台词匹配」，也可上传前就粘贴、转写完成后自动匹配。"></textarea>
@@ -985,6 +994,7 @@ const I18N={
       trainNeedSamples:'样本不足（当前 {cur} 条）：至少需要 2 条「语音+台词」样本才能开始训练',
       trainNoFile:'请先选择音频文件',trainNoText:'请填写与音频对应的台词文本',
       trainFileTooShort:'音频过短（不足 1 秒）',trainFileTooLong:'音频过长（超过 30 秒）',trainTextTooLong:'台词过长（超过 400 字）',
+      enDenoise:'🔊 导入前降噪（去除底噪/电流声）',enVocalOnly:'🎤 只保留纯净人声（去背景音乐）',
       trSummary:'🎧 长音频自动转写（whisper 离线切句，免手填台词）',
       trDesc:'上传 1~10 分钟的语音（清晰人声、无背景乐效果最佳），会自动按静音切句并逐句转写。核对/修改每段文本后勾选导入为训练样本。首次转写需加载约 460MB 的 whisper 模型（一次性）。',
       trStart:'🎧 开始转写',trImport:'📥 导入勾选项',trNoSeg:'未识别到可用的语音片段（音频过短或无人声）',
@@ -1049,6 +1059,7 @@ const I18N={
       trainNeedSamples:'Not enough samples (currently {cur}): at least 2 audio+text pairs required to start training',
       trainNoFile:'Please select an audio file first',trainNoText:'Please enter the transcript matching the audio',
       trainFileTooShort:'Audio too short (< 1s)',trainFileTooLong:'Audio too long (> 30s)',trainTextTooLong:'Transcript too long (> 400 chars)',
+      enDenoise:'🔊 Denoise before import (hiss / AC hum)',enVocalOnly:'🎤 Keep vocals only (remove BGM/music)',
       trSummary:'🎧 Auto-transcribe long audio (offline whisper, no manual transcript)',
       trDesc:'Upload 1–10 min of speech (clear voice, no background music works best). It is auto-segmented by silence and transcribed sentence by sentence. Review/edit each line, tick the ones to keep, then import as training samples. The ~460MB whisper model loads on first use (one-time).',
       trStart:'🎧 Start',trImport:'📥 Import selected',trNoSeg:'No usable speech segments found (audio too short or no voice)',
@@ -1300,6 +1311,8 @@ function addTrainSample(){
   fd.append('file',f.files[0]);
   fd.append('text',text);
   fd.append('name',name);
+  fd.append('denoise',!!document.getElementById('tsDenoise').checked);
+  fd.append('vocal_only',!!document.getElementById('tsVocal').checked);
   var btn=document.getElementById('trainAddBtn');
   var errEl=document.getElementById('trainErr');
   errEl.textContent='';
@@ -1507,6 +1520,9 @@ function trStart(){
   var fd=new FormData();fd.append('audio',f.files[0]);
   var tta=document.getElementById('trTranscript');
   if(tta&&tta.value.trim())fd.append('transcript',tta.value.trim());
+  var tDen=document.getElementById('trDenoise'),tVoc=document.getElementById('trVocal');
+  fd.append('denoise',tDen?tDen.checked:false);
+  fd.append('vocal_only',tVoc?tVoc.checked:false);
   fetch('/api/train/transcribe',{method:'POST',body:fd,headers:apiHeaders()})
     .then(function(r){return r.json().then(function(d){if(!r.ok)throw new Error(d.detail||'Error');return d;});})
     .then(function(d){
@@ -2979,6 +2995,33 @@ def train_list_samples(request: Request):
     return {"samples": tstore.list_samples(), "stats": tstore.get_stats()}
 
 
+def _enhance_import(src: Path, denoise_on: bool, vocal_only: bool) -> Path | None:
+    """导入前可选增强：转 16k 单声道后 降噪 / 只保留纯净人声。
+
+    返回增强后的临时 wav 路径（调用方负责删除）；两开关均关时返回 None。
+    统一降到 16k：与 whisper/训练读取口径一致，且长音频(10 分钟级)的内存
+    占用有界。denoise 用 v2 谱域引擎(动态噪声跟踪+DD-Wiener)，vocal_only
+    用 REPET-lite 人声分离(音乐循环检测失败自动回退 HPSS)+二次降噪。
+    """
+    if not (denoise_on or vocal_only):
+        return None
+    wav16 = UPLOAD_DIR / f"enh_{uuid.uuid4().hex[:8]}.wav"
+    try:
+        transcriber.to_16k_mono_wav(src, wav16)
+    except Exception as e:
+        _safe_unlink(wav16)
+        raise ValueError(f"音频转码失败: {e}")
+    try:
+        y, sr = vc_preprocess.load_audio(str(wav16), sr=16000)
+        y = (vc_preprocess.isolate_vocals(y, sr) if vocal_only
+             else vc_preprocess.denoise(y, sr))
+        sf.write(str(wav16), y, sr)
+    except Exception as e:
+        _safe_unlink(wav16)
+        raise ValueError(f"音频增强失败: {e}")
+    return wav16
+
+
 @app.post("/api/train/samples")
 async def train_add_sample(request: Request):
     """上传一条训练样本（音频 + 逐字台词）。
@@ -2994,16 +3037,24 @@ async def train_add_sample(request: Request):
         raise HTTPException(status_code=400, detail="缺少音频文件字段（audio 或 file）")
     text = str(form.get("text") or "")
     name = str(form.get("name") or "")
+    denoise_on = str(form.get("denoise") or "").lower() in ("1", "true", "on", "yes")
+    vocal_only = str(form.get("vocal_only") or "").lower() in ("1", "true", "on", "yes")
     suffix = Path(up.filename or "ref.wav").suffix or ".wav"
     tmp = UPLOAD_DIR / f"train_{uuid.uuid4().hex[:8]}{suffix}"
     tmp.write_bytes(await up.read())
+    enh = None
     try:
-        meta = tstore.add_sample(str(tmp), text, name)
+        enh = _enhance_import(tmp, denoise_on, vocal_only)
+        meta = tstore.add_sample(str(enh or tmp), text, name)
     except ValueError as e:
         _safe_unlink(tmp)
+        if enh:
+            _safe_unlink(enh)
         raise HTTPException(status_code=400, detail=str(e))
     finally:
         _safe_unlink(tmp)
+        if enh:
+            _safe_unlink(enh)
     return {"ok": True, "sample": meta, "stats": tstore.get_stats()}
 
 
@@ -3132,15 +3183,21 @@ async def train_transcribe(request: Request):
     if up is None or not hasattr(up, "read"):
         raise HTTPException(status_code=400, detail="缺少音频文件字段（audio）")
     transcript = str(form.get("transcript") or "").strip()
+    denoise_on = str(form.get("denoise") or "").lower() in ("1", "true", "on", "yes")
+    vocal_only = str(form.get("vocal_only") or "").lower() in ("1", "true", "on", "yes")
     suffix = Path(up.filename or "ref.wav").suffix or ".wav"
     tmp = UPLOAD_DIR / f"tr_{uuid.uuid4().hex[:8]}{suffix}"
     tmp.write_bytes(await up.read())
+    enh = None
     try:
-        job = transcriber.start_transcribe(str(tmp), transcript=transcript)
-    except RuntimeError as e:
+        enh = _enhance_import(tmp, denoise_on, vocal_only)
+        job = transcriber.start_transcribe(str(enh or tmp), transcript=transcript)
+    except (RuntimeError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))
     finally:
         _safe_unlink(tmp)
+        if enh:
+            _safe_unlink(enh)
     return {"ok": True, "job": job}
 
 
