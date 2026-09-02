@@ -206,7 +206,9 @@ def list_loras() -> list:
     for p in sorted(d.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True):
         if not p.is_dir():
             continue
-        ckpt = p / "lora_weights.ckpt"
+        ckpt = p / "lora_weights.safetensors"
+        if not ckpt.exists():
+            ckpt = p / "lora_weights.ckpt"  # 旧版/降级路径（safetensors 不可用时 trainer 会存 ckpt）
         meta_f = p / "meta.json"
         meta = {}
         if meta_f.exists():

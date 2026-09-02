@@ -844,6 +844,7 @@ border:1px solid #f1f5f9;border-radius:10px;margin-bottom:8px;background:#fff}
       <button class="gen" id="trainStartBtn" style="flex:1" data-i18n="trainStart">🚀 开始训练</button>
       <button class="gen" id="trainStopBtn" style="flex:0 0 auto;background:#dc2626;display:none" data-i18n="trainStop">⏹ 停止</button>
     </div>
+    <div class="muted" id="trainNeedHint" style="display:none;font-size:12px;margin:-6px 0 10px;color:#b45309"></div>
 
     <div id="trainProgressWrap" style="display:none;margin-bottom:10px">
       <div style="height:10px;background:#e5e7eb;border-radius:6px;overflow:hidden"><div id="trainProgressBar" style="height:100%;width:0%;background:#2563eb;transition:width .3s"></div></div>
@@ -970,6 +971,7 @@ const I18N={
       trainDone:'训练完成！已保存 LoRA：',trainFailed:'训练失败',trainStopped:'训练已停止',
       trainDelSample:'删除该样本？',trainDelLora:'删除该 LoRA？权重文件会被永久移除。',
       trainUseLora:'使用此 LoRA',trainPlaySample:'试听',trainDelete:'删除',
+      trainNeedSamples:'样本不足（当前 {cur} 条）：至少需要 2 条「语音+台词」样本才能开始训练',
       trainNoFile:'请先选择音频文件',trainNoText:'请填写与音频对应的台词文本',
       trainFileTooShort:'音频过短（不足 1 秒）',trainFileTooLong:'音频过长（超过 30 秒）',trainTextTooLong:'台词过长（超过 400 字）',
       trSummary:'🎧 长音频自动转写（whisper 离线切句，免手填台词）',
@@ -1030,6 +1032,7 @@ const I18N={
       trainDone:'Training complete! LoRA saved: ',trainFailed:'Training failed',trainStopped:'Training stopped',
       trainDelSample:'Delete this sample?',trainDelLora:'Delete this LoRA? Weight file will be permanently removed.',
       trainUseLora:'Use this LoRA',trainPlaySample:'Play',trainDelete:'Delete',
+      trainNeedSamples:'Not enough samples (currently {cur}): at least 2 audio+text pairs required to start training',
       trainNoFile:'Please select an audio file first',trainNoText:'Please enter the transcript matching the audio',
       trainFileTooShort:'Audio too short (< 1s)',trainFileTooLong:'Audio too long (> 30s)',trainTextTooLong:'Transcript too long (> 400 chars)',
       trSummary:'🎧 Auto-transcribe long audio (offline whisper, no manual transcript)',
@@ -1229,6 +1232,7 @@ function refreshTrainUI(){
   if(st&&st.running){showTrainRunning(st);}
 }
 var trainerStatusCache={running:false};
+var trainSampleCount=0;
 function refreshTrainSamples(){
   fetch('/api/train/samples',{headers:apiHeaders()})
     .then(function(r){return r.json();})
@@ -1236,6 +1240,7 @@ function refreshTrainSamples(){
       var el=document.getElementById('trainSamples');
       var badge=document.getElementById('trainStatsBadge');
       var arr=d.samples||[];
+      trainSampleCount=arr.length;updTrainStartBtn();
       if(badge)badge.textContent=arr.length+' '+tr('条','samples');
       if(!arr.length){
         el.innerHTML='<div class="muted">'+I18N[curLang].trainNoSamples+'</div>';
@@ -1346,6 +1351,21 @@ function showTrainIdle(){
   document.getElementById('trainStartBtn').disabled=false;
   document.getElementById('trainStartBtn').textContent=I18N[curLang].trainStart;
   document.getElementById('trainStopBtn').style.display='none';
+  updTrainStartBtn();
+}
+
+function updTrainStartBtn(){
+  if(trainerStatusCache&&trainerStatusCache.running){return;}
+  var sb=document.getElementById('trainStartBtn'),nh=document.getElementById('trainNeedHint');
+  var enough=trainSampleCount>=2;
+  if(sb){sb.disabled=!enough;}
+  if(nh){
+    if(enough){nh.style.display='none';}
+    else{
+      nh.style.display='block';
+      nh.textContent=I18N[curLang].trainNeedSamples.replace('{cur}',String(trainSampleCount));
+    }
+  }
 }
 
 function pollTrain(){
@@ -2898,12 +2918,23 @@ def train_list_samples(request: Request):
 
 
 @app.post("/api/train/samples")
-async def train_add_sample(request: Request, audio: UploadFile = File(...),
-                           text: str = Form(...), name: str = Form("")):
+async def train_add_sample(request: Request):
+    """上传一条训练样本（音频 + 逐字台词）。
+
+    兼容两种音频字段名：`audio`（API 文档约定）与 `file`（前端 UI 实际发送）。
+    注意：不能用 `audio: UploadFile = File(...)` 形参声明——前端发送的字段名是
+    `file`，声明式绑定会直接 422，导致 UI 永远无法添加样本。
+    """
     require_auth(request)
-    suffix = Path(audio.filename or "ref.wav").suffix or ".wav"
+    form = await request.form()
+    up = form.get("audio") or form.get("file")
+    if up is None or not hasattr(up, "read"):
+        raise HTTPException(status_code=400, detail="缺少音频文件字段（audio 或 file）")
+    text = str(form.get("text") or "")
+    name = str(form.get("name") or "")
+    suffix = Path(up.filename or "ref.wav").suffix or ".wav"
     tmp = UPLOAD_DIR / f"train_{uuid.uuid4().hex[:8]}{suffix}"
-    tmp.write_bytes(await audio.read())
+    tmp.write_bytes(await up.read())
     try:
         meta = tstore.add_sample(str(tmp), text, name)
     except ValueError as e:
@@ -2935,18 +2966,50 @@ def train_sample_audio(sample_id: str, request: Request):
 
 
 @app.post("/api/train/start")
-def train_start(request: Request, lora_name: str = Form(""), lora_r: int = Form(8),
-                lora_alpha: int = Form(16), lr: float = Form(1e-4),
-                epochs: int = Form(3), batch_size: int = Form(1),
-                grad_accum: int = Form(4)):
-    """启动 LoRA 训练。训练前卸载推理模型（显存互斥），训练中拒绝生成请求。"""
+async def train_start(request: Request):
+    """启动 LoRA 训练。训练前卸载推理模型（显存互斥），训练中拒绝生成请求。
+
+    请求体两种兼容：
+    - JSON（前端 UI 使用）：{"name", "r", "alpha", "lr", "epochs", "accum", ...}
+    - multipart/form（curl / 脚本调用）：lora_name, lora_r, lora_alpha, lr, epochs,
+      batch_size, grad_accum
+    注意：本端点必须自行解析 JSON——若声明为 Form(...) 形参，FastAPI 收到 JSON
+    请求体会静默使用默认值，导致前端填写的任务名/轮数/学习率等全部失效。
+    """
     require_auth(request)
     if _infer_lock.locked():
         raise HTTPException(status_code=409, detail="正在生成音频，请稍后再开始训练")
+    ctype = (request.headers.get("content-type") or "").lower()
+    if "application/json" in ctype:
+        try:
+            b = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="请求体不是合法 JSON")
+        def _pick(*keys, default=None):
+            for k in keys:
+                if k in b and b[k] is not None:
+                    return b[k]
+            return default
+        lora_name = str(_pick("lora_name", "name", default="") or "").strip()
+        lora_r = int(_pick("lora_r", "r", default=8) or 8)
+        lora_alpha = int(_pick("lora_alpha", "alpha", default=16) or 16)
+        lr = float(_pick("lr", default=1e-4) or 1e-4)
+        epochs = int(_pick("epochs", default=3) or 3)
+        batch_size = int(_pick("batch_size", default=1) or 1)
+        grad_accum = int(_pick("grad_accum", "accum", default=4) or 4)
+    else:
+        f = await request.form()
+        lora_name = str(f.get("lora_name", "") or "").strip()
+        lora_r = int(f.get("lora_r", 8) or 8)
+        lora_alpha = int(f.get("lora_alpha", 16) or 16)
+        lr = float(f.get("lr", 1e-4) or 1e-4)
+        epochs = int(f.get("epochs", 3) or 3)
+        batch_size = int(f.get("batch_size", 1) or 1)
+        grad_accum = int(f.get("grad_accum", 4) or 4)
     unload_model()  # 释放推理显存，给训练让路
     try:
         st = trainer.start_training({
-            "lora_name": lora_name.strip(), "lora_r": lora_r, "lora_alpha": lora_alpha,
+            "lora_name": lora_name, "lora_r": lora_r, "lora_alpha": lora_alpha,
             "lr": lr, "epochs": epochs, "batch_size": batch_size, "grad_accum": grad_accum,
         }, base_dir=BASE_DIR)
     except (RuntimeError, ValueError) as e:
