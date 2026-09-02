@@ -473,23 +473,43 @@ LOGIN_HTML = """<!DOCTYPE html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>VoxCPM2 · 访问验证</title><style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:"Segoe UI","Microsoft YaHei",sans-serif;background:#f5f6fa;min-height:100vh;
+body{font-family:"Segoe UI","Microsoft YaHei",sans-serif;background:var(--bg);min-height:100vh;
 display:flex;align-items:center;justify-content:center;padding:20px}
-.card{background:#fff;border:1px solid #e5e7eb;border-radius:16px;padding:36px;max-width:420px;width:100%;
-box-shadow:0 4px 24px rgba(0,0,0,.06)}
-h1{font-size:20px;color:#111827;margin-bottom:6px}
-p.sub{font-size:13px;color:#6b7280;margin-bottom:24px;line-height:1.6}
-label{display:block;font-size:13px;color:#374151;margin-bottom:8px;font-weight:600}
-input{width:100%;padding:12px;border:1px solid #d1d5db;border-radius:10px;font-size:14px;
+.card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:36px;max-width:420px;width:100%;
+box-shadow:0 4px 24px var(--shadow-1)}
+h1{font-size:20px;color:var(--text);margin-bottom:6px}
+p.sub{font-size:13px;color:var(--text-2);margin-bottom:24px;line-height:1.6}
+label{display:block;font-size:13px;color:var(--text-1);margin-bottom:8px;font-weight:600}
+input{width:100%;padding:12px;border:1px solid var(--border-2);border-radius:10px;font-size:14px;
 font-family:ui-monospace,Consolas,monospace}
-input:focus{outline:none;border-color:#2563eb;box-shadow:0 0 0 3px rgba(37,99,235,.12)}
-button{width:100%;margin-top:16px;padding:13px;background:#2563eb;color:#fff;border:none;
+input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--focus)}
+button{width:100%;margin-top:16px;padding:13px;background:var(--accent);color:var(--on-accent);border:none;
 border-radius:10px;font-size:15px;font-weight:600;cursor:pointer}
-button:hover{background:#1d4ed8}
-.err{margin-top:12px;padding:10px;background:#fef2f2;color:#b91c1c;border-radius:8px;font-size:13px;display:none}
-.hint{margin-top:18px;padding:12px;background:#f9fafb;border-radius:8px;font-size:12px;color:#6b7280;line-height:1.7}
-code{background:#eef2ff;color:#3730a3;padding:1px 5px;border-radius:4px;font-size:11px}
-</style></head><body>
+button:hover{background:var(--accent-2)}
+.err{margin-top:12px;padding:10px;background:var(--err-bg);color:var(--err-ink);border-radius:8px;font-size:13px;display:none}
+.hint{margin-top:18px;padding:12px;background:var(--surface-2);border-radius:8px;font-size:12px;color:var(--text-2);line-height:1.7}
+code{background:var(--accent-soft);color:var(--accent-ink);padding:1px 5px;border-radius:4px;font-size:11px}
+/* ===== 主题 tokens（浅色默认 / html[data-theme=dark] 深色） ===== */
+:root{color-scheme:light;--bg:#f5f6fa;--surface:#fff;--surface-2:#f9fafb;--surface-3:#f3f4f6;
+--border:#e5e7eb;--border-2:#d1d5db;--text:#111827;--text-1:#374151;--text-2:#6b7280;--text-3:#9ca3af;--on-accent:#fff;
+--accent:#2563eb;--accent-2:#1d4ed8;--link:#2563eb;--accent-soft:#eef2ff;--accent-soft-2:#e0e7ff;--accent-ink:#3730a3;
+--ok-bg:#ecfdf5;--ok-ink:#047857;--warn-bg:#fffbeb;--warn-ink:#b45309;--err-bg:#fef2f2;--err-ink:#b91c1c;
+--danger:#dc2626;--danger-ink:#dc2626;--res-bg:#f0fdf4;--res-border:#bbf7d0;--green:#16a34a;--green-ink:#16a34a;
+--sky:#0ea5e9;--sky-ink:#0369a1;--violet:#7c3aed;--disabled:#9ca3af;
+--focus:rgba(37,99,235,.12);--shadow-1:rgba(0,0,0,.06);--shadow-2:rgba(0,0,0,.1)}
+html[data-theme="dark"]{color-scheme:dark;--bg:#0f172a;--surface:#1e293b;--surface-2:#253349;--surface-3:#2c3a52;
+--border:#33415a;--border-2:#48566f;--text:#e6edf7;--text-1:#c6d2e3;--text-2:#93a3bd;--text-3:#6d7d96;--on-accent:#fff;
+--accent:#3b82f6;--accent-2:#2563eb;--link:#60a5fa;--accent-soft:rgba(59,130,246,.16);--accent-soft-2:rgba(59,130,246,.28);--accent-ink:#a5b4fc;
+--ok-bg:rgba(16,185,129,.14);--ok-ink:#34d399;--warn-bg:rgba(245,158,11,.14);--warn-ink:#fbbf24;--err-bg:rgba(239,68,68,.13);--err-ink:#f87171;
+--danger:#ef4444;--danger-ink:#f87171;--res-bg:rgba(16,185,129,.12);--res-border:rgba(16,185,129,.35);
+--green:#22c55e;--green-ink:#4ade80;--sky:#0ea5e9;--sky-ink:#7dd3fc;--violet:#8b5cf6;--disabled:#475569;
+--focus:rgba(59,130,246,.4);--shadow-1:rgba(0,0,0,.45);--shadow-2:rgba(0,0,0,.5)}
+body{background:var(--bg);color:var(--text)}
+textarea,input[type=text],input[type=file],input[type=password],input[type=number],select{background:var(--surface);color:var(--text);caret-color:var(--accent)}
+select option{background:var(--surface);color:var(--text)}
+::placeholder{color:var(--text-3);opacity:1}
+input[type=range],input[type=checkbox]{accent-color:var(--accent)}
+</style><script>(function(){try{var t='';try{t=localStorage.getItem('voxcpm_theme')||'';}catch(e){}if(t!=='dark'&&t!=='light'){try{var qs=new URLSearchParams(location.search);var q=qs.get('theme')||qs.get('vox_theme');if(q==='dark'||q==='light'){t=q;}}catch(e){}}if(t!=='dark'&&t!=='light'){t=(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light';}document.documentElement.setAttribute('data-theme',t);}catch(e){document.documentElement.setAttribute('data-theme','light');}})();</script></head><body>
 <div class="card">
   <h1>🎙️ VoxCPM2 <span data-i18n="loginLocal">本地服务</span></h1>
   <p class="sub" data-i18n="loginSub">该服务已启用访问验证，请输入访问令牌。</p>
@@ -528,75 +548,95 @@ APP_HTML = """<!DOCTYPE html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>VoxCPM2 · 本地语音合成</title><style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:"Segoe UI","Microsoft YaHei",sans-serif;background:#f5f6fa;color:#111827;padding:24px}
+body{font-family:"Segoe UI","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);padding:24px}
 .wrap{max-width:900px;margin:0 auto}
-.top{display:flex;align-items:center;justify-content:space-between;background:#fff;border:1px solid #e5e7eb;
+.top{display:flex;align-items:center;justify-content:space-between;background:var(--surface);border:1px solid var(--border);
 border-radius:14px;padding:16px 20px;margin-bottom:16px}
 .top h1{font-size:18px}
 .badges{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.badge{font-size:12px;padding:4px 10px;border-radius:999px;background:#f3f4f6;color:#374151}
-.badge.ok{background:#ecfdf5;color:#047857}
-.badge.warn{background:#fffbeb;color:#b45309}
-.card{background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:20px;margin-bottom:16px}
+.badge{font-size:12px;padding:4px 10px;border-radius:999px;background:var(--surface-3);color:var(--text-1)}
+.badge.ok{background:var(--ok-bg);color:var(--ok-ink)}
+.badge.warn{background:var(--warn-bg);color:var(--warn-ink)}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:16px}
 .tabs{display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap}
-.tab{padding:9px 16px;border:1px solid #e5e7eb;border-radius:10px;background:#fff;cursor:pointer;font-size:13px;color:#4b5563}
-.tab.active{background:#2563eb;color:#fff;border-color:#2563eb}
-label{display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:7px}
-textarea{width:100%;padding:13px;border:1px solid #d1d5db;border-radius:10px;font-size:14px;
+.tab{padding:9px 16px;border:1px solid var(--border);border-radius:10px;background:var(--surface);cursor:pointer;font-size:13px;color:var(--text-1)}
+.tab.active{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+label{display:block;font-size:13px;font-weight:600;color:var(--text-1);margin-bottom:7px}
+textarea{width:100%;padding:13px;border:1px solid var(--border-2);border-radius:10px;font-size:14px;
 min-height:110px;resize:vertical;font-family:inherit;line-height:1.6}
-input[type=text],input[type=file]{width:100%;padding:11px;border:1px solid #d1d5db;border-radius:10px;font-size:14px}
-textarea:focus,input:focus{outline:none;border-color:#2563eb;box-shadow:0 0 0 3px rgba(37,99,235,.1)}
+input[type=text],input[type=file]{width:100%;padding:11px;border:1px solid var(--border-2);border-radius:10px;font-size:14px}
+textarea:focus,input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--focus)}
 .field{margin-bottom:16px}
 .hide{display:none}
 .chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
-.chip{font-size:12px;padding:5px 10px;background:#eef2ff;color:#3730a3;border-radius:999px;cursor:pointer;border:none}
-.chip:hover{background:#e0e7ff}
+.chip{font-size:12px;padding:5px 10px;background:var(--accent-soft);color:var(--accent-ink);border-radius:999px;cursor:pointer;border:none}
+.chip:hover{background:var(--accent-soft-2)}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px}
-.pbox{background:#f9fafb;border:1px solid #f3f4f6;border-radius:10px;padding:12px}
-.pbox label{font-size:12px;color:#6b7280;font-weight:500;margin-bottom:6px}
+.pbox{background:var(--surface-2);border:1px solid var(--surface-3);border-radius:10px;padding:12px}
+.pbox label{font-size:12px;color:var(--text-2);font-weight:500;margin-bottom:6px}
 .prow{display:flex;align-items:center;gap:10px}
 input[type=range]{flex:1}
-.pv{font-family:ui-monospace,Consolas,monospace;font-size:13px;color:#2563eb;min-width:34px;text-align:right}
-.checks{display:flex;gap:20px;margin-bottom:18px;font-size:13px;color:#4b5563}
+.pv{font-family:ui-monospace,Consolas,monospace;font-size:13px;color:var(--link);min-width:34px;text-align:right}
+.checks{display:flex;gap:20px;margin-bottom:18px;font-size:13px;color:var(--text-1)}
 .checks label{display:flex;align-items:center;gap:6px;font-weight:500;margin:0;cursor:pointer}
-.gen{width:100%;padding:15px;background:#2563eb;color:#fff;border:none;border-radius:12px;
+.gen{width:100%;padding:15px;background:var(--accent);color:var(--on-accent);border:none;border-radius:12px;
 font-size:15px;font-weight:600;cursor:pointer}
-.gen:hover{background:#1d4ed8}
-.gen:disabled{background:#9ca3af;cursor:not-allowed}
-.status{margin-top:16px;padding:14px;background:#f9fafb;border-radius:10px;font-size:13px;
-color:#4b5563;display:none;align-items:center;gap:10px}
+.gen:hover{background:var(--accent-2)}
+.gen:disabled{background:var(--disabled);cursor:not-allowed}
+.status{margin-top:16px;padding:14px;background:var(--surface-2);border-radius:10px;font-size:13px;
+color:var(--text-1);display:none;align-items:center;gap:10px}
 .status.show{display:flex}
-.spin{width:18px;height:18px;border:2px solid #e5e7eb;border-top-color:#2563eb;border-radius:50%;
+.spin{width:18px;height:18px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;
 animation:sp .8s linear infinite;flex-shrink:0}
 @keyframes sp{to{transform:rotate(360deg)}}
-.err{margin-top:14px;padding:12px;background:#fef2f2;color:#b91c1c;border-radius:10px;font-size:13px;display:none;
+.err{margin-top:14px;padding:12px;background:var(--err-bg);color:var(--err-ink);border-radius:10px;font-size:13px;display:none;
 white-space:pre-wrap;line-height:1.6}
 .err.show{display:block}
-.res{margin-top:18px;padding:16px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;display:none}
+.res{margin-top:18px;padding:16px;background:var(--res-bg);border:1px solid var(--res-border);border-radius:12px;display:none}
 .res.show{display:block}
-.res .meta{font-size:12px;color:#047857;margin-bottom:10px}
+.res .meta{font-size:12px;color:var(--ok-ink);margin-bottom:10px}
 audio{width:100%}
 .hist{font-size:13px}
-.hist .row{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid #f3f4f6}
+.hist .row{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--surface-3)}
 .hist .row:last-child{border:none}
-.hist a{color:#2563eb;text-decoration:none;font-size:12px}
-.muted{color:#9ca3af;font-size:12px}
-.api{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:#f9fafb;padding:12px;
-border-radius:8px;color:#374151;white-space:pre-wrap;line-height:1.7;overflow-x:auto}
-.ptab{padding:9px 16px;border:1px solid #e5e7eb;border-radius:10px;background:#fff;cursor:pointer;font-size:13px;color:#4b5563}
-.ptab.active{background:#2563eb;color:#fff;border-color:#2563eb}
+.hist a{color:var(--link);text-decoration:none;font-size:12px}
+.muted{color:var(--text-3);font-size:12px}
+.api{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:var(--surface-2);padding:12px;
+border-radius:8px;color:var(--text-1);white-space:pre-wrap;line-height:1.7;overflow-x:auto}
+.ptab{padding:9px 16px;border:1px solid var(--border);border-radius:10px;background:var(--surface);cursor:pointer;font-size:13px;color:var(--text-1)}
+.ptab.active{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
 .pack{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;
-border:1px solid #f1f5f9;border-radius:10px;margin-bottom:8px;background:#fff}
+border:1px solid var(--surface-3);border-radius:10px;margin-bottom:8px;background:var(--surface)}
 .pack .info{min-width:0}
-.pack .nm{font-size:14px;font-weight:600;color:#111827;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.pack .meta{font-size:12px;color:#6b7280;margin-top:2px}
+.pack .nm{font-size:14px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pack .meta{font-size:12px;color:var(--text-2);margin-top:2px}
 .pack .acts{display:flex;gap:6px;flex-shrink:0}
-.pack .acts button{padding:6px 10px;border:1px solid #e5e7eb;background:#fff;border-radius:8px;font-size:12px;cursor:pointer;color:#374151}
-.pack .acts button:hover{border-color:#2563eb;color:#2563eb}
-.pack .acts .del:hover{border-color:#dc2626;color:#dc2626}
-.pack .acts .use{background:#2563eb;color:#fff;border-color:#2563eb}
-.vp-sel{width:100%;padding:10px;border:1px solid #d1d5db;border-radius:10px;font-size:14px;margin-top:6px;background:#fff}
-</style></head><body>
+.pack .acts button{padding:6px 10px;border:1px solid var(--border);background:var(--surface);border-radius:8px;font-size:12px;cursor:pointer;color:var(--text-1)}
+.pack .acts button:hover{border-color:var(--accent);color:var(--link)}
+.pack .acts .del:hover{border-color:var(--danger-ink);color:var(--danger-ink)}
+.pack .acts .use{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+.vp-sel{width:100%;padding:10px;border:1px solid var(--border-2);border-radius:10px;font-size:14px;margin-top:6px;background:var(--surface)}
+/* ===== 主题 tokens（浅色默认 / html[data-theme=dark] 深色） ===== */
+:root{color-scheme:light;--bg:#f5f6fa;--surface:#fff;--surface-2:#f9fafb;--surface-3:#f3f4f6;
+--border:#e5e7eb;--border-2:#d1d5db;--text:#111827;--text-1:#374151;--text-2:#6b7280;--text-3:#9ca3af;--on-accent:#fff;
+--accent:#2563eb;--accent-2:#1d4ed8;--link:#2563eb;--accent-soft:#eef2ff;--accent-soft-2:#e0e7ff;--accent-ink:#3730a3;
+--ok-bg:#ecfdf5;--ok-ink:#047857;--warn-bg:#fffbeb;--warn-ink:#b45309;--err-bg:#fef2f2;--err-ink:#b91c1c;
+--danger:#dc2626;--danger-ink:#dc2626;--res-bg:#f0fdf4;--res-border:#bbf7d0;--green:#16a34a;--green-ink:#16a34a;
+--sky:#0ea5e9;--sky-ink:#0369a1;--violet:#7c3aed;--disabled:#9ca3af;
+--focus:rgba(37,99,235,.12);--shadow-1:rgba(0,0,0,.06);--shadow-2:rgba(0,0,0,.1)}
+html[data-theme="dark"]{color-scheme:dark;--bg:#0f172a;--surface:#1e293b;--surface-2:#253349;--surface-3:#2c3a52;
+--border:#33415a;--border-2:#48566f;--text:#e6edf7;--text-1:#c6d2e3;--text-2:#93a3bd;--text-3:#6d7d96;--on-accent:#fff;
+--accent:#3b82f6;--accent-2:#2563eb;--link:#60a5fa;--accent-soft:rgba(59,130,246,.16);--accent-soft-2:rgba(59,130,246,.28);--accent-ink:#a5b4fc;
+--ok-bg:rgba(16,185,129,.14);--ok-ink:#34d399;--warn-bg:rgba(245,158,11,.14);--warn-ink:#fbbf24;--err-bg:rgba(239,68,68,.13);--err-ink:#f87171;
+--danger:#ef4444;--danger-ink:#f87171;--res-bg:rgba(16,185,129,.12);--res-border:rgba(16,185,129,.35);
+--green:#22c55e;--green-ink:#4ade80;--sky:#0ea5e9;--sky-ink:#7dd3fc;--violet:#8b5cf6;--disabled:#475569;
+--focus:rgba(59,130,246,.4);--shadow-1:rgba(0,0,0,.45);--shadow-2:rgba(0,0,0,.5)}
+body{background:var(--bg);color:var(--text)}
+textarea,input[type=text],input[type=file],input[type=password],input[type=number],select{background:var(--surface);color:var(--text);caret-color:var(--accent)}
+select option{background:var(--surface);color:var(--text)}
+::placeholder{color:var(--text-3);opacity:1}
+input[type=range],input[type=checkbox]{accent-color:var(--accent)}
+</style><script>(function(){try{var t='';try{t=localStorage.getItem('voxcpm_theme')||'';}catch(e){}if(t!=='dark'&&t!=='light'){try{var qs=new URLSearchParams(location.search);var q=qs.get('theme')||qs.get('vox_theme');if(q==='dark'||q==='light'){t=q;}}catch(e){}}if(t!=='dark'&&t!=='light'){t=(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light';}document.documentElement.setAttribute('data-theme',t);}catch(e){document.documentElement.setAttribute('data-theme','light');}})();</script></head><body>
 <div class="wrap">
   <div class="top">
     <h1>🎙️ VoxCPM2 <span class="muted" style="font-size:13px" data-i18n="localDeploy">本地部署</span></h1>
@@ -604,8 +644,9 @@ border:1px solid #f1f5f9;border-radius:10px;margin-bottom:8px;background:#fff}
       <span class="badge" id="devBadge">检测中…</span>
       <span class="badge ok">2B · 48kHz</span>
       <span class="badge" id="modelBadge" data-i18n="modelNotLoaded">模型未加载</span>
-      <button class="badge" id="langZh" onclick="setLang('zh')" style="cursor:pointer;border:1px solid #d1d5db">中</button>
-      <button class="badge" id="langEn" onclick="setLang('en')" style="cursor:pointer;border:1px solid #d1d5db;opacity:.5">EN</button>
+      <button class="badge" id="langZh" onclick="setLang('zh')" style="cursor:pointer;border:1px solid var(--border-2)">中</button>
+      <button class="badge" id="langEn" onclick="setLang('en')" style="cursor:pointer;border:1px solid var(--border-2);opacity:.5">EN</button>
+      <button class="badge" id="themeBtn" onclick="toggleTheme()" style="cursor:pointer;border:1px solid var(--border-2)" title=""></button>
     </div>
   </div>
 
@@ -738,12 +779,12 @@ border:1px solid #f1f5f9;border-radius:10px;margin-bottom:8px;background:#fff}
       <div class="meta" id="resMeta"></div>
       <audio id="player" controls></audio>
       <div class="prow" style="margin-top:10px;gap:8px">
-        <select id="exportFmt" style="width:auto;padding:8px;border:1px solid #d1d5db;border-radius:8px">
+        <select id="exportFmt" style="width:auto;padding:8px;border:1px solid var(--border-2);border-radius:8px">
           <option value="mp3">导出 MP3</option>
           <option value="wav">导出 WAV</option>
           <option value="m4a">导出 M4A</option>
         </select>
-        <button id="exportBtn" onclick="exportAudio()" data-i18n="exportLabel" style="padding:8px 14px;border:1px solid #d1d5db;border-radius:8px;background:#fff;cursor:pointer;font-size:13px">⬇️ 导出</button>
+        <button id="exportBtn" onclick="exportAudio()" data-i18n="exportLabel" style="padding:8px 14px;border:1px solid var(--border-2);border-radius:8px;background:var(--surface);cursor:pointer;font-size:13px">⬇️ 导出</button>
       </div>
     </div>
   </div>
@@ -755,7 +796,7 @@ border:1px solid #f1f5f9;border-radius:10px;margin-bottom:8px;background:#fff}
 
   <div class="card hide" id="betaCard">
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
-      <button class="chip" onclick="setMode(prevMode||'design')" data-i18n="backBtn" style="padding:6px 12px;border:1px solid #d1d5db;border-radius:8px;background:#fff;cursor:pointer;font-size:13px">← 返回</button>
+      <button class="chip" onclick="setMode(prevMode||'design')" data-i18n="backBtn" style="padding:6px 12px;border:1px solid var(--border-2);border-radius:8px;background:var(--surface);cursor:pointer;font-size:13px">← 返回</button>
       <span class="badge warn">Beta</span>
       <label data-i18n="betaTitle" style="margin:0">多人朗读与情绪控制</label>
     </div>
@@ -763,7 +804,7 @@ border:1px solid #f1f5f9;border-radius:10px;margin-bottom:8px;background:#fff}
     <div class="field" style="position:relative">
       <label data-i18n="betaTextLabel">朗读文本（输入 (@ 会弹出音色包，支持 情绪词）</label>
       <textarea id="betaText" style="min-height:130px" oninput="betaOnInput()">(@磁性女声，我i的最爱)你好，欢迎使用多人朗读功能。(开心)今天真不错！</textarea>
-      <div id="betaAtMenu" style="display:none;position:absolute;z-index:20;background:#fff;border:1px solid #d1d5db;border-radius:8px;max-height:200px;overflow:auto;width:100%;box-shadow:0 4px 12px rgba(0,0,0,.1)"></div>
+      <div id="betaAtMenu" style="display:none;position:absolute;z-index:20;background:var(--surface);border:1px solid var(--border-2);border-radius:8px;max-height:200px;overflow:auto;width:100%;box-shadow:0 4px 12px var(--shadow-2)"></div>
     </div>
     <div class="chips" id="betaChips" style="margin-bottom:12px">
       <button class="chip" onclick="betaInsert('(@')" data-i18n="betaAtTag">@音色</button>
@@ -791,7 +832,7 @@ border:1px solid #f1f5f9;border-radius:10px;margin-bottom:8px;background:#fff}
 
   <div class="card hide" id="trainCard">
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
-      <button class="chip" onclick="setMode(prevMode||'design')" data-i18n="backBtn" style="padding:6px 12px;border:1px solid #d1d5db;border-radius:8px;background:#fff;cursor:pointer;font-size:13px">← 返回</button>
+      <button class="chip" onclick="setMode(prevMode||'design')" data-i18n="backBtn" style="padding:6px 12px;border:1px solid var(--border-2);border-radius:8px;background:var(--surface);cursor:pointer;font-size:13px">← 返回</button>
       <span class="badge">LoRA</span>
       <label data-i18n="trainTitle" style="margin:0">🎓 持续训练</label>
       <span id="trainStatsBadge" class="badge" style="margin-left:auto"></span>
@@ -802,7 +843,7 @@ border:1px solid #f1f5f9;border-radius:10px;margin-bottom:8px;background:#fff}
       <label data-i18n="trainAddLabel">➕ 添加训练样本</label>
       <input type="file" id="trainFile" accept="audio/*">
       <textarea id="trainText" data-i18n-ph="trainTextPh" style="min-height:54px;margin-top:6px" placeholder="逐字填写这段语音说的内容（与音频完全一致）"></textarea>
-      <div style="display:flex;gap:14px;margin-top:6px;flex-wrap:wrap;font-size:12px;color:#374151">
+      <div style="display:flex;gap:14px;margin-top:6px;flex-wrap:wrap;font-size:12px;color:var(--text-1)">
         <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="tsDenoise"> <span data-i18n="enDenoise">🔊 导入前降噪（去除底噪/电流声）</span></label>
         <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="tsVocal"> <span data-i18n="enVocalOnly">🎤 只保留纯净人声（去背景音乐）</span></label>
       </div>
@@ -813,20 +854,20 @@ border:1px solid #f1f5f9;border-radius:10px;margin-bottom:8px;background:#fff}
       <div class="err" id="trainErr"></div>
     </div>
 
-    <details id="trWrap" style="border:1px solid #d1d5db;border-radius:10px;padding:10px 12px;margin-bottom:14px">
+    <details id="trWrap" style="border:1px solid var(--border-2);border-radius:10px;padding:10px 12px;margin-bottom:14px">
       <summary style="cursor:pointer;font-weight:600;font-size:14px;outline:none" data-i18n="trSummary">🎧 长音频自动转写（whisper 离线切句，免手填台词）</summary>
       <div style="margin-top:10px">
         <div class="muted" style="margin-bottom:8px;line-height:1.6" data-i18n="trDesc">上传 1~10 分钟的语音（清晰人声、无背景乐效果最佳），会自动按静音切句并逐句转写。核对/修改每段文本后勾选导入为训练样本。首次转写需下载约 460MB 模型（一次性）。</div>
         <input type="file" id="trFile" accept="audio/*">
-        <div style="display:flex;gap:14px;margin-top:6px;flex-wrap:wrap;font-size:12px;color:#374151">
+        <div style="display:flex;gap:14px;margin-top:6px;flex-wrap:wrap;font-size:12px;color:var(--text-1)">
           <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="trDenoise"> <span data-i18n="enDenoise">🔊 导入前降噪（去除底噪/电流声）</span></label>
           <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="trVocal"> <span data-i18n="enVocalOnly">🎤 只保留纯净人声（去背景音乐）</span></label>
         </div>
         <div style="margin-top:8px">
-          <div style="font-size:12px;font-weight:600;color:#374151" data-i18n="trTranscriptLabel">📝 有完整台词？粘贴全文，自动逐句匹配到各分段（免手动逐条修改）</div>
+          <div style="font-size:12px;font-weight:600;color:var(--text-1)" data-i18n="trTranscriptLabel">📝 有完整台词？粘贴全文，自动逐句匹配到各分段（免手动逐条修改）</div>
           <textarea id="trTranscript" rows="4" style="width:100%;margin-top:4px;font-size:13px;box-sizing:border-box" data-i18n-ph="trTranscriptPh" placeholder="把与音频完全一致的完整台词粘贴到这里（每行一句效果最佳）。可先转写后再粘贴点「按台词匹配」，也可上传前就粘贴、转写完成后自动匹配。"></textarea>
           <div style="display:flex;gap:8px;margin-top:6px;align-items:center;flex-wrap:wrap">
-            <button class="chip" id="trAlignBtn" style="display:none;padding:6px 14px;background:#7c3aed;color:#fff" data-i18n="trAlign">✨ 按台词匹配到各分段</button>
+            <button class="chip" id="trAlignBtn" style="display:none;padding:6px 14px;background:var(--violet);color:var(--on-accent)" data-i18n="trAlign">✨ 按台词匹配到各分段</button>
             <label class="chip" style="padding:6px 14px;cursor:pointer;font-size:13px;display:inline-flex;align-items:center;gap:4px">📄 <span data-i18n="trTxtFile">载入 txt 台词</span>
               <input type="file" id="trTxtFile" accept=".txt,text/plain" style="display:none">
             </label>
@@ -835,7 +876,7 @@ border:1px solid #f1f5f9;border-radius:10px;margin-bottom:8px;background:#fff}
         </div>
         <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
           <button class="chip" id="trStartBtn" style="padding:8px 16px" data-i18n="trStart">🎧 开始转写</button>
-          <button class="chip" id="trImportBtn" style="display:none;padding:8px 16px;background:#16a34a;color:#fff" data-i18n="trImport">📥 导入勾选项</button>
+          <button class="chip" id="trImportBtn" style="display:none;padding:8px 16px;background:var(--green);color:var(--on-accent)" data-i18n="trImport">📥 导入勾选项</button>
         </div>
         <div class="muted" id="trStatus" style="margin-top:8px"></div>
         <div class="err" id="trErr"></div>
@@ -862,12 +903,12 @@ border:1px solid #f1f5f9;border-radius:10px;margin-bottom:8px;background:#fff}
 
     <div style="display:flex;gap:8px;margin-bottom:10px">
       <button class="gen" id="trainStartBtn" style="flex:1" data-i18n="trainStart">🚀 开始训练</button>
-      <button class="gen" id="trainStopBtn" style="flex:0 0 auto;background:#dc2626;display:none" data-i18n="trainStop">⏹ 停止</button>
+      <button class="gen" id="trainStopBtn" style="flex:0 0 auto;background:var(--danger);display:none" data-i18n="trainStop">⏹ 停止</button>
     </div>
-    <div class="muted" id="trainNeedHint" style="display:none;font-size:12px;margin:-6px 0 10px;color:#b45309"></div>
+    <div class="muted" id="trainNeedHint" style="display:none;font-size:12px;margin:-6px 0 10px;color:var(--warn-ink)"></div>
 
     <div id="trainProgressWrap" style="display:none;margin-bottom:10px">
-      <div style="height:10px;background:#e5e7eb;border-radius:6px;overflow:hidden"><div id="trainProgressBar" style="height:100%;width:0%;background:#2563eb;transition:width .3s"></div></div>
+      <div style="height:10px;background:var(--border);border-radius:6px;overflow:hidden"><div id="trainProgressBar" style="height:100%;width:0%;background:var(--accent);transition:width .3s"></div></div>
       <div class="muted" id="trainStatusText" style="margin-top:6px"></div>
       <div class="muted" id="trainLossText" style="font-family:ui-monospace,Consolas,monospace;font-size:12px"></div>
     </div>
@@ -885,21 +926,21 @@ border:1px solid #f1f5f9;border-radius:10px;margin-bottom:8px;background:#fff}
     </div>
 
       <div id="packManage">
-        <div class="muted" style="margin-bottom:12px" data-i18n="packDesc">已提取并保存在本地的音色声线包，后续克隆可直接选用，无需重复上传长音频。数据存于 <code>voice_packs/</code> 目录，重启服务后依然保留。也可用 API：<code>POST /api/voicepacks</code> 保存，生成时传 <code>voice_pack_id</code>。带 <span style="color:#b45309">⚡加速</span> 标记的音色包在生成时自动提速。</div>
+        <div class="muted" style="margin-bottom:12px" data-i18n="packDesc">已提取并保存在本地的音色声线包，后续克隆可直接选用，无需重复上传长音频。数据存于 <code>voice_packs/</code> 目录，重启服务后依然保留。也可用 API：<code>POST /api/voicepacks</code> 保存，生成时传 <code>voice_pack_id</code>。带 <span style="color:var(--warn-ink)">⚡加速</span> 标记的音色包在生成时自动提速。</div>
         <div id="packList"><div class="muted" data-i18n="packEmpty">还没有音色包，去“制作音色声线包”做一个吧。</div></div>
       </div>
 
     <div id="packSave" class="hide">
       <div class="field">
         <label data-i18n="recMethod">方式一：实时录制（直接用麦克风，无需上传文件）</label>
-        <button class="gen" id="recBtn" onclick="startRec()" style="background:#0ea5e9" data-i18n="recStart">🎤 开始录制</button>
-        <div class="muted" id="recStatus" style="margin-top:6px;color:#0369a1" data-i18n="recHint">点击下方按钮授权麦克风后开始朗读，建议 10–30 秒清晰语句；录制完可回放确认。</div>
+        <button class="gen" id="recBtn" onclick="startRec()" style="background:var(--sky)" data-i18n="recStart">🎤 开始录制</button>
+        <div class="muted" id="recStatus" style="margin-top:6px;color:var(--sky-ink)" data-i18n="recHint">点击下方按钮授权麦克风后开始朗读，建议 10–30 秒清晰语句；录制完可回放确认。</div>
         <div class="field hide" id="recWrap" style="margin-top:10px">
           <label data-i18n="recPlayback">录制回放（确认无误再保存）</label>
           <audio id="recPlay" controls></audio>
         </div>
       </div>
-      <div class="field" id="vpDropZone" style="border:2px dashed #cbd5e1;border-radius:10px;padding:12px;transition:all .2s">
+      <div class="field" id="vpDropZone" style="border:2px dashed var(--border-2);border-radius:10px;padding:12px;transition:all .2s">
         <label data-i18n="upMethod">方式二：上传音频或拖拽视频（wav/mp3/flac/mp4/mov 等，视频自动提取人声）</label>
         <input type="file" id="vpFile" accept="audio/*,video/*">
         <div class="muted" id="vpDropHint" style="margin-top:6px" data-i18n="vpDropHint">建议 10–60 秒清晰人声；超过 30 秒会自动分段并融合为约 25 秒的代表参考。视频文件会自动提取音轨（需已安装 ffmpeg）。</div>
@@ -1002,7 +1043,7 @@ const I18N={
       trModelLoading:'正在加载 whisper 模型（首次约需 1~2 分钟）…',
       trTranscriptLabel:'📝 有完整台词？粘贴全文，自动逐句匹配到各分段（免手动逐条修改）',
       trTranscriptPh:'把与音频完全一致的完整台词粘贴到这里（每行一句效果最佳）。可先转写后再粘贴点「按台词匹配」，也可上传前就粘贴、转写完成后自动匹配。',
-      trAlign:'✨ 按台词匹配到各分段',trTxtFile:'载入 txt 台词',trNoTranscript:'请先粘贴完整台词'},
+      trAlign:'✨ 按台词匹配到各分段',trTxtFile:'载入 txt 台词',trNoTranscript:'请先粘贴完整台词',themeGoDark:'🌙 深色',themeGoLight:'☀️ 浅色'},
   en:{localDeploy:'Local',detecting:'Detecting…',modelNotLoaded:'Model not loaded',modelReady:'Model ready',
       modeDesign:'🎨 Voice Design',modeClone:'🎛️ Voice Clone',modeHifi:'🎙️ HiFi Clone',modeBeta:'🧪 Beta',modeTrain:'🎓 Train',
       history:'Generation history',noHistory:'No history yet',
@@ -1067,7 +1108,8 @@ const I18N={
       trModelLoading:'Loading whisper model (first run ~1–2 min)…',
       trTranscriptLabel:'📝 Have the verbatim transcript? Paste it and auto-match into each segment (no manual line-by-line edits)',
       trTranscriptPh:'Paste the full transcript that matches the audio exactly (one sentence per line works best). You can transcribe first and then click "Match transcript", or paste before uploading and it will be matched automatically when transcription finishes.',
-      trAlign:'✨ Match transcript into segments',trTxtFile:'Load txt',trNoTranscript:'Please paste the full transcript first'}
+      trAlign:'✨ Match transcript into segments',trTxtFile:'Load txt',trNoTranscript:'Please paste the full transcript first',
+      themeGoDark:'🌙 Dark',themeGoLight:'☀️ Light'}
 };
 let curLang='zh';
 function setLang(l){
@@ -1081,9 +1123,20 @@ function setLang(l){
   if(t2&&(!t2.value||t2.value===zh2||t2.value===en2))t2.value=d.betaDefault;
   document.getElementById('langZh').style.opacity=(l==='zh')?'1':'.5';
   document.getElementById('langEn').style.opacity=(l==='en')?'1':'.5';
+  if(window.updateThemeBtn)updateThemeBtn();
   try{localStorage.setItem('voxcpm_lang',l);}catch(_){}
 }
 function tr(zh,en){return curLang==='zh'?zh:en;}
+// ===== 主题（深色/浅色） =====
+function curTheme(){return document.documentElement.getAttribute('data-theme')==='dark'?'dark':'light';}
+function updateThemeBtn(){var b=document.getElementById('themeBtn');if(!b)return;
+  var d=I18N[curLang]||I18N.zh;
+  b.textContent=(curTheme()==='dark')?d.themeGoLight:d.themeGoDark;
+  b.title=b.textContent;}
+function toggleTheme(){var t=curTheme()==='dark'?'light':'dark';
+  document.documentElement.setAttribute('data-theme',t);
+  try{localStorage.setItem('voxcpm_theme',t);}catch(_){}
+  updateThemeBtn();}
 // ===== Beta：多人朗读 =====
 function betaInsert(tag){
   const el=document.getElementById('betaText');const s=el.selectionStart||0,e=el.selectionEnd||0;
@@ -1104,7 +1157,7 @@ function betaOnInput(){
   menu.innerHTML='';
   items.forEach(p=>{
     const d=document.createElement('div');
-    d.style.cssText='padding:8px 12px;cursor:pointer;border-bottom:1px solid #f3f4f6;font-size:13px';
+    d.style.cssText='padding:8px 12px;cursor:pointer;border-bottom:1px solid var(--surface-3);font-size:13px';
     d.textContent=p.name;
     d.onmousedown=function(){betaPickVoice(p.name);};
     menu.appendChild(d);
@@ -1168,10 +1221,10 @@ function renderDialoguePanels(){
   box.innerHTML='';
   dialogues.forEach((d,idx)=>{
     const panel=document.createElement('div');
-    panel.style.cssText='border:1px solid #e5e7eb;border-radius:10px;margin-bottom:10px;overflow:hidden';
+    panel.style.cssText='border:1px solid var(--border);border-radius:10px;margin-bottom:10px;overflow:hidden';
     // 头部：折叠箭头 + 角色标识
     const head=document.createElement('div');
-    head.style.cssText='display:flex;align-items:center;gap:8px;padding:10px 12px;cursor:pointer;font-weight:600;background:#f9fafb;font-size:13px';
+    head.style.cssText='display:flex;align-items:center;gap:8px;padding:10px 12px;cursor:pointer;font-weight:600;background:var(--surface-2);font-size:13px';
     head.onclick=function(){toggleDp(idx);};
     const arrow=document.createElement('span'); arrow.id='dp_arrow_'+idx; arrow.textContent=d.collapsed?'▸':'▾';
     const label=document.createElement('span');
@@ -1180,24 +1233,24 @@ function renderDialoguePanels(){
     panel.appendChild(head);
     // 主体：参数
     const body=document.createElement('div'); body.id='dp_body_'+idx;
-    body.style.cssText='padding:10px 12px;border-top:1px solid #f3f4f6'+(d.collapsed?';display:none':'');
+    body.style.cssText='padding:10px 12px;border-top:1px solid var(--surface-3)'+(d.collapsed?';display:none':'');
     const L=curLang;
-    function row(lbl){ const r=document.createElement('div'); r.style.cssText='margin-bottom:8px'; const s=document.createElement('div'); s.style.cssText='font-size:12px;color:#6b7280;margin-bottom:4px'; s.textContent=lbl; r.appendChild(s); return r; }
-    function slider(lbl,min,max,step,val,cb){ const r=row(lbl); const w=document.createElement('div'); w.style.cssText='display:flex;align-items:center;gap:10px'; const inp=document.createElement('input'); inp.type='range'; inp.min=min; inp.max=max; inp.step=step; inp.value=val; inp.style.cssText='flex:1'; const v=document.createElement('span'); v.style.cssText='width:36px;text-align:right;font-size:12px;color:#6b7280'; v.textContent=val; inp.oninput=function(){ v.textContent=inp.value; cb(parseFloat(inp.value)); }; w.appendChild(inp); w.appendChild(v); r.appendChild(w); return r; }
+    function row(lbl){ const r=document.createElement('div'); r.style.cssText='margin-bottom:8px'; const s=document.createElement('div'); s.style.cssText='font-size:12px;color:var(--text-2);margin-bottom:4px'; s.textContent=lbl; r.appendChild(s); return r; }
+    function slider(lbl,min,max,step,val,cb){ const r=row(lbl); const w=document.createElement('div'); w.style.cssText='display:flex;align-items:center;gap:10px'; const inp=document.createElement('input'); inp.type='range'; inp.min=min; inp.max=max; inp.step=step; inp.value=val; inp.style.cssText='flex:1'; const v=document.createElement('span'); v.style.cssText='width:36px;text-align:right;font-size:12px;color:var(--text-2)'; v.textContent=val; inp.oninput=function(){ v.textContent=inp.value; cb(parseFloat(inp.value)); }; w.appendChild(inp); w.appendChild(v); r.appendChild(w); return r; }
     // 语气
     const rTone=row(L==='zh'?'语气':'Tone'); const selTone=document.createElement('select');
-    selTone.style.cssText='width:100%;padding:6px;border:1px solid #d1d5db;border-radius:6px;font-size:13px';
+    selTone.style.cssText='width:100%;padding:6px;border:1px solid var(--border-2);border-radius:6px;font-size:13px';
     TONE_OPTS[L].forEach(o=>{ const op=document.createElement('option'); op.textContent=o; op.value=o; if(o===d.tone)op.selected=true; selTone.appendChild(op); });
     selTone.onchange=function(){d.tone=selTone.value;};
     rTone.appendChild(selTone); body.appendChild(rTone);
     // 台词
     const rText=row(L==='zh'?'台词':'Line'); const ta=document.createElement('textarea');
-    ta.style.cssText='width:100%;padding:6px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;min-height:44px;font-family:inherit';
+    ta.style.cssText='width:100%;padding:6px;border:1px solid var(--border-2);border-radius:6px;font-size:13px;min-height:44px;font-family:inherit';
     ta.value=d.text; ta.oninput=function(){d.text=ta.value;};
     rText.appendChild(ta); body.appendChild(rText);
     // 情绪
     const rEmo=row(L==='zh'?'情绪':'Emotion'); const selEmo=document.createElement('select');
-    selEmo.style.cssText='width:100%;padding:6px;border:1px solid #d1d5db;border-radius:6px;font-size:13px';
+    selEmo.style.cssText='width:100%;padding:6px;border:1px solid var(--border-2);border-radius:6px;font-size:13px';
     const curEmo=(d.emotion==='neutral'||d.emotion==='平静')?(L==='zh'?'无':'None'):d.emotion;
     EMO_OPTS[L].forEach(o=>{ const op=document.createElement('option'); op.textContent=o; op.value=o; if(o===curEmo)op.selected=true; selEmo.appendChild(op); });
     selEmo.onchange=function(){ const v=selEmo.value; d.emotion=(v==='无'||v==='None')?'neutral':v; };
@@ -1205,7 +1258,7 @@ function renderDialoguePanels(){
     // 音量
     const rVol=row(L==='zh'?'音量':'Volume'); const volWrap=document.createElement('div'); volWrap.style.cssText='display:flex;align-items:center;gap:10px';
     const vol=document.createElement('input'); vol.type='range'; vol.min='0.3'; vol.max='2'; vol.step='0.05'; vol.value=d.volume; vol.style.cssText='flex:1';
-    const volV=document.createElement('span'); volV.style.cssText='width:36px;text-align:right;font-size:12px;color:#6b7280'; volV.textContent=d.volume;
+    const volV=document.createElement('span'); volV.style.cssText='width:36px;text-align:right;font-size:12px;color:var(--text-2)'; volV.textContent=d.volume;
     vol.oninput=function(){d.volume=parseFloat(vol.value);volV.textContent=vol.value;};
     volWrap.appendChild(vol); volWrap.appendChild(volV); rVol.appendChild(volWrap); body.appendChild(rVol);
     // 音调 / 语速 / 句间停顿 / 呼吸 —— 每次参与独立调节，区别于其他参与
@@ -1277,11 +1330,11 @@ function refreshTrainSamples(){
       el.innerHTML='';
       arr.forEach(function(s){
         var row=document.createElement('div');
-        row.style.cssText='display:flex;align-items:center;gap:8px;padding:8px;border:1px solid #e5e7eb;border-radius:8px;margin-bottom:6px';
+        row.style.cssText='display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px';
         var info=document.createElement('div');
         info.style.flex='1';
         info.innerHTML='<div style="font-weight:600">'+escHtml(s.name||('#'+s.id))+
-          '</div><div style="font-size:12px;color:#6b7280">'+(s.duration?s.duration.toFixed(1)+'s · ':'')+
+          '</div><div style="font-size:12px;color:var(--text-2)">'+(s.duration?s.duration.toFixed(1)+'s · ':'')+
           escHtml(s.text).slice(0,80)+(s.text&&s.text.length>80?'…':'')+'</div>';
         var play=document.createElement('button');
         play.className='chip';play.textContent=I18N[curLang].trainPlaySample;
@@ -1290,7 +1343,7 @@ function refreshTrainSamples(){
         var del=document.createElement('button');
         del.className='chip';del.textContent=I18N[curLang].trainDelete;
         del.dataset.act='delete';del.dataset.id=s.id;
-        del.style.cssText='padding:4px 10px;font-size:12px;color:#dc2626';
+        del.style.cssText='padding:4px 10px;font-size:12px;color:var(--danger-ink)';
         row.appendChild(info);row.appendChild(play);row.appendChild(del);
         el.appendChild(row);
       });
@@ -1470,14 +1523,14 @@ function refreshLoras(){
         list.innerHTML='';
         arr.forEach(function(l){
           var row=document.createElement('div');
-          row.style.cssText='display:flex;align-items:center;gap:8px;padding:8px;border:1px solid #e5e7eb;border-radius:8px;margin-bottom:6px';
+          row.style.cssText='display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px';
           var info=document.createElement('div');
           info.style.flex='1';
           var meta=l.created_at||'';
           if(l.final_loss!=null)meta+=' · loss '+l.final_loss.toFixed(3);
           if(l.steps)meta+=' · '+l.steps+' steps';
           info.innerHTML='<div style="font-weight:600">'+escHtml(l.name)+'</div>'+
-            '<div style="font-size:12px;color:#6b7280">'+escHtml(meta)+'</div>';
+            '<div style="font-size:12px;color:var(--text-2)">'+escHtml(meta)+'</div>';
           var use=document.createElement('button');
           use.className='chip';use.textContent=I18N[curLang].trainUseLora;
           use.dataset.act='use';use.dataset.id=l.name;
@@ -1485,7 +1538,7 @@ function refreshLoras(){
           var del=document.createElement('button');
           del.className='chip';del.textContent=I18N[curLang].trainDelete;
           del.dataset.act='delete';del.dataset.id=l.name;
-          del.style.cssText='padding:4px 10px;font-size:12px;color:#dc2626';
+          del.style.cssText='padding:4px 10px;font-size:12px;color:var(--danger-ink)';
           row.appendChild(info);row.appendChild(use);row.appendChild(del);
           list.appendChild(row);
         });
@@ -1574,13 +1627,13 @@ function trRender(j){
   selAll.appendChild(document.createTextNode(' '+I18N[curLang].trSelAll));
   head.appendChild(selAll);
   var cnt=document.createElement('span');
-  cnt.style.cssText='margin-left:auto;font-size:12px;color:#6b7280';
+  cnt.style.cssText='margin-left:auto;font-size:12px;color:var(--text-2)';
   cnt.textContent=segs.length+' '+tr('段','segments')+' · '+j.lang;
   head.appendChild(cnt);
   box.appendChild(head);
   segs.forEach(function(s){
     var row=document.createElement('div');
-    row.style.cssText='display:flex;align-items:flex-start;gap:6px;padding:8px;border:1px solid #e5e7eb;border-radius:8px;margin-bottom:6px;background:#fafafa';
+    row.style.cssText='display:flex;align-items:flex-start;gap:6px;padding:8px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;background:var(--surface-3)';
     var cb=document.createElement('input');
     cb.type='checkbox';cb.className='tr-cb';cb.checked=true;
     cb.dataset.idx=s.idx;
@@ -1590,7 +1643,7 @@ function trRender(j){
     var mid=document.createElement('div');
     mid.style.flex='1';
     var lab=document.createElement('div');
-    lab.style.cssText='font-size:11px;color:#6b7280;margin-bottom:3px';
+    lab.style.cssText='font-size:11px;color:var(--text-2);margin-bottom:3px';
     lab.textContent=I18N[curLang].trSegDur.replace('{n}',String(s.idx+1))+' · '+s.duration.toFixed(1)+'s';
     mid.appendChild(lab);
     var ta=document.createElement('textarea');
@@ -1613,7 +1666,7 @@ function trRender(j){
   if(an){
     if(j.aligned){
       an.textContent='✅ '+(j.align_note||'');
-      an.style.color='#16a34a';
+      an.style.color='var(--green-ink)';
     }else{
       an.textContent='';
       an.style.color='';
@@ -1971,7 +2024,7 @@ function renderPacks(){
   for(const p of voicePacks){
     const dur=p.processed_duration!=null?p.processed_duration+'s':'';
     const src=p.source_duration!=null?p.source_duration+'s':'';
-    const accel=p.accelerated?' <span style="color:#b45309">⚡加速</span>':'';
+    const accel=p.accelerated?' <span style="color:var(--warn-ink)">⚡加速</span>':'';
     const meta=[dur?(tr('代表参考 ','Ref ')+dur):'', src?(tr('原片 ','Src ')+src):'', p.created_at].filter(Boolean).join(' · ');
     const row=document.createElement('div');
     row.className='pack'; row.dataset.id=p.id;
@@ -2081,15 +2134,15 @@ function setVpDropHint(t){
   if(!dz)return;
   ['dragover','dragenter'].forEach(ev=>dz.addEventListener(ev,function(e){
     e.preventDefault();e.stopPropagation();
-    dz.style.borderColor='#2563eb';dz.style.background='#eff6ff';
+    dz.style.borderColor='var(--accent)';dz.style.background='var(--accent-soft)';
   }));
   ['dragleave','dragend'].forEach(ev=>dz.addEventListener(ev,function(e){
     e.preventDefault();
-    dz.style.borderColor='#cbd5e1';dz.style.background='';
+    dz.style.borderColor='var(--border-2)';dz.style.background='';
   }));
   dz.addEventListener('drop',function(e){
     e.preventDefault();e.stopPropagation();
-    dz.style.borderColor='#cbd5e1';dz.style.background='';
+    dz.style.borderColor='var(--border-2)';dz.style.background='';
     const files=e.dataTransfer&&e.dataTransfer.files;
     if(!files||!files.length)return;
     const f=files[0];
@@ -2181,7 +2234,7 @@ async function startRec(){
     mediaRec.start();
     recSecs=0;
     const btn=document.getElementById('recBtn');
-    btn.textContent=tr('⏹ 停止录制','⏹ Stop Recording');btn.style.background='#dc2626';btn.onclick=stopRec;
+    btn.textContent=tr('⏹ 停止录制','⏹ Stop Recording');btn.style.background='var(--danger)';btn.onclick=stopRec;
     document.getElementById('recStatus').textContent=tr('录制中 ','Recording ')+'0.0s';
     recTimer=setInterval(()=>{recSecs+=0.1;document.getElementById('recStatus').textContent=tr('录制中 ','Recording ')+recSecs.toFixed(1)+'s';},100);
   }catch(e){showVpErr(tr('无法访问麦克风：','Microphone access failed: ')+(e.message||e.name)+tr('（请允许浏览器麦克风权限）','(please allow microphone permission)'));}
@@ -2190,13 +2243,13 @@ function stopRec(){
   if(mediaRec&&mediaRec.state!=='inactive')mediaRec.stop();
   clearInterval(recTimer);
   const btn=document.getElementById('recBtn');
-  btn.textContent=tr('🎤 重新录制','🎤 Re-record');btn.style.background='#0ea5e9';btn.onclick=startRec;
+  btn.textContent=tr('🎤 重新录制','🎤 Re-record');btn.style.background='var(--sky)';btn.onclick=startRec;
   document.getElementById('recStatus').textContent=tr('录制完成，可回放或重新录制','Recording done. Playback or re-record.');
 }
 function resetRec(){
   recBlob=null;recChunks=[];recSecs=0;
   const btn=document.getElementById('recBtn');
-  if(btn){btn.textContent=tr('🎤 开始录制','🎤 Start Recording');btn.style.background='#0ea5e9';btn.onclick=startRec;}
+  if(btn){btn.textContent=tr('🎤 开始录制','🎤 Start Recording');btn.style.background='var(--sky)';btn.onclick=startRec;}
   const w=document.getElementById('recWrap');if(w)w.classList.add('hide');
   const s=document.getElementById('recStatus');if(s)s.textContent=tr('点击下方按钮授权麦克风后开始朗读，建议 10–30 秒清晰语句；录制完可回放确认。','Click the button, allow microphone access, then read for 10–30s. Playback to confirm after recording.');
 }
