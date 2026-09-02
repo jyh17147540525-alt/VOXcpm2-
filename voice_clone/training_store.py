@@ -22,7 +22,9 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
+import subprocess
 import threading
 import time
 import uuid
@@ -86,6 +88,56 @@ def _probe_audio(path: Path) -> tuple[float, int]:
         raise ValueError(f"音频无法解码（请用 wav/mp3/flac 等常见格式）: {e}")
 
 
+def _find_ffmpeg():
+    """定位 ffmpeg 可执行文件（soundfile 读不了的 m4a/aac/webm 等格式用其转码）。
+    找不到返回 None。"""
+    cands = [os.environ.get("VOXCPM_FFMPEG", "")]
+    cands += [
+        "F:/miniforge3/Library/bin/ffmpeg.exe",
+        "F:/miniforge3/Scripts/ffmpeg.exe",
+        "F:/miniconda3/Library/bin/ffmpeg.exe",
+    ]
+    for c in cands:
+        if c and os.path.exists(c):
+            return c
+    import glob as _g
+    for pat in ("F:/ffmpeg*/bin/ffmpeg.exe", "F:/VoxCPM2/ffmpeg*/bin/ffmpeg.exe"):
+        for c in _g.glob(pat):
+            if os.path.exists(c):
+                return c
+    import shutil as _sh
+    p = _sh.which("ffmpeg")
+    if p:
+        return p
+    try:
+        import imageio_ffmpeg as _i
+        p = _i.get_ffmpeg_exe()
+        if p and os.path.exists(p):
+            return p
+    except Exception:
+        pass
+    return None
+
+
+def _ffmpeg_to_wav(src: Path, dst: Path):
+    """用 ffmpeg 把任意可解音频转成单声道 wav（pcm_s16le，保持采样率）。
+    失败抛 ValueError（含原因）。"""
+    ff = _find_ffmpeg()
+    if not ff:
+        raise ValueError("音频无法解码，且未找到可用的 ffmpeg 用于转码；请先转成 wav/mp3 再上传")
+    try:
+        r = subprocess.run(
+            [ff, "-y", "-loglevel", "error", "-i", str(src), "-vn",
+             "-ac", "1", "-c:a", "pcm_s16le", str(dst)],
+            capture_output=True, timeout=180,
+        )
+    except Exception as e:
+        raise ValueError(f"ffmpeg 转码失败: {e}")
+    if r.returncode != 0 or not dst.exists() or dst.stat().st_size == 0:
+        lines = (r.stderr or b"").decode("utf-8", "replace").strip().splitlines()
+        raise ValueError(f"音频无法解码（ffmpeg 转码失败）: {lines[-1] if lines else 'unknown error'}")
+
+
 # ------------------------------------------------------------------ 对外接口
 def list_samples() -> list:
     """返回样本元数据列表（按创建时间倒序）。"""
@@ -111,23 +163,37 @@ def add_sample(src_path, text: str, name: str = "") -> dict:
     if not (MIN_TEXT_CHARS <= len(text) <= MAX_TEXT_CHARS):
         raise ValueError(f"台词长度需在 {MIN_TEXT_CHARS}~{MAX_TEXT_CHARS} 字之间")
 
-    duration, sr = _probe_audio(src)
-    if duration < MIN_SAMPLE_SECONDS:
-        raise ValueError(f"音频太短（{duration:.1f}s），至少需要 {MIN_SAMPLE_SECONDS:g} 秒")
-    if duration > MAX_SAMPLE_SECONDS:
-        raise ValueError(f"音频太长（{duration:.1f}s），请裁剪到 {MAX_SAMPLE_SECONDS:g} 秒以内")
-
-    sid = uuid.uuid4().hex[:12]
-    dst = SAMPLES_DIR / f"{sid}.wav"
-    # 统一存为 wav，避免训练时依赖各种解码器
-    if src.suffix.lower() == ".wav":
-        shutil.copy2(str(src), str(dst))
-    else:
+    # 先探测时长与采样率；soundfile 读不了的格式（m4a/aac/webm 等）用
+    # ffmpeg 转成临时 wav 再探测，训练样本因此支持手机/微信常见录音格式。
+    tmp_wav = None
+    try:
         try:
+            duration, sr = _probe_audio(src)
+        except ValueError:
+            tmp_wav = SAMPLES_DIR / f".conv_{uuid.uuid4().hex[:8]}.wav"
+            _ffmpeg_to_wav(src, tmp_wav)
+            duration, sr = _probe_audio(tmp_wav)
+        if duration < MIN_SAMPLE_SECONDS:
+            raise ValueError(f"音频太短（{duration:.1f}s），至少需要 {MIN_SAMPLE_SECONDS:g} 秒")
+        if duration > MAX_SAMPLE_SECONDS:
+            raise ValueError(f"音频太长（{duration:.1f}s），请裁剪到 {MAX_SAMPLE_SECONDS:g} 秒以内")
+
+        sid = uuid.uuid4().hex[:12]
+        dst = SAMPLES_DIR / f"{sid}.wav"
+        # 统一存为 wav，避免训练时依赖各种解码器
+        if tmp_wav is not None:
+            shutil.copy2(str(tmp_wav), str(dst))
+        elif src.suffix.lower() == ".wav":
+            shutil.copy2(str(src), str(dst))
+        else:
             data, orig_sr = sf.read(str(src))
             sf.write(str(dst), data, orig_sr)
-        except Exception as e:
-            raise ValueError(f"音频转码失败: {e}")
+    finally:
+        if tmp_wav is not None:
+            try:
+                tmp_wav.unlink(missing_ok=True)
+            except OSError:
+                pass
 
     meta = {
         "id": sid,
