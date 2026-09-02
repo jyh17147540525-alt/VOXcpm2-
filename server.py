@@ -3219,6 +3219,14 @@ def _check_not_transcribing():
         raise HTTPException(status_code=409, detail="已有转写任务在运行，请等待完成或稍后再试")
 
 
+def _public_job(job: dict) -> dict:
+    """剥离仅供后端重对齐用的内部字段，避免上千条词级锚点撑大轮询 payload。"""
+    j = dict(job or {})
+    for k in ("words_timeline", "raw_tail"):
+        j.pop(k, None)
+    return j
+
+
 @app.post("/api/train/transcribe")
 async def train_transcribe(request: Request):
     """上传长音频 → 后台线程 whisper 转写 → 返回 job（前端轮询结果）。
@@ -3251,7 +3259,7 @@ async def train_transcribe(request: Request):
         _safe_unlink(tmp)
         if enh:
             _safe_unlink(enh)
-    return {"ok": True, "job": job}
+    return {"ok": True, "job": _public_job(job)}
 
 
 @app.post("/api/train/align")
@@ -3272,7 +3280,7 @@ async def train_align(request: Request):
         job = transcriber.align_job(job_id, transcript)
     except RuntimeError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    return {"ok": True, "job": job}
+    return {"ok": True, "job": _public_job(job)}
 
 
 @app.get("/api/train/transcribe/{job_id}")
@@ -3281,7 +3289,7 @@ def train_transcribe_status(job_id: str, request: Request):
     job = transcriber.get_job(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="转写任务不存在或已过期，请重新转写")
-    return {"ok": True, "job": job}
+    return {"ok": True, "job": _public_job(job)}
 
 
 @app.get("/api/train/transcribe/{job_id}/segment/{idx}/audio")

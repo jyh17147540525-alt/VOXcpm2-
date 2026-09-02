@@ -299,32 +299,50 @@ def start_transcribe(src_path, label: str = "", transcript: str = "") -> dict:
                 vad_parameters={"min_silence_duration_ms": 300},
                 initial_prompt="。，！？",
                 condition_on_previous_text=True,
+                word_timestamps=True,     # 词级时间戳（台词对齐的强锚点）
             )
             lang = getattr(info, "language", None)
             job["lang"] = lang
             keep_overlong = bool(tr)      # 台词对齐模式：保留 >30s 段，保证时间轴连续
             segs = []
+            timeline = []                 # 词级锚点 [{u,s,e}]：全音频展平、按时间有序
+            raw_tail = []                 # 全部“像语音”的 whisper 原始段（含 <1s），台词覆盖不到时兜底
+            total = 0.0
             for seg in segments:
                 text = (seg.text or "").strip()
-                d = float(getattr(seg, "end", 0) - getattr(seg, "start", 0))
+                st = float(getattr(seg, "start", 0))
+                en = float(getattr(seg, "end", 0))
+                d = en - st
+                total = max(total, en)
+                if not _looks_like_speech(text):
+                    continue
+                raw_tail.append({
+                    "text": text, "start": round(st, 3),
+                    "end": round(en, 3), "duration": round(d, 2),
+                })
+                for w in (getattr(seg, "words", None) or []):
+                    _add_word_anchors(timeline, w)
                 if d < MIN_SEGMENT_SECONDS:
                     continue
                 if not keep_overlong and d > MAX_SEGMENT_SECONDS:
                     continue
-                if not _looks_like_speech(text):
-                    continue
                 segs.append({
                     "idx": len(segs),
                     "text": text,
-                    "start": round(float(seg.start), 3),
-                    "end": round(float(seg.end), 3),
+                    "start": round(st, 3),
+                    "end": round(en, 3),
                     "duration": round(d, 2),
                 })
                 if len(segs) % 20 == 0:
                     job["progress"] = min(85, 30 + len(segs))
+            job["words_timeline"] = timeline     # 供 align 与 align_job(改台词后重对齐) 复用
+            job["raw_tail"] = raw_tail
+            job["audio_total"] = round(total, 3)
             note = ""
-            if tr and segs:
-                segs, note = align_text_to_segments(segs, tr)
+            if tr and (segs or timeline):
+                segs, note = align_text_to_segments(
+                    segs, tr,
+                    timeline=timeline, raw_tail=raw_tail, audio_total=total)
             job["segments"] = segs
             job["progress"] = 100
             job["status"] = "done"
@@ -416,33 +434,316 @@ def _tokenize_transcript(text: str) -> list:
     return tokens
 
 
-def align_text_to_segments(segments, transcript: str):
-    """把用户提供的完整台词按"语速均匀"假设分配到各分段的 text 字段。
+# ================================================================== 台词对齐 v2
+#
+# 旧版（_align_proportional，仅作无时间戳时的兜底）假设"语速均匀"，按
+# 总字数/总时长把台词摊到各段 —— 语速变化、音乐间奏、口误重复都会整体错位。
+#
+# v2 采用"外部位对齐"思路（同 WhisperX / Gentle / MFA 一类）：
+#   1. 转写时 faster-whisper 已开 word_timestamps=True，每个 word 被展开成
+#      "字符级/词级时间锚点"（见 _add_word_anchors）—— 锚点文本 ↔ 真实时刻，
+#      这是比"字数/时长比例"可信得多的直接证据。
+#   2. 把台词切成对齐原子（CJK 逐字一原子、拉丁字母/数字按"词"一原子），
+#      与锚点文本做一次全局编辑对齐（Needleman–Wunsch：等值 0 / 替换 1 / 插删 1）。
+#   3. 只有完全等值的对齐对才是"硬锚点"（台词原子直接获得锚点真实时刻）；
+#      其余原子在最近两个硬锚点之间按字符序号线性插值，保证"文本序 → 时刻"单调。
+#   4. 语音分段两两之间取"间隙中点"作文本切界，二分时刻表即可切出每段真正
+#      对应的台词；台词覆盖不到的段保留 whisper 原文（aligned=False）供勾除，
+#      台词末尾超出音频总长的部分不再硬塞进末段。
+import bisect as _bisect
 
-    segments   —— 现有 [{idx,text,start,end,duration}]（text 为 whisper 识别文本，
-                  仅用其 start/end/duration 做时间边界，识别内容不参与匹配）
-    transcript —— 用户权威台词全文（可含换行/标点；每行一句效果最佳）
 
-    原理：whisper 的分段边界来自真实静音，时长可信；同一说话人语速基本均匀，
-    因此"段长 ∝ 台词字数"。按 total_chars/total_duration 得语速，逐段累计切分，
-    落点取最近的 token 边界（句末/逗号边界天然优先），保证分段文本连续不重叠。
+def _add_word_anchors(timeline: list, w) -> None:
+    """把一个 whisper word 展开为时间锚点追加进 timeline。
 
-    返回 (segments, note)。已被台词替换的段 text 为台词片段、aligned=True；
-    台词不够覆盖的段保留原识别文本、aligned=False。
+    w —— faster-whisper 的 word 对象（word/start/end）
+    锚点规则：CJK 等非 ASCII 字符逐字一个锚点（词区间按字数等分）；
+    连续 ASCII 字母/数字整段一个锚点（词对齐天然落在词边界上）。
+    锚点 = {u: 文本, s: 起, e: 止, t: 中心时刻}。标点/空白不产出锚点。
     """
-    speech = [s for s in segments if (s.get("duration") or 0) > 0]
-    total_dur = sum(s["duration"] for s in speech)
-    if not speech or total_dur <= 0:
-        return list(segments), "未识别到语音分段，无法匹配台词"
-    text = (transcript or "").strip()
-    if not text:
-        return list(segments), "台词为空"
-    if len(text) > 200000:
-        return list(segments), "台词过长（超过 20 万字），请分段处理"
+    ws = float(getattr(w, "start", 0) or 0)
+    we = float(getattr(w, "end", 0) or 0)
+    txt = (getattr(w, "word", "") or "").strip()
+    if we <= ws or not txt:
+        return
+    n = len(txt)
+    i = 0
+    while i < n:
+        ch = txt[i]
+        if not ch.isalnum():
+            i += 1
+            continue
+        if ch.isascii():
+            j = i + 1
+            while j < n and txt[j].isascii() and txt[j].isalnum():
+                j += 1
+            a, b = ws, we
+            u = txt[i:j]
+            timeline.append({"u": u, "s": round(a, 4), "e": round(b, 4),
+                             "t": round((a + b) / 2, 4)})
+            i = j
+        else:
+            a = ws + (we - ws) * (i) / n
+            b = ws + (we - ws) * (i + 1) / n
+            timeline.append({"u": ch, "s": round(a, 4), "e": round(b, 4),
+                             "t": round((a + b) / 2, 4)})
+            i += 1
+
+
+def _fold(ch: str) -> str:
+    """单个字符归一化：全角→半角、大写→小写（用于识别文本与台词比对）。"""
+    o = ord(ch)
+    if 0xFF01 <= o <= 0xFF5E:
+        ch = chr(o - 0xFEE0)
+    return ch.lower() if ch.isalpha() else ch
+
+
+def _text_atoms(text: str) -> list:
+    """台词 → 对齐原子列表，每项 {ch: 文本, o: 在原文的下标}。
+
+    CJK 等非 ASCII 可发音字符逐字一个原子；连续 ASCII 字母/数字按"词"
+    一个原子（与 _add_word_anchors 的锚点粒度一致）。标点/空白不产出
+    原子，只作为切分文本时的"胶水"。
+    """
+    atoms = []
+    n = len(text)
+    i = 0
+    while i < n:
+        ch = text[i]
+        if not ch.isalnum():
+            i += 1
+            continue
+        if ch.isascii():
+            j = i + 1
+            while j < n and text[j].isascii() and text[j].isalnum():
+                j += 1
+            atoms.append({"ch": text[i:j], "o": i})
+            i = j
+        else:
+            atoms.append({"ch": ch, "o": i})
+            i += 1
+    return atoms
+
+
+def _match_atom_times(atoms: list, timeline: list, n_max_cells: int = 15_000_000,
+                      tail_floor: float = 0.0):
+    """全局字符级编辑对齐 → 每个台词原子的估计时刻（秒）。
+
+    Needleman–Wunsch 在"台词原子"与"锚点文本"之间求最小代价路径
+    （等值 0 / 替换 1 / 插删 1），完全等值的原子↔锚点对构成硬锚点，
+    其余原子在相邻硬锚点间按原子序号线性插值（首部未匹配用首个锚点时刻
+    平推，结果单调不减）。
+
+    超出最后一个硬锚点的尾部原子不再外推猜时刻，而是统一排在
+    max(音频总长, 末锚点时刻) 之后 —— 它们被认为是"台词超出已发声部分"，
+    由调用方统计 dropped 并提示，而不是污染最后一个分段的文本。
+
+    返回 list[float]（与 atoms 等长）；timeline 为空、无等值锚点或规模
+    超限时返回 None —— 调用方据此退回比例法。
+    """
+    m = len(timeline)
+    n = len(atoms)
+    if not n or not m:
+        return None
+    ref = ["".join(_fold(c) for c in a["ch"]) for a in atoms]
+    rec = []
+    anc_idx = []            # rec[k] 对应 timeline[anc_idx[k]]
+    for j, an in enumerate(timeline):
+        u = an.get("u")
+        if not u:
+            continue
+        rec.append("".join(_fold(c) for c in u))
+        anc_idx.append(j)
+    m2 = len(rec)
+    if not m2:
+        return None
+    if n * m2 > n_max_cells:
+        return None
+
+    # DP：行=台词原子，列=锚点文本。prev/cur 只留一行代价，dirs 记方向供回溯。
+    prev = list(range(m2 + 1))                      # dp[0][*] = j（删识别文本）
+    dirs = [bytearray([2]) * (m2 + 1)]              # 首行方向全是"左"
+    dirs[0][0] = 0
+    for i in range(1, n + 1):
+        ri = ref[i - 1]
+        cur = [i] + [0] * m2                        # dp[i][0] = i（删台词原子）
+        drow = bytearray(m2 + 1)
+        drow[0] = 1
+        p, cj = prev, cur
+        for j in range(1, m2 + 1):
+            diag = p[j - 1] + (0 if ri == rec[j - 1] else 1)
+            up = p[j] + 1
+            left = cj[j - 1] + 1
+            if diag <= up and diag <= left:
+                drow[j] = 0
+                cj[j] = diag
+            elif up <= left:
+                drow[j] = 1
+                cj[j] = up
+            else:
+                drow[j] = 2
+                cj[j] = left
+        prev = cur
+        dirs.append(drow)
+
+    # 回溯收集硬锚点对 (台词原子下标, 锚点下标)
+    pair = []
+    i, j = n, m2
+    while i > 0 or j > 0:
+        if i > 0 and j > 0:
+            dr = dirs[i][j]
+            if dr == 0:
+                if ref[i - 1] == rec[j - 1]:
+                    pair.append((i - 1, anc_idx[j - 1]))
+                i -= 1
+                j -= 1
+            elif dr == 1:
+                i -= 1
+            else:
+                j -= 1
+        elif i > 0:
+            i -= 1
+        else:
+            j -= 1
+    pair.reverse()
+    if not pair:
+        return None
+
+    mpos = [p[0] for p in pair]
+    mt = [timeline[p[1]]["t"] for p in pair]
+    est = [None] * n
+    for ri, aj in pair:
+        est[ri] = timeline[aj]["t"]
+
+    times = [0.0] * n
+    ptr = 0
+    npair = len(pair)
+    last = None            # (台词原子下标, 时刻) 最近一个硬锚点
+    for i in range(n):
+        if est[i] is not None:
+            times[i] = est[i]
+            last = (i, est[i])
+            continue
+        while ptr < npair and mpos[ptr] <= i:
+            ptr += 1
+        if ptr < npair:
+            nri, nt = mpos[ptr], mt[ptr]
+            if last is None:
+                times[i] = max(0.0, nt)          # 首部未匹配：平推首个锚点
+            else:
+                li, lt = last
+                times[i] = lt + (nt - lt) * (i - li) / (nri - li)
+        elif last is not None:
+            li, lt = last
+            # 尾部原子：整体排到 max(音频总长, 末锚点) 之后 → 不被任何分段承接
+            base = max(tail_floor, lt)
+            times[i] = base + 20.0 + 0.1 * (i - li)
+        else:
+            times[i] = 0.0
+    for i in range(1, n):
+        if times[i] < times[i - 1]:
+            times[i] = times[i - 1]
+    return times
+
+
+def _merge_short_speech(speech: list, min_dur: float = MIN_SEGMENT_SECONDS) -> list:
+    """把过短的语音段并入相邻段（优先并入间隙更小的一侧）。
+
+    返回新列表（不改入参）：每段 {start,end,text,...}，按 start 排序、
+    相互不重叠；目标是把所有 < min_dur 的碎片并进邻居，避免产出
+    无法入库的极短切片，同时保证时间轴连续。
+    """
+    w = [dict(s) for s in speech]
+    w.sort(key=lambda x: x["start"])
+    guard = 0
+    while guard < 500:
+        guard += 1
+        merged = False
+        for k in range(len(w)):
+            if (w[k]["end"] - w[k]["start"]) >= min_dur - 1e-9:
+                continue
+            prev = w[k - 1] if k > 0 else None
+            nxt = w[k + 1] if k + 1 < len(w) else None
+            if prev is None and nxt is None:
+                break
+            gap_p = (w[k]["start"] - prev["end"]) if prev is not None else 1e18
+            gap_n = (nxt["start"] - w[k]["end"]) if nxt is not None else 1e18
+            if nxt is not None and (prev is None or gap_n <= gap_p):
+                nxt["start"] = w[k]["start"]
+                if w[k].get("text"):
+                    nxt["text"] = ((w[k]["text"] or "") + " " + (nxt.get("text") or "")).strip()
+            else:
+                prev["end"] = w[k]["end"]
+                if w[k].get("text"):
+                    prev["text"] = ((prev.get("text") or "") + " " + (w[k]["text"] or "")).strip()
+            w.pop(k)
+            merged = True
+            break
+        if not merged:
+            break
+    return w
+
+
+def _cut_segments_by_times(speech: list, atoms: list, times: list,
+                           transcript: str) -> tuple:
+    """用时刻表把各语音分段切出真正对应的台词文本。
+
+    相邻语音段之间取"间隙中点"作为文本切界（台词原子归属最近的发声段），
+    末段用其 end 收口 —— 台词末尾超出音频总长的原子不再硬塞进末段。
+
+    返回 (out, dropped)：out 为最终输出分段 [{idx,text,start,end,duration,
+    orig_text,aligned}]；dropped 为超出音频未被任何段承接的台词原子数。
+    """
+    n_atoms = len(atoms)
+    text = transcript
+    speech = list(speech)
+    ns = len(speech)
+    # 逐段文本切界（原子下标），两两间隙中点
+    bounds = []
+    lo = 0
+    for k in range(ns):
+        if k == ns - 1:
+            bt = speech[k]["end"] + 0.06
+        else:
+            bt = (speech[k]["end"] + speech[k + 1]["start"]) / 2.0
+        hi = _bisect.bisect_right(times, bt, lo)
+        bounds.append(hi)
+        lo = hi
+    max_hi = bounds[-1] if bounds else 0
+    dropped = n_atoms - max_hi
+    out = []
+    prev = 0
+    for k, s in enumerate(speech):
+        hi = bounds[k]
+        orig = (s.get("text") or "").strip()
+        piece = ""
+        if hi > prev and prev < n_atoms:
+            a0 = atoms[prev]["o"]
+            a1 = atoms[hi - 1]["o"] + 1
+            while a1 < len(text) and not text[a1].isalnum():
+                a1 += 1
+            piece = text[a0:a1].strip()
+        prev = hi
+        out.append({
+            "idx": len(out),
+            "text": piece if piece else orig,
+            "start": s["start"],
+            "end": s["end"],
+            "duration": round(s["end"] - s["start"], 2),
+            "orig_text": orig,
+            "aligned": bool(piece),
+        })
+    return out, dropped
+
+
+def _align_proportional(speech: list, text: str) -> tuple:
+    """兜底：无词级时间戳时按"语速均匀"把台词摊到各段（旧 v1 逻辑）。"""
+    total_dur = sum((s["end"] - s["start"]) for s in speech)
+    if total_dur <= 0:
+        return [], ""
     tokens = _tokenize_transcript(text)
     if not tokens:
-        return list(segments), "台词里没有可朗读的文字（请直接粘贴纯文本）"
-
+        return [], "台词里没有可朗读的文字（请直接粘贴纯文本）"
     n = len(tokens)
     cum = [0.0] * n
     acc = 0.0
@@ -450,25 +751,23 @@ def align_text_to_segments(segments, transcript: str):
         acc += tk["w"]
         cum[i] = acc
     rate = acc / total_dur
-
-    c = 0          # 已消费 token 数
+    c = 0
     covered = 0
-    mid_cut = 0
     for s in speech:
         if c >= n:
             break
         base = cum[c - 1] if c else 0.0
-        target = base + s["duration"] * rate
+        target = base + (s["end"] - s["start"]) * rate
         t = c
         while t < n and cum[t] < target:
             t += 1
         cands = []
         if t < n:
-            cands.append(t + 1)          # 吃到越过 target 的 token
+            cands.append(t + 1)
         if t - 1 >= c:
-            cands.append(t)              # 少吃一个（若距离更近）
+            cands.append(t)
         if not cands and c < n:
-            cands.append(n)              # 台词正好在段中耗尽
+            cands.append(n)
         if not cands:
             break
 
@@ -479,20 +778,16 @@ def align_text_to_segments(segments, transcript: str):
         lo = tokens[c - 1]["cut"] if c else 0
         hi = tokens[best - 1]["cut"] if best else lo
         piece = text[lo:hi].strip()
-        if not piece and best > c:        # 兜底：极端情况下至少给一个字
+        if not piece and best > c:
             piece = text[tokens[c]["cut"] if c < n else lo:tokens[best - 1]["cut"]].strip()
         s["orig_text"] = s.get("text", "")
         s["text"] = piece
         s["aligned"] = True
-        if tokens[best - 1]["kind"] == 0:
-            mid_cut += 1
         covered += 1
         c = best
 
     parts = [f"已按台词匹配 {covered}/{len(speech)} 段"]
     if c < n and covered == len(speech):
-        # 台词比语音容量长（常见：逐字稿含口头语/书面语比口语密）：
-        # 把剩余台词并入最后一段，避免漏字。
         lo = tokens[c - 1]["cut"] if c else 0
         hi = tokens[n - 1]["cut"]
         tail = text[lo:hi].strip()
@@ -501,9 +796,82 @@ def align_text_to_segments(segments, transcript: str):
             parts.append("台词比语音长，末尾已并入最后一段，请试听核对")
     if covered < len(speech):
         parts.append(f"台词不足，后 {len(speech) - covered} 段保留原识别文本")
-    if mid_cut:
-        parts.append(f"{mid_cut} 段落在句中截断（语音停顿与台词断句不完全一致），建议试听核对")
-    return speech, "；".join(parts)
+    out = []
+    for s in speech:
+        out.append({
+            "idx": len(out),
+            "text": s.get("text") or "",
+            "start": s["start"],
+            "end": s["end"],
+            "duration": round(s["end"] - s["start"], 2),
+            "orig_text": s.get("orig_text") or "",
+            "aligned": bool(s.get("aligned")),
+        })
+    return out, "；".join(parts)
+
+
+def align_text_to_segments(segments, transcript: str, timeline=None,
+                           raw_tail=None, audio_total: float = 0.0):
+    """把用户提供的完整台词精确匹配到各语音分段的 text 字段（v2）。
+
+    segments   —— whisper 分段（>=1s，含 start/end/text/duration），
+                 仅当 raw_tail 缺失时作为语音边界来源
+    transcript —— 用户权威台词全文（可含换行/标点）
+    timeline   —— 词级/字符级时间锚点 [{u,s,e,t}]（由 _add_word_anchors 产出）
+    raw_tail   —— 全部"像语音"的 whisper 原始分段（含 <1s，用于合并边界）
+    audio_total—— 音频总时长（秒），用于判断台词是否超出音频
+
+    有 timeline 时走"全局编辑对齐 + 锚点时刻映射 + 间隙中点切分"；
+    无 timeline 或对齐不收敛时退回 v1 比例法。
+
+    返回 (segments, note)。台词命中的段 text 为台词、aligned=True；
+    未命中的段保留原识别文本、aligned=False。
+    """
+    text = (transcript or "").strip()
+    if not text:
+        return list(segments), "台词为空"
+    if len(text) > 200000:
+        return list(segments), "台词过长（超过 20 万字），请分段处理"
+    atoms = _text_atoms(text)
+    if not atoms:
+        return list(segments), "台词里没有可朗读的文字（请直接粘贴纯文本）"
+
+    src = raw_tail if raw_tail else segments
+    speech = []
+    for s in src:
+        st = float(s.get("start") or 0)
+        en = float(s.get("end") or 0)
+        if en > st:
+            speech.append({"start": st, "end": en,
+                           "text": (s.get("text") or "").strip()})
+    speech = _merge_short_speech(speech)
+    speech = [s for s in speech
+              if (s["end"] - s["start"]) >= MIN_SEGMENT_SECONDS - 1e-9]
+    if not speech:
+        return list(segments), "未识别到有效语音分段（时长 ≥1s），无法匹配台词"
+
+    times = None
+    fallback_reason = None
+    if timeline:
+        times = _match_atom_times(atoms, timeline, tail_floor=audio_total)
+        if times is None:
+            fallback_reason = "词级对齐未收敛（文本与识别结果差异过大或文本过长）"
+    if times is None:
+        segs, note = _align_proportional(speech, text)
+        pre = "（未获得词级时间戳，退回按时长比例分配）" if fallback_reason is None \
+            else f"（{fallback_reason}，退回按时长比例分配）"
+        note = pre if not note else pre + "；" + note
+        return segs, note
+
+    segs, dropped = _cut_segments_by_times(speech, atoms, times, text)
+    matched = sum(1 for s in segs if s.get("aligned"))
+    parts = [f"已按词级锚点精确匹配 {matched}/{len(segs)} 段"]
+    fb = len(segs) - matched
+    if fb:
+        parts.append(f"{fb} 段疑似误识别/无声，保留原识别文本，建议勾除")
+    if dropped > 3:
+        parts.append(f"台词末尾约 {dropped} 字超出音频时长，未匹配（请核对台词与音频是否对应）")
+    return segs, "；".join(parts)
 
 
 def align_job(job_id: str, transcript: str) -> dict:
@@ -516,8 +884,13 @@ def align_job(job_id: str, transcript: str) -> dict:
             raise RuntimeError("转写任务不存在或已过期，请重新转写")
         if j.get("status") != "done":
             raise RuntimeError("转写尚未完成，请稍候")
-        segs = list(j.get("segments") or [])
-    segs, note = align_text_to_segments(segs, transcript)
+        segs0 = list(j.get("raw_tail") or j.get("segments") or [])
+        timeline = j.get("words_timeline") or None
+        raw_tail = j.get("raw_tail") or None
+        total = float(j.get("audio_total") or 0.0)
+    segs, note = align_text_to_segments(
+        segs0, transcript, timeline=timeline,
+        raw_tail=raw_tail, audio_total=total)
     with _jobs_lock:
         if job_id in _jobs:
             _jobs[job_id]["segments"] = segs
