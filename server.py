@@ -112,6 +112,9 @@ VOICE_PACK_DIR = vp_store.VOICE_PACK_DIR
 import voice_clone.training_store as tstore
 import voice_clone.trainer as trainer
 tstore.init(BASE_DIR)
+# 长音频自动转写（faster-whisper，离线切句生成训练样本候选）
+import voice_clone.transcriber as transcriber
+transcriber.init(BASE_DIR)
 
 
 def log_error(where: str, exc: BaseException):
@@ -805,6 +808,21 @@ border:1px solid #f1f5f9;border-radius:10px;margin-bottom:8px;background:#fff}
       <div class="err" id="trainErr"></div>
     </div>
 
+    <details id="trWrap" style="border:1px solid #d1d5db;border-radius:10px;padding:10px 12px;margin-bottom:14px">
+      <summary style="cursor:pointer;font-weight:600;font-size:14px;outline:none" data-i18n="trSummary">🎧 长音频自动转写（whisper 离线切句，免手填台词）</summary>
+      <div style="margin-top:10px">
+        <div class="muted" style="margin-bottom:8px;line-height:1.6" data-i18n="trDesc">上传 1~10 分钟的语音（清晰人声、无背景乐效果最佳），会自动按静音切句并逐句转写。核对/修改每段文本后勾选导入为训练样本。首次转写需下载约 460MB 模型（一次性）。</div>
+        <input type="file" id="trFile" accept="audio/*">
+        <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+          <button class="chip" id="trStartBtn" style="padding:8px 16px" data-i18n="trStart">🎧 开始转写</button>
+          <button class="chip" id="trImportBtn" style="display:none;padding:8px 16px;background:#16a34a;color:#fff" data-i18n="trImport">📥 导入勾选项</button>
+        </div>
+        <div class="muted" id="trStatus" style="margin-top:8px"></div>
+        <div class="err" id="trErr"></div>
+        <div id="trResults" style="margin-top:10px"></div>
+      </div>
+    </details>
+
     <div class="field">
       <label data-i18n="trainSamplesLabel">📚 训练样本</label>
       <div id="trainSamples"><div class="muted" data-i18n="trainNoSamples">还没有样本，先在上面添加几条。</div></div>
@@ -953,7 +971,12 @@ const I18N={
       trainDelSample:'删除该样本？',trainDelLora:'删除该 LoRA？权重文件会被永久移除。',
       trainUseLora:'使用此 LoRA',trainPlaySample:'试听',trainDelete:'删除',
       trainNoFile:'请先选择音频文件',trainNoText:'请填写与音频对应的台词文本',
-      trainFileTooShort:'音频过短（不足 1 秒）',trainFileTooLong:'音频过长（超过 30 秒）',trainTextTooLong:'台词过长（超过 400 字）'},
+      trainFileTooShort:'音频过短（不足 1 秒）',trainFileTooLong:'音频过长（超过 30 秒）',trainTextTooLong:'台词过长（超过 400 字）',
+      trSummary:'🎧 长音频自动转写（whisper 离线切句，免手填台词）',
+      trDesc:'上传 1~10 分钟的语音（清晰人声、无背景乐效果最佳），会自动按静音切句并逐句转写。核对/修改每段文本后勾选导入为训练样本。首次转写需加载约 460MB 的 whisper 模型（一次性）。',
+      trStart:'🎧 开始转写',trImport:'📥 导入勾选项',trNoSeg:'未识别到可用的语音片段（音频过短或无人声）',
+      trPlay:'试听',trSelAll:'全选',trSegDur:'片段 {n}',trImportOk:'已导入 {n} 条样本',
+      trModelLoading:'正在加载 whisper 模型（首次约需 1~2 分钟）…'},
   en:{localDeploy:'Local',detecting:'Detecting…',modelNotLoaded:'Model not loaded',modelReady:'Model ready',
       modeDesign:'🎨 Voice Design',modeClone:'🎛️ Voice Clone',modeHifi:'🎙️ HiFi Clone',modeBeta:'🧪 Beta',modeTrain:'🎓 Train',
       history:'Generation history',noHistory:'No history yet',
@@ -1008,7 +1031,12 @@ const I18N={
       trainDelSample:'Delete this sample?',trainDelLora:'Delete this LoRA? Weight file will be permanently removed.',
       trainUseLora:'Use this LoRA',trainPlaySample:'Play',trainDelete:'Delete',
       trainNoFile:'Please select an audio file first',trainNoText:'Please enter the transcript matching the audio',
-      trainFileTooShort:'Audio too short (< 1s)',trainFileTooLong:'Audio too long (> 30s)',trainTextTooLong:'Transcript too long (> 400 chars)'}
+      trainFileTooShort:'Audio too short (< 1s)',trainFileTooLong:'Audio too long (> 30s)',trainTextTooLong:'Transcript too long (> 400 chars)',
+      trSummary:'🎧 Auto-transcribe long audio (offline whisper, no manual transcript)',
+      trDesc:'Upload 1–10 min of speech (clear voice, no background music works best). It is auto-segmented by silence and transcribed sentence by sentence. Review/edit each line, tick the ones to keep, then import as training samples. The ~460MB whisper model loads on first use (one-time).',
+      trStart:'🎧 Start',trImport:'📥 Import selected',trNoSeg:'No usable speech segments found (audio too short or no voice)',
+      trPlay:'Play',trSelAll:'Select all',trSegDur:'Seg {n}',trImportOk:'{n} samples imported',
+      trModelLoading:'Loading whisper model (first run ~1–2 min)…'}
 };
 let curLang='zh';
 function setLang(l){
@@ -1426,6 +1454,153 @@ function onLoraSel(){
     hint.textContent='';
   }
 }
+
+// ===== 长音频自动转写（whisper）=====
+var trJobId=null, trTimer=null;
+function trShowErr(m){var e=document.getElementById('trErr');if(e)e.textContent=m?('❌ '+m):'';}
+function trStart(){
+  var f=document.getElementById('trFile');
+  if(!f||!f.files||!f.files.length){trShowErr(I18N[curLang].trainNoFile);return;}
+  var btn=document.getElementById('trStartBtn'),st=document.getElementById('trStatus');
+  btn.disabled=true;st.textContent='';trShowErr('');
+  document.getElementById('trResults').innerHTML='';
+  document.getElementById('trImportBtn').style.display='none';
+  var fd=new FormData();fd.append('audio',f.files[0]);
+  fetch('/api/train/transcribe',{method:'POST',body:fd,headers:apiHeaders()})
+    .then(function(r){return r.json().then(function(d){if(!r.ok)throw new Error(d.detail||'Error');return d;});})
+    .then(function(d){
+      trJobId=d.job.job_id;
+      trPoll();
+      if(trTimer)clearInterval(trTimer);
+      trTimer=setInterval(trPoll,1500);
+    })
+    .catch(function(e){trShowErr(e.message);btn.disabled=false;});
+}
+function trPoll(){
+  if(!trJobId)return;
+  fetch('/api/train/transcribe/'+trJobId,{headers:apiHeaders()})
+    .then(function(r){return r.json().then(function(d){if(!r.ok)throw new Error(d.detail||'Error');return d.job;});})
+    .then(function(j){
+      var st=document.getElementById('trStatus');
+      if(j.status==='pending'||j.status==='processing'){
+        st.textContent=(j.message||'')+' …';
+        if(j.progress<20)st.textContent=I18N[curLang].trModelLoading;
+      }else if(j.status==='done'){
+        if(trTimer){clearInterval(trTimer);trTimer=null;}
+        st.textContent=j.message||'';
+        trRender(j);
+      }else if(j.status==='error'){
+        if(trTimer){clearInterval(trTimer);trTimer=null;}
+        document.getElementById('trStartBtn').disabled=false;
+        st.textContent='';
+        trShowErr(j.error||tr('转写失败','Transcription failed'));
+      }
+    })
+    .catch(function(){});
+}
+function trRender(j){
+  var box=document.getElementById('trResults');
+  box.innerHTML='';
+  document.getElementById('trStartBtn').disabled=false;
+  var segs=j.segments||[];
+  if(!segs.length){
+    box.innerHTML='<div class="muted">'+I18N[curLang].trNoSeg+'</div>';
+    return;
+  }
+  var head=document.createElement('div');
+  head.style.cssText='display:flex;align-items:center;gap:8px;margin-bottom:6px';
+  var selAll=document.createElement('label');
+  selAll.style.cssText='font-size:13px;display:flex;align-items:center;gap:4px;cursor:pointer';
+  var cbAll=document.createElement('input');cbAll.type='checkbox';cbAll.checked=true;
+  cbAll.addEventListener('change',function(){box.querySelectorAll('input[type=checkbox].tr-cb').forEach(function(c){c.checked=cbAll.checked;});trUpdImportBtn();});
+  selAll.appendChild(cbAll);
+  selAll.appendChild(document.createTextNode(' '+I18N[curLang].trSelAll));
+  head.appendChild(selAll);
+  var cnt=document.createElement('span');
+  cnt.style.cssText='margin-left:auto;font-size:12px;color:#6b7280';
+  cnt.textContent=segs.length+' '+tr('段','segments')+' · '+j.lang;
+  head.appendChild(cnt);
+  box.appendChild(head);
+  segs.forEach(function(s){
+    var row=document.createElement('div');
+    row.style.cssText='display:flex;align-items:flex-start;gap:6px;padding:8px;border:1px solid #e5e7eb;border-radius:8px;margin-bottom:6px;background:#fafafa';
+    var cb=document.createElement('input');
+    cb.type='checkbox';cb.className='tr-cb';cb.checked=true;
+    cb.dataset.idx=s.idx;
+    cb.addEventListener('change',trUpdImportBtn);
+    cb.style.cssText='margin-top:3px';
+    row.appendChild(cb);
+    var mid=document.createElement('div');
+    mid.style.flex='1';
+    var lab=document.createElement('div');
+    lab.style.cssText='font-size:11px;color:#6b7280;margin-bottom:3px';
+    lab.textContent=I18N[curLang].trSegDur.replace('{n}',String(s.idx+1))+' · '+s.duration.toFixed(1)+'s';
+    mid.appendChild(lab);
+    var ta=document.createElement('textarea');
+    ta.value=s.text;
+    ta.style.cssText='width:100%;min-height:40px;font-size:13px';
+    ta.dataset.idx=s.idx;
+    mid.appendChild(ta);
+    row.appendChild(mid);
+    var play=document.createElement('button');
+    play.className='chip';play.textContent=I18N[curLang].trPlay;
+    play.dataset.act='play';play.dataset.idx=s.idx;
+    play.style.cssText='padding:4px 10px;font-size:12px;flex:0 0 auto';
+    row.appendChild(play);
+    box.appendChild(row);
+  });
+  document.getElementById('trImportBtn').style.display='inline-block';
+  trUpdImportBtn();
+}
+function trUpdImportBtn(){
+  var btn=document.getElementById('trImportBtn');
+  if(!btn)return;
+  var n=document.querySelectorAll('#trResults input.tr-cb:checked').length;
+  btn.textContent=I18N[curLang].trImport+(n?' ('+n+')':'');
+}
+function trImport(){
+  var items=[];
+  document.querySelectorAll('#trResults input.tr-cb:checked').forEach(function(cb){
+    var row=cb.closest('div');
+    var ta=row.querySelector('textarea');
+    items.push({idx:parseInt(cb.dataset.idx,10),text:ta?ta.value:''});
+  });
+  if(!items.length){trShowErr(I18N[curLang].trNoSeg);return;}
+  var btn=document.getElementById('trImportBtn');btn.disabled=true;
+  fetch('/api/train/import_segments',{method:'POST',
+    headers:Object.assign({'Content-Type':'application/json'},apiHeaders()),
+    body:JSON.stringify({job_id:trJobId,items:items})})
+    .then(function(r){return r.json().then(function(d){if(!r.ok)throw new Error(d.detail||'Error');return d;});})
+    .then(function(d){
+      btn.disabled=false;
+      document.getElementById('trResults').innerHTML='';
+      document.getElementById('trImportBtn').style.display='none';
+      document.getElementById('trStatus').textContent='✅ '+(I18N[curLang].trImportOk||'').replace('{n}',String(d.imported||0))+(d.skipped?(' · ⚠️ '+(tr('跳过 ','skipped '))+d.skipped):'');
+      trJobId=null;
+      refreshTrainSamples();
+    })
+    .catch(function(e){btn.disabled=false;trShowErr(e.message);});
+}
+// trResults 事件委托：试听片段
+document.getElementById('trResults').addEventListener('click',function(e){
+  var btn=e.target.closest('button[data-act="play"]');
+  if(!btn)return;
+  var idx=btn.dataset.idx,row=btn.closest('div');
+  var old=row.querySelector('audio');
+  if(old){old.remove();return;}
+  var au=document.createElement('audio');
+  au.controls=true;au.preload='none';
+  au.src='/api/train/transcribe/'+trJobId+'/segment/'+idx+'/audio';
+  au.style.cssText='width:100%;margin-top:4px';
+  row.appendChild(au);
+  au.play();
+});
+// 按钮 wiring
+var trStartBtn=document.getElementById('trStartBtn');
+if(trStartBtn)trStartBtn.addEventListener('click',trStart);
+var trImportBtn=document.getElementById('trImportBtn');
+if(trImportBtn)trImportBtn.addEventListener('click',trImport);
+
 
 // event delegation: train samples (play/delete)
 document.getElementById('trainSamples').addEventListener('click',function(e){
@@ -2806,6 +2981,79 @@ def train_del_lora(name: str, request: Request):
     if not tstore.delete_lora(name):
         raise HTTPException(status_code=404, detail="LoRA 不存在")
     return {"ok": True}
+
+
+# -------------------------- 长音频自动转写（whisper 切句） --------------------------
+def _check_not_transcribing():
+    """转写任务进行中时拒绝再次转写（单任务互斥）。"""
+    if transcriber.is_busy():
+        raise HTTPException(status_code=409, detail="已有转写任务在运行，请等待完成或稍后再试")
+
+
+@app.post("/api/train/transcribe")
+async def train_transcribe(request: Request, audio: UploadFile = File(...)):
+    """上传长音频 → 后台线程 whisper 转写 → 返回 job（前端轮询结果）。"""
+    require_auth(request)
+    _check_not_training()
+    _check_not_transcribing()
+    if _infer_lock.locked():
+        raise HTTPException(status_code=409, detail="正在生成音频，请稍后再转写")
+    suffix = Path(audio.filename or "ref.wav").suffix or ".wav"
+    tmp = UPLOAD_DIR / f"tr_{uuid.uuid4().hex[:8]}{suffix}"
+    tmp.write_bytes(await audio.read())
+    try:
+        job = transcriber.start_transcribe(str(tmp))
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        _safe_unlink(tmp)
+    return {"ok": True, "job": job}
+
+
+@app.get("/api/train/transcribe/{job_id}")
+def train_transcribe_status(job_id: str, request: Request):
+    require_auth(request)
+    job = transcriber.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="转写任务不存在或已过期，请重新转写")
+    return {"ok": True, "job": job}
+
+
+@app.get("/api/train/transcribe/{job_id}/segment/{idx}/audio")
+def train_transcribe_seg_audio(job_id: str, idx: int, request: Request):
+    """返回某个转写片段对应的音频切片（wav），用于前端逐段试听。"""
+    require_auth(request)
+    job = transcriber.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="转写任务不存在或已过期")
+    seg = next((s for s in job.get("segments", []) if s["idx"] == idx), None)
+    if seg is None:
+        raise HTTPException(status_code=404, detail="片段不存在")
+    try:
+        data, sr = transcriber.load_segment_audio(job_id, seg)
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    bio = io.BytesIO()
+    sf.write(bio, data, sr, format="wav")
+    bio.seek(0)
+    return Response(content=bio.read(), media_type="audio/wav")
+
+
+@app.post("/api/train/import_segments")
+async def train_import_segments(request: Request):
+    """把转写结果中勾选（可修改文本）的片段切片导入为训练样本。"""
+    require_auth(request)
+    _check_not_training()
+    body = await request.json()
+    job_id = str(body.get("job_id") or "")
+    items = body.get("items") or []
+    if not job_id or not isinstance(items, list) or not items:
+        raise HTTPException(status_code=400, detail="缺少 job_id 或勾选项")
+    try:
+        res = transcriber.import_segments(job_id, items)
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, **res, "stats": tstore.get_stats()}
 
 
 def _safe_unlink(path) -> None:
