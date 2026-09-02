@@ -108,6 +108,11 @@ import voice_packs as vp_store
 vp_store.init(BASE_DIR)
 VOICE_PACK_DIR = vp_store.VOICE_PACK_DIR
 
+# 训练模块：数据管理 + LoRA 训练引擎
+import voice_clone.training_store as tstore
+import voice_clone.trainer as trainer
+tstore.init(BASE_DIR)
+
 
 def log_error(where: str, exc: BaseException):
     """把完整 traceback 追加写入 server_error.log，方便事后定位。
@@ -161,30 +166,71 @@ ACCESS_TOKEN = load_or_create_token()
 _model = None
 _model_lock = threading.Lock()
 _infer_lock = threading.Lock()
+_model_lora: str | None = None          # 当前模型已加载的 LoRA 名称（None=原模型）
 _model_info = {"loaded": False, "device": None, "sample_rate": None, "load_seconds": None}
 
 
-def get_model():
-    global _model
-    if _model is None:
-        with _model_lock:
-            if _model is None:
-                t0 = time.time()
-                print("[VoxCPM2] 正在加载模型，首次约需 20-60 秒 ...", flush=True)
-                from voxcpm import VoxCPM
-                import torch
+def _resolve_lora(lora_name: str | None):
+    """把 LoRA 名称解析为 (weights_path, LoRAConfig 或 None)。无 LoRA 返回 (None, None)。"""
+    if not lora_name:
+        return None, None
+    import voice_clone.training_store as _ts
+    d = _ts.loras_dir() / lora_name
+    if not d.is_dir():
+        raise HTTPException(status_code=404, detail=f"LoRA「{lora_name}」不存在")
+    from voxcpm.model.voxcpm import LoRAConfig
+    cfg = LoRAConfig(enable_lm=True, enable_dit=True, enable_proj=True, r=8, alpha=16)
+    meta_f = d / "meta.json"
+    if meta_f.exists():
+        try:
+            meta = json.loads(meta_f.read_text(encoding="utf-8"))
+            c = meta.get("config", {})
+            cfg = LoRAConfig(
+                enable_lm=True, enable_dit=True, enable_proj=True,
+                r=int(c.get("lora_r", 8)), alpha=int(c.get("lora_alpha", 16)),
+            )
+        except Exception:
+            pass
+    if (d / "lora_weights.safetensors").exists():
+        return str(d / "lora_weights.safetensors"), cfg
+    if (d / "lora_weights.ckpt").exists():
+        return str(d / "lora_weights.ckpt"), cfg
+    raise HTTPException(status_code=404, detail=f"LoRA「{lora_name}」缺少权重文件")
 
-                _model = VoxCPM.from_pretrained(
-                    MODEL_PATH, load_denoiser=False, device=DEVICE
-                )
-                _model_info["loaded"] = True
-                _model_info["device"] = (
-                    torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU"
-                )
-                _model_info["sample_rate"] = _vc_stab._get_sample_rate(_model)
-                _model_info["load_seconds"] = round(time.time() - t0, 1)
-                print(f"[VoxCPM2] 模型就绪，用时 {_model_info['load_seconds']}s "
-                      f"设备 {_model_info['device']}", flush=True)
+
+def get_model(lora_name: str | None = None):
+    """获取推理模型。lora_name 非空时加载该 LoRA；与当前已加载的不一致时自动重载。"""
+    global _model, _model_lora
+    if _model is not None and _model_lora == (lora_name or None):
+        return _model
+    with _model_lock:
+        if _model is not None and _model_lora == (lora_name or None):
+            return _model
+        # LoRA 切换：先卸载当前模型
+        if _model is not None:
+            unload_model()
+        t0 = time.time()
+        print("[VoxCPM2] 正在加载模型，首次约需 20-60 秒 ...", flush=True)
+        from voxcpm import VoxCPM
+        import torch
+
+        lora_path, lora_cfg = _resolve_lora(lora_name)
+        if lora_path:
+            print(f"[VoxCPM2] 使用 LoRA: {lora_name}", flush=True)
+        _model = VoxCPM.from_pretrained(
+            MODEL_PATH, load_denoiser=False, device=DEVICE,
+            lora_config=lora_cfg, lora_weights_path=lora_path,
+        )
+        _model_lora = lora_name or None
+        _model_info["loaded"] = True
+        _model_info["device"] = (
+            torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU"
+        )
+        _model_info["sample_rate"] = _vc_stab._get_sample_rate(_model)
+        _model_info["load_seconds"] = round(time.time() - t0, 1)
+        print(f"[VoxCPM2] 模型就绪，用时 {_model_info['load_seconds']}s "
+              f"设备 {_model_info['device']}"
+              + (f" · LoRA={lora_name}" if lora_path else ""), flush=True)
     return _model
 
 
@@ -198,13 +244,14 @@ def reset_model():
 def unload_model():
     """优雅卸载模型并释放显存。停止服务前先调用本函数，可避免直接强杀进程
     导致 GPU CUDA 上下文损坏（段错误、需整机重启）。"""
-    global _model
+    global _model, _model_lora
     if _model is not None:
         try:
             del _model
         except Exception:
             pass
         _model = None
+    _model_lora = None
     _model_info["loaded"] = False
     _model_info["device"] = None
     _model_info["sample_rate"] = None
@@ -563,6 +610,7 @@ border:1px solid #f1f5f9;border-radius:10px;margin-bottom:8px;background:#fff}
     <button class="tab" data-mode="clone" onclick="setMode('clone')" data-i18n="modeClone">🎛️ 音色克隆</button>
     <button class="tab" data-mode="hifi" onclick="setMode('hifi')" data-i18n="modeHifi">🎙️ 极致克隆</button>
     <button class="tab" data-mode="beta" onclick="setMode('beta')" data-i18n="modeBeta">🧪 内测 Beta</button>
+    <button class="tab" data-mode="train" onclick="setMode('train')" data-i18n="modeTrain">🎓 训练</button>
   </div>
 
   <div class="card" id="mainCard">
@@ -634,6 +682,13 @@ border:1px solid #f1f5f9;border-radius:10px;margin-bottom:8px;background:#fff}
         <option value="愤怒" data-i18n="emoAngry">愤怒</option>
         <option value="平静" data-i18n="emoCalm">平静</option>
       </select>
+    </div>
+    <div class="field">
+      <label data-i18n="loraLabel">🧩 LoRA 微调音色（训练页产出，选用后整段生效）</label>
+      <select id="loraSel" class="vp-sel" onchange="onLoraSel()">
+        <option value="" data-i18n="loraNone">— 不使用 —</option>
+      </select>
+      <div class="muted" id="loraSelHint" style="margin-top:6px"></div>
     </div>
     <div class="grid">
       <div class="pbox">
@@ -730,6 +785,60 @@ border:1px solid #f1f5f9;border-radius:10px;margin-bottom:8px;background:#fff}
     </div>
   </div>
 
+  <div class="card hide" id="trainCard">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+      <button class="chip" onclick="setMode(prevMode||'design')" data-i18n="backBtn" style="padding:6px 12px;border:1px solid #d1d5db;border-radius:8px;background:#fff;cursor:pointer;font-size:13px">← 返回</button>
+      <span class="badge">LoRA</span>
+      <label data-i18n="trainTitle" style="margin:0">🎓 持续训练</label>
+      <span id="trainStatsBadge" class="badge" style="margin-left:auto"></span>
+    </div>
+    <div class="muted" style="margin-bottom:12px" data-i18n="trainDesc">上传语音并填写对应台词，让模型持续学习音色与风格。建议每条 3~30 秒清晰人声，总计 5 条以上效果更好。训练采用 LoRA（不动原模型权重），完成后可在生成页的「LoRA」下拉中选用。</div>
+
+    <div class="field">
+      <label data-i18n="trainAddLabel">➕ 添加训练样本</label>
+      <input type="file" id="trainFile" accept="audio/*">
+      <textarea id="trainText" data-i18n-ph="trainTextPh" style="min-height:54px;margin-top:6px" placeholder="逐字填写这段语音说的内容（与音频完全一致）"></textarea>
+      <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
+        <input type="text" id="trainName" data-i18n-ph="trainNamePh" placeholder="备注名（可选）" style="flex:1;min-width:140px">
+        <button class="chip" id="trainAddBtn" style="padding:8px 16px" data-i18n="trainAddBtn">添加样本</button>
+      </div>
+      <div class="err" id="trainErr"></div>
+    </div>
+
+    <div class="field">
+      <label data-i18n="trainSamplesLabel">📚 训练样本</label>
+      <div id="trainSamples"><div class="muted" data-i18n="trainNoSamples">还没有样本，先在上面添加几条。</div></div>
+    </div>
+
+    <div class="field">
+      <label data-i18n="trainParamsLabel">⚙️ 训练参数（默认即可）</label>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px">
+        <div><div class="muted" style="font-size:11px" data-i18n="trainPName">任务名</div><input type="text" id="tpName" placeholder="auto"></div>
+        <div><div class="muted" style="font-size:11px" data-i18n="trainPRank">秩 r</div><input type="number" id="tpR" value="8" min="1" max="64"></div>
+        <div><div class="muted" style="font-size:11px" data-i18n="trainPAlpha">Alpha</div><input type="number" id="tpAlpha" value="16" min="1" max="128"></div>
+        <div><div class="muted" style="font-size:11px" data-i18n="trainPLr">学习率</div><input type="number" id="tpLr" value="0.0001" step="0.00005" min="0.00001"></div>
+        <div><div class="muted" style="font-size:11px" data-i18n="trainPEpochs">轮数</div><input type="number" id="tpEpochs" value="3" min="1" max="50"></div>
+        <div><div class="muted" style="font-size:11px" data-i18n="trainPAccum">梯度累积</div><input type="number" id="tpAccum" value="4" min="1" max="32"></div>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-bottom:10px">
+      <button class="gen" id="trainStartBtn" style="flex:1" data-i18n="trainStart">🚀 开始训练</button>
+      <button class="gen" id="trainStopBtn" style="flex:0 0 auto;background:#dc2626;display:none" data-i18n="trainStop">⏹ 停止</button>
+    </div>
+
+    <div id="trainProgressWrap" style="display:none;margin-bottom:10px">
+      <div style="height:10px;background:#e5e7eb;border-radius:6px;overflow:hidden"><div id="trainProgressBar" style="height:100%;width:0%;background:#2563eb;transition:width .3s"></div></div>
+      <div class="muted" id="trainStatusText" style="margin-top:6px"></div>
+      <div class="muted" id="trainLossText" style="font-family:ui-monospace,Consolas,monospace;font-size:12px"></div>
+    </div>
+
+    <div class="field">
+      <label data-i18n="trainLorasLabel">🧩 已训练的 LoRA（生成页可选用）</label>
+      <div id="trainLoras"><div class="muted" data-i18n="trainNoLoras">还没有训练好的 LoRA。</div></div>
+    </div>
+  </div>
+
   <div class="card" id="packCard">
     <div class="tabs">
       <button class="ptab active" data-pane="manage" onclick="showPackPane('manage')" data-i18n="packManage">🎭 音色包管理</button>
@@ -791,7 +900,7 @@ let lastOutputName=null;
 // ===== i18n 双语言 =====
 const I18N={
   zh:{localDeploy:'本地部署',detecting:'检测中…',modelNotLoaded:'模型未加载',modelReady:'模型就绪',
-      modeDesign:'🎨 语音设计',modeClone:'🎛️ 音色克隆',modeHifi:'🎙️ 极致克隆',modeBeta:'🧪 内测 Beta',
+      modeDesign:'🎨 语音设计',modeClone:'🎛️ 音色克隆',modeHifi:'🎙️ 极致克隆',modeBeta:'🧪 内测 Beta',modeTrain:'🎓 训练',
       history:'本次会话生成记录',noHistory:'还没有生成记录',
       betaTitle:'多人朗读与情绪控制',
       betaDesc:'用 (@音色包名) 切换角色，用 (情绪词) 控制语气。例：(@张三)你好，(开心)今天真不错！(@李四)是啊。',
@@ -829,9 +938,24 @@ const I18N={
       vpNameLabel:'音色包名称（便于识别）',vpNamePh:'例如：客服小美 / 讲师老王',
       vpDenoise:'参考音频降噪',vpRemoveBg:'去除背景音/音乐',vpAccel:'🚀 加速模式（生成更快）',
       vpSaveBtn:'🔒 提取并保存音色包',vpStatusIdle:'提取中…（首次需加载模型，请稍候）',
-      apiLabel:'API 调用示例（令牌放请求头）',apiToken:'你的访问令牌'},
+      apiLabel:'API 调用示例（令牌放请求头）',apiToken:'你的访问令牌',
+      trainTitle:'🎓 持续训练',trainDesc:'上传语音并填写对应台词，让模型持续学习音色与风格。建议每条 3~30 秒清晰人声，总计 5 条以上效果更好。训练采用 LoRA（不动原模型权重），完成后可在生成页的「LoRA」下拉中选用。',
+      trainAddLabel:'➕ 添加训练样本',trainTextPh:'逐字填写这段语音说的内容（与音频完全一致）',trainNamePh:'备注名（可选）',trainAddBtn:'添加样本',
+      trainSamplesLabel:'📚 训练样本',trainNoSamples:'还没有样本，先在上面添加几条。',
+      trainParamsLabel:'⚙️ 训练参数（默认即可）',trainPName:'任务名',trainPRank:'秩 r',trainPAlpha:'Alpha',trainPLr:'学习率',trainPEpochs:'轮数',trainPAccum:'梯度累积',
+      trainStart:'🚀 开始训练',trainStop:'⏹ 停止',
+      trainLorasLabel:'🧩 已训练的 LoRA（生成页可选用）',trainNoLoras:'还没有训练好的 LoRA。',
+      loraLabel:'🧩 LoRA 微调音色（训练页产出，选用后整段生效）',loraNone:'— 不使用 —',
+      trainUploading:'上传中…',trainAdded:'已添加',trainSamples:'条样本',trainAddFail:'添加失败',
+      trainRunning:'训练进行中，请等待完成或点击停止',trainIdle:'空闲',trainStarting:'正在启动训练…',
+      trainProgress:'进度',trainLoss:'损失',trainStep:'步',trainEpoch:'轮',
+      trainDone:'训练完成！已保存 LoRA：',trainFailed:'训练失败',trainStopped:'训练已停止',
+      trainDelSample:'删除该样本？',trainDelLora:'删除该 LoRA？权重文件会被永久移除。',
+      trainUseLora:'使用此 LoRA',trainPlaySample:'试听',trainDelete:'删除',
+      trainNoFile:'请先选择音频文件',trainNoText:'请填写与音频对应的台词文本',
+      trainFileTooShort:'音频过短（不足 1 秒）',trainFileTooLong:'音频过长（超过 30 秒）',trainTextTooLong:'台词过长（超过 400 字）'},
   en:{localDeploy:'Local',detecting:'Detecting…',modelNotLoaded:'Model not loaded',modelReady:'Model ready',
-      modeDesign:'🎨 Voice Design',modeClone:'🎛️ Voice Clone',modeHifi:'🎙️ HiFi Clone',modeBeta:'🧪 Beta',
+      modeDesign:'🎨 Voice Design',modeClone:'🎛️ Voice Clone',modeHifi:'🎙️ HiFi Clone',modeBeta:'🧪 Beta',modeTrain:'🎓 Train',
       history:'Generation history',noHistory:'No history yet',
       betaTitle:'Multi-speaker & Emotion Control',
       betaDesc:'Use (@pack_name) to switch speaker, (emotion) for tone. e.g. (@John)Hello, (happy)Great day! (@Jane)Yeah.',
@@ -869,7 +993,22 @@ const I18N={
       vpNameLabel:'Voice pack name (for identification)',vpNamePh:'e.g. Support-Xiaomei / Trainer-LaoWang',
       vpDenoise:'Reference denoise',vpRemoveBg:'Remove background/music',vpAccel:'🚀 Accelerated mode (faster generation)',
       vpSaveBtn:'🔒 Extract & Save Voice Pack',vpStatusIdle:'Extracting… (model loads on first run, please wait)',
-      apiLabel:'API examples (token in header)',apiToken:'YOUR_TOKEN'}
+      apiLabel:'API examples (token in header)',apiToken:'YOUR_TOKEN',
+      trainTitle:'🎓 Continuous Training',trainDesc:'Upload audio with verbatim transcripts and the model learns your voice/style via LoRA (original weights untouched). 3–30s per clip, 5+ clips recommended. Finished LoRAs appear in the LoRA dropdown on the generate page.',
+      trainAddLabel:'➕ Add Training Sample',trainTextPh:'Type exactly what this audio says (must match perfectly)',trainNamePh:'Note name (optional)',trainAddBtn:'Add Sample',
+      trainSamplesLabel:'📚 Training Samples',trainNoSamples:'No samples yet — add some above.',
+      trainParamsLabel:'⚙️ Training Params (defaults are fine)',trainPName:'Task name',trainPRank:'Rank r',trainPAlpha:'Alpha',trainPLr:'Learning rate',trainPEpochs:'Epochs',trainPAccum:'Grad accum',
+      trainStart:'🚀 Start Training',trainStop:'⏹ Stop',
+      trainLorasLabel:'🧩 Trained LoRAs (selectable on generate page)',trainNoLoras:'No trained LoRAs yet.',
+      loraLabel:'🧩 LoRA fine-tuned voice (from training page, applies to entire output)',loraNone:'— None —',
+      trainUploading:'Uploading…',trainAdded:'Added',trainSamples:'samples',trainAddFail:'Add failed',
+      trainRunning:'Training in progress — wait or click Stop',trainIdle:'Idle',trainStarting:'Starting training…',
+      trainProgress:'Progress',trainLoss:'Loss',trainStep:'step',trainEpoch:'epoch',
+      trainDone:'Training complete! LoRA saved: ',trainFailed:'Training failed',trainStopped:'Training stopped',
+      trainDelSample:'Delete this sample?',trainDelLora:'Delete this LoRA? Weight file will be permanently removed.',
+      trainUseLora:'Use this LoRA',trainPlaySample:'Play',trainDelete:'Delete',
+      trainNoFile:'Please select an audio file first',trainNoText:'Please enter the transcript matching the audio',
+      trainFileTooShort:'Audio too short (< 1s)',trainFileTooLong:'Audio too long (> 30s)',trainTextTooLong:'Transcript too long (> 400 chars)'}
 };
 let curLang='zh';
 function setLang(l){
@@ -1052,14 +1191,297 @@ async function betaGenerate(){
   }catch(e){clearInterval(timer);errEl.textContent='❌ '+I18N[curLang].betaFail+': '+e.message;errEl.classList.add('show');st.style.display='none';}
   finally{btn.disabled=false;}
 }
+
+// ===== Training module (LoRA) =====
+var trainPollTimer=null;
+function refreshTrainUI(){
+  refreshTrainSamples();
+  refreshLoras();
+  var st=trainerStatusCache;
+  if(st&&st.running){showTrainRunning(st);}
+}
+var trainerStatusCache={running:false};
+function refreshTrainSamples(){
+  fetch('/api/train/samples',{headers:apiHeaders()})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      var el=document.getElementById('trainSamples');
+      var badge=document.getElementById('trainStatsBadge');
+      var arr=d.samples||[];
+      if(badge)badge.textContent=arr.length+' '+tr('条','samples');
+      if(!arr.length){
+        el.innerHTML='<div class="muted">'+I18N[curLang].trainNoSamples+'</div>';
+        return;
+      }
+      el.innerHTML='';
+      arr.forEach(function(s){
+        var row=document.createElement('div');
+        row.style.cssText='display:flex;align-items:center;gap:8px;padding:8px;border:1px solid #e5e7eb;border-radius:8px;margin-bottom:6px';
+        var info=document.createElement('div');
+        info.style.flex='1';
+        info.innerHTML='<div style="font-weight:600">'+escHtml(s.name||('#'+s.id))+
+          '</div><div style="font-size:12px;color:#6b7280">'+(s.duration?s.duration.toFixed(1)+'s · ':'')+
+          escHtml(s.text).slice(0,80)+(s.text&&s.text.length>80?'…':'')+'</div>';
+        var play=document.createElement('button');
+        play.className='chip';play.textContent=I18N[curLang].trainPlaySample;
+        play.dataset.act='play';play.dataset.id=s.id;
+        play.style.cssText='padding:4px 10px;font-size:12px';
+        var del=document.createElement('button');
+        del.className='chip';del.textContent=I18N[curLang].trainDelete;
+        del.dataset.act='delete';del.dataset.id=s.id;
+        del.style.cssText='padding:4px 10px;font-size:12px;color:#dc2626';
+        row.appendChild(info);row.appendChild(play);row.appendChild(del);
+        el.appendChild(row);
+      });
+    })
+    .catch(function(e){
+      document.getElementById('trainSamples').innerHTML='<div class="err show">'+e.message+'</div>';
+    });
+}
+function escHtml(s){if(!s)return'';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+function addTrainSample(){
+  var f=document.getElementById('trainFile');
+  if(!f||!f.files||!f.files.length){document.getElementById('trainErr').textContent=I18N[curLang].trainNoFile;return;}
+  var text=document.getElementById('trainText').value.trim();
+  if(!text){document.getElementById('trainErr').textContent=I18N[curLang].trainNoText;return;}
+  var name=document.getElementById('trainName').value.trim();
+  var fd=new FormData();
+  fd.append('file',f.files[0]);
+  fd.append('text',text);
+  fd.append('name',name);
+  var btn=document.getElementById('trainAddBtn');
+  var errEl=document.getElementById('trainErr');
+  errEl.textContent='';
+  btn.disabled=true;btn.textContent=I18N[curLang].trainUploading;
+  fetch('/api/train/samples',{method:'POST',body:fd,headers:apiHeaders()})
+    .then(function(r){return r.json().then(function(d){if(!r.ok)throw new Error(d.detail||'Error');return d;});})
+    .then(function(d){
+      document.getElementById('trainFile').value='';
+      document.getElementById('trainText').value='';
+      document.getElementById('trainName').value='';
+      refreshTrainSamples();
+      btn.textContent=I18N[curLang].trainAddBtn;
+    })
+    .catch(function(e){
+      errEl.textContent=I18N[curLang].trainAddFail+': '+e.message;
+      btn.textContent=I18N[curLang].trainAddBtn;
+    })
+    .finally(function(){btn.disabled=false;});
+}
+
+function startTrain(){
+  var fd={
+    name:document.getElementById('tpName').value.trim()||'auto',
+    r:parseInt(document.getElementById('tpR').value)||8,
+    alpha:parseInt(document.getElementById('tpAlpha').value)||16,
+    lr:parseFloat(document.getElementById('tpLr').value)||0.0001,
+    epochs:parseInt(document.getElementById('tpEpochs').value)||3,
+    accum:parseInt(document.getElementById('tpAccum').value)||4
+  };
+  var btn=document.getElementById('trainStartBtn');
+  var errEl=document.getElementById('trainErr');
+  errEl.textContent='';
+  btn.disabled=true;btn.textContent=I18N[curLang].trainStarting;
+  fetch('/api/train/start',{method:'POST',headers:Object.assign({'Content-Type':'application/json'},apiHeaders()),body:JSON.stringify(fd)})
+    .then(function(r){return r.json().then(function(d){if(!r.ok)throw new Error(d.detail||'Error');return d;});})
+    .then(function(d){
+      showTrainRunning({running:true});
+      pollTrain();
+    })
+    .catch(function(e){
+      errEl.textContent=I18N[curLang].trainFailed+': '+e.message;
+      btn.disabled=false;btn.textContent=I18N[curLang].trainStart;
+    });
+}
+
+function showTrainRunning(st){
+  document.getElementById('trainProgressWrap').style.display='block';
+  document.getElementById('trainStartBtn').style.display='none';
+  document.getElementById('trainStopBtn').style.display='inline-block';
+  document.getElementById('trainStartBtn').disabled=true;
+  document.getElementById('trainProgressBar').style.width=(st.progress||0)+'%';
+  if(st.status)document.getElementById('trainStatusText').textContent=st.status;
+  if(st.loss_history&&st.loss_history.length){
+    var last=st.loss_history[st.loss_history.length-1];
+    document.getElementById('trainLossText').textContent=
+      I18N[curLang].trainLoss+': '+last.toFixed(4)+
+      '  ·  '+I18N[curLang].trainStep+' '+(st.step||0)+
+      '/'+(st.total_steps||'?')+
+      '  ·  '+I18N[curLang].trainEpoch+' '+((st.epoch||0)+1)+'/'+(st.epochs||'?');
+  }
+}
+
+function showTrainIdle(){
+  document.getElementById('trainProgressWrap').style.display='none';
+  document.getElementById('trainStartBtn').style.display='inline-block';
+  document.getElementById('trainStartBtn').disabled=false;
+  document.getElementById('trainStartBtn').textContent=I18N[curLang].trainStart;
+  document.getElementById('trainStopBtn').style.display='none';
+}
+
+function pollTrain(){
+  if(trainPollTimer)clearInterval(trainPollTimer);
+  function tick(){
+    fetch('/api/train/status',{headers:apiHeaders()})
+      .then(function(r){return r.json();})
+      .then(function(st){
+        trainerStatusCache=st;
+        if(st.running){showTrainRunning(st);}
+        else{
+          if(trainPollTimer){clearInterval(trainPollTimer);trainPollTimer=null;}
+          showTrainIdle();
+          if(st.error){
+            document.getElementById('trainErr').textContent=I18N[curLang].trainFailed+': '+st.error;
+          }else if(st.lora_name){
+            document.getElementById('trainErr').textContent='';
+            refreshLoras();
+            alert(I18N[curLang].trainDone+st.lora_name);
+          }else if(st.stopped){
+            document.getElementById('trainErr').textContent=I18N[curLang].trainStopped;
+          }
+        }
+      })
+      .catch(function(){});
+  }
+  tick();
+  trainPollTimer=setInterval(tick,2000);
+}
+
+function stopTrain(){
+  fetch('/api/train/stop',{method:'POST',headers:apiHeaders()})
+    .then(function(r){return r.json();})
+    .then(function(){
+      if(trainPollTimer){clearInterval(trainPollTimer);trainPollTimer=null;}
+      showTrainIdle();
+    })
+    .catch(function(){});
+}
+
+function refreshLoras(){
+  fetch('/api/train/loras',{headers:apiHeaders()})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      var arr=d.loras||[];
+      var sel=document.getElementById('loraSel');
+      if(sel){
+        var cur=sel.value;
+        sel.innerHTML='<option value="">'+I18N[curLang].loraNone+'</option>';
+        arr.forEach(function(l){
+          var o=document.createElement('option');
+          o.value=l.name;o.textContent=l.name+(l.final_loss!=null?' (loss '+l.final_loss.toFixed(3)+')':'');
+          sel.appendChild(o);
+        });
+        sel.value=cur;
+      }
+      var hint=document.getElementById('loraSelHint');
+      if(hint){
+        var v=sel?sel.value:'';
+        if(v){
+          var found=arr.filter(function(l){return l.name===v;})[0];
+          if(found&&found.final_loss!=null)hint.textContent=tr('最终损失 ','Final loss ')+found.final_loss.toFixed(4)+tr('，选用中',' (active)');
+          else hint.textContent=tr('选用中',' (active)');
+        }else hint.textContent='';
+      }
+      var list=document.getElementById('trainLoras');
+      if(list){
+        if(!arr.length){
+          list.innerHTML='<div class="muted">'+I18N[curLang].trainNoLoras+'</div>';
+          return;
+        }
+        list.innerHTML='';
+        arr.forEach(function(l){
+          var row=document.createElement('div');
+          row.style.cssText='display:flex;align-items:center;gap:8px;padding:8px;border:1px solid #e5e7eb;border-radius:8px;margin-bottom:6px';
+          var info=document.createElement('div');
+          info.style.flex='1';
+          var meta=l.created_at||'';
+          if(l.final_loss!=null)meta+=' · loss '+l.final_loss.toFixed(3);
+          if(l.steps)meta+=' · '+l.steps+' steps';
+          info.innerHTML='<div style="font-weight:600">'+escHtml(l.name)+'</div>'+
+            '<div style="font-size:12px;color:#6b7280">'+escHtml(meta)+'</div>';
+          var use=document.createElement('button');
+          use.className='chip';use.textContent=I18N[curLang].trainUseLora;
+          use.dataset.act='use';use.dataset.id=l.name;
+          use.style.cssText='padding:4px 10px;font-size:12px';
+          var del=document.createElement('button');
+          del.className='chip';del.textContent=I18N[curLang].trainDelete;
+          del.dataset.act='delete';del.dataset.id=l.name;
+          del.style.cssText='padding:4px 10px;font-size:12px;color:#dc2626';
+          row.appendChild(info);row.appendChild(use);row.appendChild(del);
+          list.appendChild(row);
+        });
+      }
+    })
+    .catch(function(){});
+}
+
+function onLoraSel(){
+  var sel=document.getElementById('loraSel');
+  var hint=document.getElementById('loraSelHint');
+  if(!sel||!hint)return;
+  if(sel.value){
+    hint.textContent=tr('选用 LoRA：','Active LoRA: ')+sel.value;
+  }else{
+    hint.textContent='';
+  }
+}
+
+// event delegation: train samples (play/delete)
+document.getElementById('trainSamples').addEventListener('click',function(e){
+  var btn=e.target.closest('button[data-act]');
+  if(!btn)return;
+  var id=btn.dataset.id,act=btn.dataset.act;
+  if(act==='play'){
+    var au=document.createElement('audio');
+    au.src='/api/train/samples/'+id+'/audio';au.controls=true;
+    au.style.cssText='width:100%;margin-top:4px';
+    var row=btn.parentElement;
+    var old=row.querySelector('audio');
+    if(old)old.remove();
+    row.appendChild(au);
+    au.play();
+  }else if(act==='delete'){
+    if(!confirm(I18N[curLang].trainDelSample))return;
+    fetch('/api/train/samples/'+id,{method:'DELETE',headers:apiHeaders()})
+      .then(function(r){return r.json();})
+      .then(function(){refreshTrainSamples();})
+      .catch(function(){});
+  }
+});
+// event delegation: train loras (use/delete)
+document.getElementById('trainLoras').addEventListener('click',function(e){
+  var btn=e.target.closest('button[data-act]');
+  if(!btn)return;
+  var name=btn.dataset.id,act=btn.dataset.act;
+  if(act==='use'){
+    var sel=document.getElementById('loraSel');
+    if(sel)sel.value=name;
+    onLoraSel();
+    setMode(prevMode||'design');
+  }else if(act==='delete'){
+    if(!confirm(I18N[curLang].trainDelLora))return;
+    fetch('/api/train/loras/'+encodeURIComponent(name),{method:'DELETE',headers:apiHeaders()})
+      .then(function(r){return r.json();})
+      .then(function(){refreshLoras();})
+      .catch(function(){});
+  }
+});
+// button wiring
+document.getElementById('trainAddBtn').addEventListener('click',addTrainSample);
+document.getElementById('trainStartBtn').addEventListener('click',startTrain);
+document.getElementById('trainStopBtn').addEventListener('click',stopTrain);
+
 function setMode(m){
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.mode===m));
-  const beta=(m==='beta');
-  document.getElementById('mainCard').classList.toggle('hide',beta);
-  document.getElementById('histCard').classList.toggle('hide',beta);
-  document.getElementById('packCard').classList.toggle('hide',beta);
+  const beta=(m==='beta'), tr=(m==='train'), off=beta||tr;
+  document.getElementById('mainCard').classList.toggle('hide',off);
+  document.getElementById('histCard').classList.toggle('hide',off);
+  document.getElementById('packCard').classList.toggle('hide',off);
   document.getElementById('betaCard').classList.toggle('hide',!beta);
+  document.getElementById('trainCard').classList.toggle('hide',!tr);
   if(beta){prevMode=mode||'design';renderDialoguePanels();return;}
+  if(tr){prevMode=(mode&&mode!=='train')?mode:'design';refreshTrainUI();return;}
   mode=m;
   document.getElementById('refField').classList.toggle('hide',m==='design');
   document.getElementById('packSelField').classList.toggle('hide',m==='design');
@@ -1135,6 +1557,7 @@ async function init(){
 }
 init();
 loadVoicePacks();
+refreshLoras();
 // 初始化语言（从本地存储恢复，默认中文）
 try{const _sl=localStorage.getItem('voxcpm_lang');if(_sl)setLang(_sl);}catch(_){}
 
@@ -1186,6 +1609,7 @@ async function generate(){
     fd.append('pause',document.getElementById('pause').value);
     fd.append('breath',document.getElementById('breath').value);
     fd.append('emotion',document.getElementById('emotionSel').value);
+    fd.append('lora_name',document.getElementById('loraSel').value||'');
     fd.append('ssml',document.getElementById('ssml').checked);
     fd.append('mode',mode);
     if(refFile)fd.append('reference',refFile);
@@ -1606,10 +2030,12 @@ def generate(
     transition_smoothness: float = Form(0.5),
     timbre_lock: str = Form("true"),
     ssml: str = Form("false"),
+    lora_name: str = Form(""),
     reference: UploadFile = File(None),
 ):
     """网页用的统一生成接口（支持文件上传）"""
     require_auth(request)
+    _check_not_training()
     text = text or ""
     # 仅用括号外台词做空校验；括号提示词保留，交由模型应用音色/风格
     if not strip_design_annotations(text):
@@ -1674,6 +2100,7 @@ def generate(
         transition_smoothness=float(transition_smoothness),
         timbre_lock=str(timbre_lock).lower() == "true",
         _ssml=str(ssml).lower() == "true",
+        lora_name=str(lora_name).strip(),
     )
     # 加速模式：使用已开启加速的音色包时，自动降低扩散步数，显著缩短生成耗时
     if used_pack:
@@ -1704,6 +2131,7 @@ def generate(
 async def tts_api(request: Request):
     """纯 JSON 接口，方便脚本 / 其它程序调用"""
     require_auth(request)
+    _check_not_training()
     body = await request.json()
     text = (body or {}).get("text", "") or ""
     # 仅用括号外台词做空校验；括号提示词保留，交由模型应用音色/风格
@@ -1741,6 +2169,7 @@ async def tts_api(request: Request):
         breath=float(body.get("breath", 0) or 0),
         emotion=str(body.get("emotion", "") or "").strip(),
         _ssml=bool(body.get("ssml", False)),
+        lora_name=str(body.get("lora_name", "") or "").strip(),
     )
     return _do_generate(kwargs)
 
@@ -1749,7 +2178,8 @@ def _do_generate(kwargs: dict):
     """统一生成：整条链路包进 try/except，异常 → JSON；失败 → 模型自愈。"""
     t0 = time.time()
     try:
-        model = get_model()                       # 加载也可能抛异常，一并捕获
+        _lora_name = (kwargs.pop("lora_name", "") or "").strip() or None
+        model = get_model(_lora_name)            # 加载也可能抛异常，一并捕获
         # CUDA 健康检查 + 显存保护：
         # - VoxCPM 连续推理会累积显存缓存（内部泄漏，无法从外部根治），总显存超阈值
         #   先优雅卸载并重载模型回收，避免 CUDA OOM / native crash；
@@ -2277,6 +2707,105 @@ def warmup(request: Request):
     require_auth(request)
     get_model()
     return {"ok": True, **_model_info}
+
+
+# ============================== 训练模块（LoRA 微调） ==============================
+def _check_not_training():
+    """训练进行中时禁止生成类请求（显存互斥）。"""
+    if trainer.is_running():
+        raise HTTPException(status_code=409, detail="LoRA 训练进行中，请先停止训练或稍后再试")
+
+
+@app.get("/api/train/samples")
+def train_list_samples(request: Request):
+    require_auth(request)
+    return {"samples": tstore.list_samples(), "stats": tstore.get_stats()}
+
+
+@app.post("/api/train/samples")
+async def train_add_sample(request: Request, audio: UploadFile = File(...),
+                           text: str = Form(...), name: str = Form("")):
+    require_auth(request)
+    suffix = Path(audio.filename or "ref.wav").suffix or ".wav"
+    tmp = UPLOAD_DIR / f"train_{uuid.uuid4().hex[:8]}{suffix}"
+    tmp.write_bytes(await audio.read())
+    try:
+        meta = tstore.add_sample(str(tmp), text, name)
+    except ValueError as e:
+        _safe_unlink(tmp)
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        _safe_unlink(tmp)
+    return {"ok": True, "sample": meta, "stats": tstore.get_stats()}
+
+
+@app.delete("/api/train/samples/{sample_id}")
+def train_del_sample(sample_id: str, request: Request):
+    require_auth(request)
+    if not tstore.delete_sample(sample_id):
+        raise HTTPException(status_code=404, detail="样本不存在")
+    return {"ok": True, "stats": tstore.get_stats()}
+
+
+@app.get("/api/train/samples/{sample_id}/audio")
+def train_sample_audio(sample_id: str, request: Request):
+    require_auth(request)
+    for s in tstore.list_samples():
+        if s["id"] == sample_id:
+            p = Path(s["audio"])
+            if p.exists():
+                return FileResponse(str(p), media_type="audio/wav")
+            break
+    raise HTTPException(status_code=404, detail="音频不存在")
+
+
+@app.post("/api/train/start")
+def train_start(request: Request, lora_name: str = Form(""), lora_r: int = Form(8),
+                lora_alpha: int = Form(16), lr: float = Form(1e-4),
+                epochs: int = Form(3), batch_size: int = Form(1),
+                grad_accum: int = Form(4)):
+    """启动 LoRA 训练。训练前卸载推理模型（显存互斥），训练中拒绝生成请求。"""
+    require_auth(request)
+    if _infer_lock.locked():
+        raise HTTPException(status_code=409, detail="正在生成音频，请稍后再开始训练")
+    unload_model()  # 释放推理显存，给训练让路
+    try:
+        st = trainer.start_training({
+            "lora_name": lora_name.strip(), "lora_r": lora_r, "lora_alpha": lora_alpha,
+            "lr": lr, "epochs": epochs, "batch_size": batch_size, "grad_accum": grad_accum,
+        }, base_dir=BASE_DIR)
+    except (RuntimeError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "status": st}
+
+
+@app.get("/api/train/status")
+def train_status(request: Request):
+    require_auth(request)
+    return trainer.get_status()
+
+
+@app.post("/api/train/stop")
+def train_stop(request: Request):
+    require_auth(request)
+    if not trainer.is_running():
+        raise HTTPException(status_code=400, detail="当前没有训练任务")
+    trainer.request_stop()
+    return {"ok": True}
+
+
+@app.get("/api/train/loras")
+def train_list_loras(request: Request):
+    require_auth(request)
+    return {"loras": tstore.list_loras()}
+
+
+@app.delete("/api/train/loras/{name}")
+def train_del_lora(name: str, request: Request):
+    require_auth(request)
+    if not tstore.delete_lora(name):
+        raise HTTPException(status_code=404, detail="LoRA 不存在")
+    return {"ok": True}
 
 
 def _safe_unlink(path) -> None:
