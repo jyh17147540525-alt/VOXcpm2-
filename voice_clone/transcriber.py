@@ -236,8 +236,11 @@ def drop_job(job_id: str):
             pass
 
 
-def start_transcribe(src_path, label: str = "") -> dict:
+def start_transcribe(src_path, label: str = "", transcript: str = "") -> dict:
     """后台线程启动一次转写。src_path 会被复制进 job 目录（16k mono wav）。
+
+    传 transcript（权威台词全文）时：转写完成后自动按各分段时长把台词
+    匹配进 text 字段（whisper 只提供时间边界，识别文本不参与匹配）。
 
     返回 job 字典；失败（忙/参数错）抛 RuntimeError。
     """
@@ -274,7 +277,7 @@ def start_transcribe(src_path, label: str = "") -> dict:
         _busy.release()
         raise RuntimeError(str(e))
 
-    def _worker(job_id: str, wav: Path, lb: str):
+    def _worker(job_id: str, wav: Path, lb: str, tr: str):
         job = None
         try:
             with _jobs_lock:
@@ -299,11 +302,14 @@ def start_transcribe(src_path, label: str = "") -> dict:
             )
             lang = getattr(info, "language", None)
             job["lang"] = lang
+            keep_overlong = bool(tr)      # 台词对齐模式：保留 >30s 段，保证时间轴连续
             segs = []
             for seg in segments:
                 text = (seg.text or "").strip()
                 d = float(getattr(seg, "end", 0) - getattr(seg, "start", 0))
-                if d < MIN_SEGMENT_SECONDS or d > MAX_SEGMENT_SECONDS:
+                if d < MIN_SEGMENT_SECONDS:
+                    continue
+                if not keep_overlong and d > MAX_SEGMENT_SECONDS:
                     continue
                 if not _looks_like_speech(text):
                     continue
@@ -316,11 +322,19 @@ def start_transcribe(src_path, label: str = "") -> dict:
                 })
                 if len(segs) % 20 == 0:
                     job["progress"] = min(85, 30 + len(segs))
+            note = ""
+            if tr and segs:
+                segs, note = align_text_to_segments(segs, tr)
             job["segments"] = segs
             job["progress"] = 100
             job["status"] = "done"
+            if tr:
+                job["aligned"] = bool(segs)
+                job["align_note"] = note or ("未识别到语音分段，无法匹配台词" if not segs else "")
             job["message"] = (f"转写完成：{len(segs)} 段"
                               + (f"（{lang}）" if lang else ""))
+            if tr:
+                job["message"] += "；" + (note or "未识别到语音分段")
         except Exception as e:
             if job is not None:
                 job["status"] = "error"
@@ -329,7 +343,8 @@ def start_transcribe(src_path, label: str = "") -> dict:
         finally:
             _busy.release()
 
-    threading.Thread(target=_worker, args=(job["job_id"], wav16, label),
+    threading.Thread(target=_worker,
+                     args=(job["job_id"], wav16, label, transcript or ""),
                      daemon=True).start()
     return dict(job)
 
@@ -340,6 +355,176 @@ def _looks_like_speech(text: str) -> bool:
         if "\u4e00" <= ch <= "\u9fff" or ch.isalnum():
             return True
     return False
+
+
+# ------------------------------------------------------------------ 台词对齐
+_SENT_PUNCT = set("。！？…!?；;")
+_CLAUSE_PUNCT = set("，,、：:")
+_TRAIL_PUNCT = set("”’」』】》)\"'】]…~—–·—-—")
+
+
+def _tokenize_transcript(text: str) -> list:
+    """把完整台词拆成"语音单元"（token = 单个 CJK 字 / 连续 ASCII 字母数字串），
+    返回 list[dict]，每项含：
+      w     —— 语音权重（CJK 字=1；英文按 0.5 字/字母折算，至少 1）
+      cut   —— 该 token 在原文的切片终点（含其后粘连的标点/空白，字符下标）
+      kind  —— 尾随断句强度：2=句末(。！？…换行) 1=逗号类 0=句中无停顿
+    token 之间的空白/标点会"吸"到前一个 token 的 cut 上，保证切出来的
+    每个分段都不以句号/逗号开头。
+    """
+    def _cjk(ch):
+        return "\u3400" <= ch <= "\u4dbf" or "\u4e00" <= ch <= "\u9fff"
+
+    tokens = []
+    n = len(text)
+    i = 0
+    while i < n:
+        ch = text[i]
+        if ch.isspace() or ch in _SENT_PUNCT or ch in _CLAUSE_PUNCT or ch in "（）()【】[]<>《》““”‘’「」『』·—":
+            i += 1
+            continue
+        if _cjk(ch):
+            i += 1
+            w = 1
+        elif ch.isascii() and ch.isalnum():
+            s0 = i
+            while i < n and text[i].isascii() and text[i].isalnum():
+                i += 1
+            w = max(1, int(round((i - s0) * 0.5)))
+        else:  # 假名/谚文等非常见字：按 1 字算
+            i += 1
+            w = 1
+        # 尾随标点/空白归前，并记录断句强度
+        kind = 0
+        j = i
+        while j < n:
+            c2 = text[j]
+            if c2.isspace():
+                if c2 in "\n\r":
+                    kind = 2
+                j += 1
+                continue
+            if c2 in _SENT_PUNCT:
+                kind = 2
+            elif c2 in _CLAUSE_PUNCT or c2 in _TRAIL_PUNCT:
+                kind = max(kind, 1)
+            else:
+                break
+            j += 1
+        tokens.append({"w": w, "cut": j, "kind": kind})
+        i = j
+    return tokens
+
+
+def align_text_to_segments(segments, transcript: str):
+    """把用户提供的完整台词按"语速均匀"假设分配到各分段的 text 字段。
+
+    segments   —— 现有 [{idx,text,start,end,duration}]（text 为 whisper 识别文本，
+                  仅用其 start/end/duration 做时间边界，识别内容不参与匹配）
+    transcript —— 用户权威台词全文（可含换行/标点；每行一句效果最佳）
+
+    原理：whisper 的分段边界来自真实静音，时长可信；同一说话人语速基本均匀，
+    因此"段长 ∝ 台词字数"。按 total_chars/total_duration 得语速，逐段累计切分，
+    落点取最近的 token 边界（句末/逗号边界天然优先），保证分段文本连续不重叠。
+
+    返回 (segments, note)。已被台词替换的段 text 为台词片段、aligned=True；
+    台词不够覆盖的段保留原识别文本、aligned=False。
+    """
+    speech = [s for s in segments if (s.get("duration") or 0) > 0]
+    total_dur = sum(s["duration"] for s in speech)
+    if not speech or total_dur <= 0:
+        return list(segments), "未识别到语音分段，无法匹配台词"
+    text = (transcript or "").strip()
+    if not text:
+        return list(segments), "台词为空"
+    if len(text) > 200000:
+        return list(segments), "台词过长（超过 20 万字），请分段处理"
+    tokens = _tokenize_transcript(text)
+    if not tokens:
+        return list(segments), "台词里没有可朗读的文字（请直接粘贴纯文本）"
+
+    n = len(tokens)
+    cum = [0.0] * n
+    acc = 0.0
+    for i, tk in enumerate(tokens):
+        acc += tk["w"]
+        cum[i] = acc
+    rate = acc / total_dur
+
+    c = 0          # 已消费 token 数
+    covered = 0
+    mid_cut = 0
+    for s in speech:
+        if c >= n:
+            break
+        base = cum[c - 1] if c else 0.0
+        target = base + s["duration"] * rate
+        t = c
+        while t < n and cum[t] < target:
+            t += 1
+        cands = []
+        if t < n:
+            cands.append(t + 1)          # 吃到越过 target 的 token
+        if t - 1 >= c:
+            cands.append(t)              # 少吃一个（若距离更近）
+        if not cands and c < n:
+            cands.append(n)              # 台词正好在段中耗尽
+        if not cands:
+            break
+
+        def _err(cc):
+            return abs((cum[cc - 1] if cc else 0.0) - target)
+
+        best = min(cands, key=lambda cc: (_err(cc), tokens[cc - 1]["kind"]))
+        lo = tokens[c - 1]["cut"] if c else 0
+        hi = tokens[best - 1]["cut"] if best else lo
+        piece = text[lo:hi].strip()
+        if not piece and best > c:        # 兜底：极端情况下至少给一个字
+            piece = text[tokens[c]["cut"] if c < n else lo:tokens[best - 1]["cut"]].strip()
+        s["orig_text"] = s.get("text", "")
+        s["text"] = piece
+        s["aligned"] = True
+        if tokens[best - 1]["kind"] == 0:
+            mid_cut += 1
+        covered += 1
+        c = best
+
+    parts = [f"已按台词匹配 {covered}/{len(speech)} 段"]
+    if c < n and covered == len(speech):
+        # 台词比语音容量长（常见：逐字稿含口头语/书面语比口语密）：
+        # 把剩余台词并入最后一段，避免漏字。
+        lo = tokens[c - 1]["cut"] if c else 0
+        hi = tokens[n - 1]["cut"]
+        tail = text[lo:hi].strip()
+        if tail:
+            speech[-1]["text"] = (speech[-1]["text"] + tail).strip()
+            parts.append("台词比语音长，末尾已并入最后一段，请试听核对")
+    if covered < len(speech):
+        parts.append(f"台词不足，后 {len(speech) - covered} 段保留原识别文本")
+    if mid_cut:
+        parts.append(f"{mid_cut} 段落在句中截断（语音停顿与台词断句不完全一致），建议试听核对")
+    return speech, "；".join(parts)
+
+
+def align_job(job_id: str, transcript: str) -> dict:
+    """对已完成转写的 job 重新做一次台词对齐（不改时间戳/音频，只替换文本）。
+    供前端在转写完成后粘贴/修改台词时调用。返回更新后的 job 副本。
+    """
+    with _jobs_lock:
+        j = _jobs.get(job_id)
+        if j is None:
+            raise RuntimeError("转写任务不存在或已过期，请重新转写")
+        if j.get("status") != "done":
+            raise RuntimeError("转写尚未完成，请稍候")
+        segs = list(j.get("segments") or [])
+    segs, note = align_text_to_segments(segs, transcript)
+    with _jobs_lock:
+        if job_id in _jobs:
+            _jobs[job_id]["segments"] = segs
+            _jobs[job_id]["aligned"] = True
+            _jobs[job_id]["align_note"] = note
+            j = _jobs[job_id]
+    return dict(j)
 
 
 def load_segment_audio(job_id: str, seg: dict):

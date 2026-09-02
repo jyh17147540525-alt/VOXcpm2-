@@ -813,6 +813,17 @@ border:1px solid #f1f5f9;border-radius:10px;margin-bottom:8px;background:#fff}
       <div style="margin-top:10px">
         <div class="muted" style="margin-bottom:8px;line-height:1.6" data-i18n="trDesc">上传 1~10 分钟的语音（清晰人声、无背景乐效果最佳），会自动按静音切句并逐句转写。核对/修改每段文本后勾选导入为训练样本。首次转写需下载约 460MB 模型（一次性）。</div>
         <input type="file" id="trFile" accept="audio/*">
+        <div style="margin-top:8px">
+          <div style="font-size:12px;font-weight:600;color:#374151" data-i18n="trTranscriptLabel">📝 有完整台词？粘贴全文，自动逐句匹配到各分段（免手动逐条修改）</div>
+          <textarea id="trTranscript" rows="4" style="width:100%;margin-top:4px;font-size:13px;box-sizing:border-box" data-i18n-ph="trTranscriptPh" placeholder="把与音频完全一致的完整台词粘贴到这里（每行一句效果最佳）。可先转写后再粘贴点「按台词匹配」，也可上传前就粘贴、转写完成后自动匹配。"></textarea>
+          <div style="display:flex;gap:8px;margin-top:6px;align-items:center;flex-wrap:wrap">
+            <button class="chip" id="trAlignBtn" style="display:none;padding:6px 14px;background:#7c3aed;color:#fff" data-i18n="trAlign">✨ 按台词匹配到各分段</button>
+            <label class="chip" style="padding:6px 14px;cursor:pointer;font-size:13px;display:inline-flex;align-items:center;gap:4px">📄 <span data-i18n="trTxtFile">载入 txt 台词</span>
+              <input type="file" id="trTxtFile" accept=".txt,text/plain" style="display:none">
+            </label>
+            <span class="muted" id="trAlignNote" style="font-size:12px"></span>
+          </div>
+        </div>
         <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
           <button class="chip" id="trStartBtn" style="padding:8px 16px" data-i18n="trStart">🎧 开始转写</button>
           <button class="chip" id="trImportBtn" style="display:none;padding:8px 16px;background:#16a34a;color:#fff" data-i18n="trImport">📥 导入勾选项</button>
@@ -978,7 +989,10 @@ const I18N={
       trDesc:'上传 1~10 分钟的语音（清晰人声、无背景乐效果最佳），会自动按静音切句并逐句转写。核对/修改每段文本后勾选导入为训练样本。首次转写需加载约 460MB 的 whisper 模型（一次性）。',
       trStart:'🎧 开始转写',trImport:'📥 导入勾选项',trNoSeg:'未识别到可用的语音片段（音频过短或无人声）',
       trPlay:'试听',trSelAll:'全选',trSegDur:'片段 {n}',trImportOk:'已导入 {n} 条样本',
-      trModelLoading:'正在加载 whisper 模型（首次约需 1~2 分钟）…'},
+      trModelLoading:'正在加载 whisper 模型（首次约需 1~2 分钟）…',
+      trTranscriptLabel:'📝 有完整台词？粘贴全文，自动逐句匹配到各分段（免手动逐条修改）',
+      trTranscriptPh:'把与音频完全一致的完整台词粘贴到这里（每行一句效果最佳）。可先转写后再粘贴点「按台词匹配」，也可上传前就粘贴、转写完成后自动匹配。',
+      trAlign:'✨ 按台词匹配到各分段',trTxtFile:'载入 txt 台词',trNoTranscript:'请先粘贴完整台词'},
   en:{localDeploy:'Local',detecting:'Detecting…',modelNotLoaded:'Model not loaded',modelReady:'Model ready',
       modeDesign:'🎨 Voice Design',modeClone:'🎛️ Voice Clone',modeHifi:'🎙️ HiFi Clone',modeBeta:'🧪 Beta',modeTrain:'🎓 Train',
       history:'Generation history',noHistory:'No history yet',
@@ -1039,7 +1053,10 @@ const I18N={
       trDesc:'Upload 1–10 min of speech (clear voice, no background music works best). It is auto-segmented by silence and transcribed sentence by sentence. Review/edit each line, tick the ones to keep, then import as training samples. The ~460MB whisper model loads on first use (one-time).',
       trStart:'🎧 Start',trImport:'📥 Import selected',trNoSeg:'No usable speech segments found (audio too short or no voice)',
       trPlay:'Play',trSelAll:'Select all',trSegDur:'Seg {n}',trImportOk:'{n} samples imported',
-      trModelLoading:'Loading whisper model (first run ~1–2 min)…'}
+      trModelLoading:'Loading whisper model (first run ~1–2 min)…',
+      trTranscriptLabel:'📝 Have the verbatim transcript? Paste it and auto-match into each segment (no manual line-by-line edits)',
+      trTranscriptPh:'Paste the full transcript that matches the audio exactly (one sentence per line works best). You can transcribe first and then click "Match transcript", or paste before uploading and it will be matched automatically when transcription finishes.',
+      trAlign:'✨ Match transcript into segments',trTxtFile:'Load txt',trNoTranscript:'Please paste the full transcript first'}
 };
 let curLang='zh';
 function setLang(l){
@@ -1485,7 +1502,11 @@ function trStart(){
   btn.disabled=true;st.textContent='';trShowErr('');
   document.getElementById('trResults').innerHTML='';
   document.getElementById('trImportBtn').style.display='none';
+  var ab=document.getElementById('trAlignBtn');if(ab)ab.style.display='none';
+  var an=document.getElementById('trAlignNote');if(an)an.textContent='';
   var fd=new FormData();fd.append('audio',f.files[0]);
+  var tta=document.getElementById('trTranscript');
+  if(tta&&tta.value.trim())fd.append('transcript',tta.value.trim());
   fetch('/api/train/transcribe',{method:'POST',body:fd,headers:apiHeaders()})
     .then(function(r){return r.json().then(function(d){if(!r.ok)throw new Error(d.detail||'Error');return d;});})
     .then(function(d){
@@ -1570,7 +1591,44 @@ function trRender(j){
     box.appendChild(row);
   });
   document.getElementById('trImportBtn').style.display='inline-block';
+  var ab=document.getElementById('trAlignBtn');
+  if(ab){ab.style.display='inline-block';ab.disabled=false;}
+  var an=document.getElementById('trAlignNote');
+  if(an){
+    if(j.aligned){
+      an.textContent='✅ '+(j.align_note||'');
+      an.style.color='#16a34a';
+    }else{
+      an.textContent='';
+      an.style.color='';
+    }
+  }
   trUpdImportBtn();
+}
+function trAlign(){
+  var ta=document.getElementById('trTranscript');
+  if(!ta||!ta.value.trim()){trShowErr(I18N[curLang].trNoTranscript);return;}
+  if(!trJobId){trShowErr(I18N[curLang].trNoSeg);return;}
+  var btn=document.getElementById('trAlignBtn');btn.disabled=true;
+  trShowErr('');
+  fetch('/api/train/align',{method:'POST',
+    headers:Object.assign({'Content-Type':'application/json'},apiHeaders()),
+    body:JSON.stringify({job_id:trJobId,transcript:ta.value})})
+    .then(function(r){return r.json().then(function(d){if(!r.ok)throw new Error(d.detail||'Error');return d;});})
+    .then(function(d){
+      if(btn)btn.disabled=false;
+      trRender(d.job);
+    })
+    .catch(function(e){if(btn)btn.disabled=false;trShowErr(e.message);});
+}
+function trLoadTxt(f){
+  if(!f)return;
+  var rd=new FileReader();
+  rd.onload=function(){
+    var ta=document.getElementById('trTranscript');
+    if(ta)ta.value=(rd.result||'').replace(/^\uFEFF/,'');
+  };
+  rd.readAsText(f,'utf-8');
 }
 function trUpdImportBtn(){
   var btn=document.getElementById('trImportBtn');
@@ -1620,6 +1678,10 @@ var trStartBtn=document.getElementById('trStartBtn');
 if(trStartBtn)trStartBtn.addEventListener('click',trStart);
 var trImportBtn=document.getElementById('trImportBtn');
 if(trImportBtn)trImportBtn.addEventListener('click',trImport);
+var trAlignBtn=document.getElementById('trAlignBtn');
+if(trAlignBtn)trAlignBtn.addEventListener('click',trAlign);
+var trTxtFile=document.getElementById('trTxtFile');
+if(trTxtFile)trTxtFile.addEventListener('change',function(){trLoadTxt(trTxtFile.files[0]);trTxtFile.value='';});
 
 
 // event delegation: train samples (play/delete)
@@ -3054,22 +3116,52 @@ def _check_not_transcribing():
 
 
 @app.post("/api/train/transcribe")
-async def train_transcribe(request: Request, audio: UploadFile = File(...)):
-    """上传长音频 → 后台线程 whisper 转写 → 返回 job（前端轮询结果）。"""
+async def train_transcribe(request: Request):
+    """上传长音频 → 后台线程 whisper 转写 → 返回 job（前端轮询结果）。
+
+    可选 multipart 字段 transcript（完整台词全文）：转写完成后自动把台词
+    按各分段时长匹配进 text，whisper 仅提供时间边界。
+    """
     require_auth(request)
     _check_not_training()
     _check_not_transcribing()
     if _infer_lock.locked():
         raise HTTPException(status_code=409, detail="正在生成音频，请稍后再转写")
-    suffix = Path(audio.filename or "ref.wav").suffix or ".wav"
+    form = await request.form()
+    up = form.get("audio") or form.get("file")
+    if up is None or not hasattr(up, "read"):
+        raise HTTPException(status_code=400, detail="缺少音频文件字段（audio）")
+    transcript = str(form.get("transcript") or "").strip()
+    suffix = Path(up.filename or "ref.wav").suffix or ".wav"
     tmp = UPLOAD_DIR / f"tr_{uuid.uuid4().hex[:8]}{suffix}"
-    tmp.write_bytes(await audio.read())
+    tmp.write_bytes(await up.read())
     try:
-        job = transcriber.start_transcribe(str(tmp))
+        job = transcriber.start_transcribe(str(tmp), transcript=transcript)
     except RuntimeError as e:
         raise HTTPException(status_code=400, detail=str(e))
     finally:
         _safe_unlink(tmp)
+    return {"ok": True, "job": job}
+
+
+@app.post("/api/train/align")
+async def train_align(request: Request):
+    """对已完成转写的 job 重新做台词对齐（转写后粘贴/修改完整台词时调用）。
+
+    body: {job_id, transcript}。只替换各分段 text，不动时间戳/音频。
+    """
+    require_auth(request)
+    body = await request.json()
+    job_id = str(body.get("job_id") or "")
+    transcript = str(body.get("transcript") or "")
+    if not job_id:
+        raise HTTPException(status_code=400, detail="缺少 job_id")
+    if not transcript.strip():
+        raise HTTPException(status_code=400, detail="台词为空，请粘贴完整台词")
+    try:
+        job = transcriber.align_job(job_id, transcript)
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return {"ok": True, "job": job}
 
 
