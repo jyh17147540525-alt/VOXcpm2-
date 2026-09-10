@@ -21,6 +21,9 @@ A ready-to-use local voice cloning and text-to-speech (TTS) service. Built on to
 - **Long-text stable synthesis**: automatic sentence splitting, chunk-wise independent generation (reference-anchored, no timbre drift), graded pauses for commas/periods, unified emotion control (neutral & stable by default). Great for audiobooks and long passages.
 - **Audio export**: WAV / MP3 / M4A.
 - **Beta module — multi-role dialogue**: a dynamic panel builder for multi-speaker / multi-turn scripts. Mark a speaker with `(@Name)` and an emotion with `(emotion)` (full-width Chinese parentheses such as `（情绪）` are normalized automatically). The UI generates an **independent, collapsible control panel for every single participation** (labelled "角色-第N次参与"), so the same character appearing multiple times gets separate, non-interfering panels. Every panel carries its **own set of 5 sliders — volume, pitch, speed, inter-sentence pause and breath intensity** — adjusted in real time for that turn only, while all other turns keep their settings untouched.
+- **Dark / light theme**: the whole UI is built on CSS custom properties, so switching themes repaints instantly. Follows the OS preference by default, remembers your choice in `localStorage`, and can be forced per-URL with `?theme=dark` / `?theme=light` (handy for screenshots and shared links).
+- **Neural vocal separation (MDX-NET)**: strips background music from a reference recording using UVR's MDX-NET ONNX weights. Unlike the built-in DSP fallback (REPET-lite / HPSS), a trained model recovers the vocal even where it overlaps the accompaniment — measured **correlation 0.99 vs 0.85** and **+19.3 dB vs +3.9 dB** against a clean reference. Weights download on demand; if absent, the pipeline degrades gracefully to the DSP path.
+- **Long-audio auto-transcribe → training samples**: upload a long recording, it is auto-segmented by whisper (with Silero VAD) into 1–30 s clips and each clip is transcribed. Paste the **full verbatim transcript** once and the text is matched onto the segments automatically — no line-by-line editing.
 - **Web UI**: FastAPI + token auth, one-click login in the browser, built-in player and generation history.
 
 ---
@@ -52,7 +55,11 @@ The code talks to the `voxcpm` model through a small adapter layer (`voice_clone
 ├── tokenization_voxcpm2.py   # Tokenizer
 ├── voice_clone/              # Voice-clone enhancement toolkit
 │   ├── pipeline.py           #   Reference audio preprocessing pipeline
-│   ├── preprocess.py         #   Denoise / remove background / segment fusion
+│   ├── preprocess.py         #   Denoise / remove background / MDX dispatch / segment fusion
+│   ├── mdx_separator.py      #   Neural vocal separation (UVR MDX-NET ONNX inference)
+│   ├── transcriber.py        #   Long-audio transcription + transcript alignment
+│   ├── training_store.py     #   Training-sample store (text↔audio pairs)
+│   ├── trainer.py            #   LoRA fine-tuning runner
 │   ├── length_adapter.py     #   Long-audio adaptation
 │   ├── synthesis_stab.py     #   Long-text stable synthesis + emotion control
 │   └── cli.py                #   CLI entry point
@@ -60,7 +67,9 @@ The code talks to the `voxcpm` model through a small adapter layer (`voice_clone
 ├── tokenizer.json            # Tokenizer vocabulary
 ├── tokenizer_config.json     # Tokenizer config
 ├── special_tokens_map.json   # Special token mapping
-├── scripts/                  # One-click launch scripts (Windows .bat)
+├── scripts/                  # One-click launch scripts (Windows .bat + helper tools)
+│   ├── start.bat             #   Launch the service
+│   └── fetch_mdx_models.py   #   Download MDX-NET vocal-separation weights
 ├── examples/                 # Example scripts (inference self-test / pipeline test / diagnostics)
 └── .github/                  # Issue / PR templates
 ```
@@ -126,6 +135,23 @@ huggingface-cli download OpenBMB/VoxCPM2 --local-dir .
 
 > After downloading, make sure the project root contains `model.safetensors`, `audiovae.pth`, `config.json`, `tokenizer.json`, etc.
 
+**Optional — transcription model (faster-whisper)**
+
+Only needed for *Long-audio transcription*. `faster-whisper` downloads the weights on first use; to pre-seed them offline, place these four files in `models/faster-whisper-small/`:
+
+```
+config.json  model.bin  tokenizer.json  vocabulary.txt
+# from: https://hf-mirror.com/Systran/faster-whisper-small/tree/main
+```
+
+**Optional — vocal-separation model (MDX-NET)**
+
+Only needed for *Removing background music*. See [the section below](#-removing-background-music-neural-vocal-separation); one command fetches it:
+
+```bash
+python scripts/fetch_mdx_models.py
+```
+
 ---
 
 ## 🚀 Usage
@@ -188,7 +214,65 @@ curl -X POST http://127.0.0.1:8808/api/generate \
   -F "text=Hello" -F "mode=clone" -F "reference=@ref.wav"
 ```
 
-See [docs/API.md](docs/API.md) for the full API reference (if present).
+See the API section of this document for the common endpoints; the FastAPI app also exposes interactive docs at `/docs` while the service is running.
+
+---
+
+## 🎤 Removing background music (neural vocal separation)
+
+Reference recordings often carry BGM. The pipeline ships **two** strategies and picks the best one available:
+
+| Tier | Engine | Quality vs clean reference | Notes |
+|---|---|---|---|
+| 1 | **MDX-NET** (UVR ONNX) | corr **0.99** · SDR **+19.3 dB** | Needs weights (65 MB); CPU or CUDA |
+| 2 | demucs `htdemucs` | good | Only if `demucs` is installed |
+| 3 | REPET-lite / HPSS | corr ~0.85 · SDR +3.9 dB | Pure DSP, always available |
+
+> **Why not just use the DSP path?** REPET-lite and HPSS are *assumption-driven*: they assume the background is predictable and subtract it. When the accompaniment **overlaps** the voice in the time–frequency plane, they attenuate the voice too — heard as a **dull, "cotton-wrapped" timbre**. A trained separator is *data-driven* and can pull the vocal back out of the overlap. This is the difference between `HF retention 0.50` and `0.66`, and between a spectral centroid of `1857 Hz` and `2211 Hz` (clean reference: `2220 Hz`).
+
+**Install the weights:**
+
+```bash
+python scripts/fetch_mdx_models.py          # default: UVR-MDX-NET_Main_340 (recommended)
+python scripts/fetch_mdx_models.py all      # every listed model
+```
+
+Files land in `models/mdx/` (excluded from git — they are ~30–65 MB each). Tries HF-Mirror first, then HuggingFace.
+
+**Use it:**
+
+```python
+from voice_clone import preprocess as pp
+
+y, sr = pp.load_audio("song_with_bgm.wav", sr=44100)
+vocals = pp.isolate_vocals(y, sr, method="auto")   # 'auto' → MDX if available, else DSP
+```
+
+In the web UI this is the **🎤 Keep vocals only (remove BGM)** checkbox on the training-sample and transcription panels. No weights installed? Everything still works — it just falls back to DSP and says so.
+
+---
+
+## 📝 Long-audio transcription → training samples
+
+Turning a long recording into training data is *not* a matter of raising the upload limit — training pairs are short (the packer truncates over-long audio at `max_len`). So the correct move is to **cut the audio into sentences** and transcribe each one.
+
+**Workflow**
+
+1. Upload a recording (up to 10 minutes) on the training page.
+2. whisper (`faster-whisper`, CPU int8) segments it with **Silero VAD**, drops non-speech, and discards clips outside 1–30 s.
+3. Paste the **full verbatim transcript** and hit *Match transcript to segments*.
+4. Review each clip (edit text, audition it), tick the ones you want, and import them as samples.
+
+**How the text matching works**
+
+The naive approach — distributing the transcript across segments in proportion to their duration — assumes a constant speaking rate and drifts badly whenever the pace changes, music plays, or the speaker repeats themselves. Instead:
+
+1. Transcription runs with `word_timestamps=True`, so every word carries a real timestamp. Each word is expanded into **character-level anchors** (one anchor per CJK character; one per Latin word).
+2. The transcript is tokenized into the **same granularity** and aligned to those anchors with a **Needleman–Wunsch global edit alignment** (match 0 / substitute 1 / insert-delete 1).
+3. Only *exactly matching* pairs become **hard anchors** (transcript character → real timestamp); everything else is linearly interpolated between the two nearest hard anchors, yielding a monotone text→time map.
+4. Segment boundaries are the **midpoints of the gaps** between speech regions, so bisecting the time map gives each segment the words it actually contains.
+
+Transcript text that runs past the end of the audio is reported rather than crammed into the last segment, and any segment the transcript cannot cover keeps whisper's original text (flagged so you can drop it). If word timestamps are unavailable the code falls back to the proportional method and tells you.
 
 ---
 
@@ -219,5 +303,7 @@ The code in this repository is licensed under [Apache-2.0](LICENSE). The core mo
 ## 🙏 Acknowledgements
 
 - [OpenBMB/VoxCPM](https://github.com/OpenBMB/VoxCPM) — the underlying TTS model and pretrained weights
+- [UVR (Ultimate Vocal Remover)](https://github.com/Anjok07/ultimatevocalremovergui) — MDX-NET vocal-separation models
+- [faster-whisper](https://github.com/SYSTRAN/faster-whisper) / [OpenAI Whisper](https://github.com/openai/whisper) — transcription and word-level timestamps
 - [librosa](https://librosa.org/), [soundfile](https://pypi.org/project/SoundFile/), [SciPy](https://scipy.org/) — audio processing
 - [FastAPI](https://fastapi.tiangolo.com/) — web framework

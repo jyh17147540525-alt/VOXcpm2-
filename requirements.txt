@@ -26,6 +26,16 @@ pypinyin>=0.50          # 多音字检测
 lameenc>=1.7            # MP3 编码（纯 Python 回退）
 imageio-ffmpeg>=0.5     # M4A 转码 / 视频提取音轨（内置 ffmpeg 二进制）
 
+# ---- 长音频自动转写（whisper 切句 → 训练样本）----
+faster-whisper>=1.0     # CTranslate2 版 whisper（CPU int8，转写 + 词级时间戳对齐）
+ctranslate2>=4.0        # faster-whisper 后端
+
+# ---- 神经网络人声分离（去背景音乐，可选但强烈推荐）----
+# 没装也能跑：会自动回退到内置的 REPET-lite / HPSS 纯 DSP 分离，
+# 但去背景音乐时人声会发闷（实测 corr≈0.85，装了可达 0.99）。
+# 权重需单独下载：python scripts/fetch_mdx_models.py
+onnxruntime>=1.17       # MDX-NET (UVR) 推理；有 NVIDIA GPU 可换 onnxruntime-gpu
+
 # ---- PyTorch（CUDA 版，见文件顶部说明）----
 # torch==2.9.1
 # torchaudio==2.9.1
