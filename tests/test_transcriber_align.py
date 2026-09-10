@@ -10,19 +10,29 @@
 """
 import sys
 from pathlib import Path
+import types
 
 import pytest
 
-# 直接走文件路径导入 transcriber，避开 voice_clone/__init__.py 的
-# 链式导入（它会拉 librosa，CI 裸 runner 不一定有）。
+# transcriber.py 自身有较重的导入（soundfile 等），CI 裸 runner 没装。
+# 但它的核心算法（_fold / _text_atoms / _match_atom_times / align_text_to_segments）
+# 都是纯字符串 + 标量数学。直接给重依赖装个空 stub 即可。
+# 装配好后用 importlib 加载 transcriber，绕过 voice_clone/__init__.py 的
+# 链式导入（它会拉 librosa）。
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+for _mod_name in ("soundfile",):
+    if _mod_name not in sys.modules:
+        _stub = types.ModuleType(_mod_name)
+        sys.modules[_mod_name] = _stub
+
 import importlib.util as _ilu  # noqa: E402
 
 _transcriber_path = Path(__file__).resolve().parent.parent / "voice_clone" / "transcriber.py"
 _spec = _ilu.spec_from_file_location("voice_clone_transcriber_under_test", _transcriber_path)
 T = _ilu.module_from_spec(_spec)  # type: ignore[arg-type]
 _spec.loader.exec_module(T)  # type: ignore[union-attr]
-del _ilu, _spec, _transcriber_path
+del _ilu, _spec, _transcriber_path, _mod_name, _stub
 
 
 # ============================== _fold / _text_atoms ==============================
