@@ -6,6 +6,8 @@
 *.bin
 *.gguf
 *.ggml
+# MDX-NET 人声分离 ONNX 权重（models/mdx/，约 30-65MB/个，见 scripts/fetch_mdx_models）
+*.onnx
 
 # ===== 虚拟环境 / 依赖 =====
 venv/
