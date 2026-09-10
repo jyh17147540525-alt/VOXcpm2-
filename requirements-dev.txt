@@ -1,0 +1,13 @@
+# ============================================================
+# 开发/测试依赖（运行测试与 CI 用）
+#   pip install -r requirements-dev.txt
+#   python -m pytest tests -v
+#
+# 说明：纯逻辑测试（transcriber 对齐、MDX 数学约束）只需要 numpy。
+#       涉及模型权重的测试会自动 skip —— 没权重/没 GPU 也不会红。
+#       前端内联 JS 语法检查需要 node（CI 里由 actions/setup-node 提供）。
+# ============================================================
+
+pytest>=8.0
+pytest-timeout>=2.3
+numpy>=1.26

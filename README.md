@@ -24,6 +24,7 @@ A ready-to-use local voice cloning and text-to-speech (TTS) service. Built on to
 - **Dark / light theme**: the whole UI is built on CSS custom properties, so switching themes repaints instantly. Follows the OS preference by default, remembers your choice in `localStorage`, and can be forced per-URL with `?theme=dark` / `?theme=light` (handy for screenshots and shared links).
 - **Neural vocal separation (MDX-NET)**: strips background music from a reference recording using UVR's MDX-NET ONNX weights. Unlike the built-in DSP fallback (REPET-lite / HPSS), a trained model recovers the vocal even where it overlaps the accompaniment — measured **correlation 0.99 vs 0.85** and **+19.3 dB vs +3.9 dB** against a clean reference. Weights download on demand; if absent, the pipeline degrades gracefully to the DSP path.
 - **Long-audio auto-transcribe → training samples**: upload a long recording, it is auto-segmented by whisper (with Silero VAD) into 1–30 s clips and each clip is transcribed. Paste the **full verbatim transcript** once and the text is matched onto the segments automatically — no line-by-line editing.
+- **Tested**: a layered `pytest` suite covers the transcript-alignment algorithm and the MDX separation pipeline, plus CI for Python syntax and the inlined front-end JavaScript. Quality tests skip cleanly when weights or audio are unavailable. See [Testing](#-testing).
 - **Web UI**: FastAPI + token auth, one-click login in the browser, built-in player and generation history.
 
 ---
@@ -69,9 +70,14 @@ The code talks to the `voxcpm` model through a small adapter layer (`voice_clone
 ├── special_tokens_map.json   # Special token mapping
 ├── scripts/                  # One-click launch scripts (Windows .bat + helper tools)
 │   ├── start.bat             #   Launch the service
+│   ├── check_inline_js.py    #   Validate the inlined front-end JS (node --check)
 │   └── fetch_mdx_models.py   #   Download MDX-NET vocal-separation weights
+├── tests/                    # Regression test suite (pytest)
+│   ├── fixtures.py           #   Synthetic + real-audio test fixtures & quality metrics
+│   ├── test_transcriber_align.py  # Transcript-alignment algorithm
+│   └── test_mdx_separator.py      # MDX chunk math, engine contract, separation quality
 ├── examples/                 # Example scripts (inference self-test / pipeline test / diagnostics)
-└── .github/                  # Issue / PR templates
+└── .github/                  # CI workflow + Issue / PR templates
 ```
 
 ---
@@ -151,6 +157,44 @@ Only needed for *Removing background music*. See [the section below](#-removing-
 ```bash
 python scripts/fetch_mdx_models.py
 ```
+
+---
+
+## 🧪 Testing
+
+A regression suite lives in `tests/`. It is split into layers so it stays useful
+on machines without weights or a GPU:
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest tests -v
+```
+
+| Layer | What it covers | Requirements |
+|---|---|---|
+| **Transcript alignment** | `_fold` / `_text_atoms` normalization, Needleman–Wunsch anchoring, gap-midpoint segment cuts, proportional fallback | `numpy` only |
+| **MDX chunk math** | STFT frame formula, the 4-channel `(L_re, L_im, R_re, R_im)` contract, `dim_f = n_fft/2` | `numpy` only |
+| **MDX engine contract** | model discovery, ONNX session load, I/O shape `[B, 4, dim_f, dim_t]`, degenerate inputs | weights in `models/mdx/` |
+| **Separation quality** | correlation against the clean source, SDR, spectral centroid ("muffled" detector), amplitude fidelity, residual reconstruction | weights **+** a real speech `.wav` |
+
+Tests in the last two layers **skip** (not fail) when weights or audio are absent,
+so CI stays green on a bare runner. To exercise the quality layer locally, point
+`VOXCPM2_FIXTURE_WAV` at a speech file, or just leave some `.wav`s in `outputs/`.
+
+> **Note on synthetic fixtures.** The separator's quality tests deliberately use
+> *real* speech as the vocal source. A purely synthetic harmonic tone stack reads
+> as a musical instrument to MDX-NET and gets separated *out* — measuring quality
+> against it produces misleading numbers. See the warning in `tests/fixtures.py`.
+
+CI (`.github/workflows/ci.yml`) runs three jobs on Linux + Windows across
+Python 3.10–3.12:
+
+1. **tests** — the pytest suite
+2. **syntax check** — `compileall` over every Python source
+3. **inline JS syntax** — extracts the front-end `<script>` blocks inlined in
+   `server.py` and validates them with `node --check`. A JS syntax error there
+   makes the *entire* page non-interactive while Python-side checks stay green,
+   so this is checked explicitly.
 
 ---
 

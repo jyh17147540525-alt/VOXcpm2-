@@ -48,6 +48,8 @@ dist/
 .pytest_cache/
 .coverage
 htmlcov/
+__pycache__/
+*.pyc
 
 # ===== IDE / 编辑器 =====
 .vscode/

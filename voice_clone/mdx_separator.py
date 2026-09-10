@@ -197,6 +197,8 @@ def separate(y: np.ndarray, sr: int, model: str | None = None,
 
     y  —— float32 单声道波形
     sr —— 采样率（模型按 44.1k 训练，但内部按样本推理，任意 sr 均可）
+
+    instrumental 取「原混音 − 人声」的残差（UVR 同款），与人声同长。
     """
     name = _pick_model(model)
     if name is None:
@@ -272,7 +274,9 @@ def separate(y: np.ndarray, sr: int, model: str | None = None,
                 except Exception:
                     pass
         # 去掉前置 trim 填充，回到原始时间轴
-        out = (result / np.maximum(divider, 1e-8))[trim:trim + n]
-        return out.astype(np.float32), None
+        out = (result / np.maximum(divider, 1e-8))[trim:trim + n].astype(np.float32)
+        # 伴奏 = 原混音 - 人声（UVR 同款残差）。模型只预测人声，残差是免费的。
+        inst = (y[:n] - out).astype(np.float32)
+        return out, inst
     except Exception:
         return None, None
