@@ -17,6 +17,9 @@ ENV/
 
 # ===== 敏感凭证 =====
 credentials.json
+# AI 导演层（LLM 内核）配置，含 API Key —— 提交它会直接泄露密钥
+llm_config.json
+api_key.txt
 
 # ===== 运行时数据（生成/上传/缓存）=====
 outputs/
@@ -25,6 +28,8 @@ voice_packs/
 prepared/
 .pipcache/
 .tmp/
+# AI 导演层的磁盘缓存（按文本哈希存放，非源码）
+_llm_cache/
 *.wav
 *.mp3
 *.m4a
