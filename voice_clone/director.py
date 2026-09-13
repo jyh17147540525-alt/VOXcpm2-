@@ -397,7 +397,8 @@ def plan(text: str, max_chars: int = 60, *,
          pause_scale: float = 1.0,
          context_decay: float = 0.55,
          context_floor: float = 0.22,
-         emotion: str = "") -> PlanResult:
+         emotion: str = "",
+         tone_hint: str = "") -> PlanResult:
     """梳理文本，输出分段标注。**原文逐字不改**。
 
     参数
@@ -408,6 +409,9 @@ def plan(text: str, max_chars: int = 60, *,
     context_decay : 情绪惯性衰减系数 —— 前一段情绪传递到后一段的保留比例。
     context_floor : 惯性生效下限，低于此强度不承接（避免弱情绪无限蔓延）。
     emotion       : 若显式指定情绪（如 UI 选了「悲伤」），则全篇统一，跳过自动判断。
+    tone_hint     : 全局基调提示（如整篇扫描得出的场景语气）。**仅在本段自身判不出
+                    基调（neutral）时生效**，用于让短句也能沿用场景语气。
+                    与 emotion 的区别：emotion 是「强制全篇统一」，tone_hint 只是「基准」。
 
     返回
     ----
@@ -426,6 +430,10 @@ def plan(text: str, max_chars: int = 60, *,
     explicit = (emotion or "").strip()
 
     tone, tone_share = _global_tone(raw)
+    # 基调提示：本段自身判不出基调时，用调用方给的全局基调做基准
+    hint = (tone_hint or "").strip()
+    if hint and hint != "neutral" and tone == "neutral":
+        tone, tone_share = hint, 1.0
 
     segments = []
     prev_emotion, prev_intensity = "neutral", 0.0
@@ -486,6 +494,66 @@ def plan(text: str, max_chars: int = 60, *,
         prev_emotion, prev_intensity = label, float(intensity)
 
     return PlanResult(segments=segments, global_tone=tone, global_share=tone_share)
+
+
+def rechunk(result: PlanResult, chunks: list) -> PlanResult:
+    """按新的切分边界重建 PlanResult，沿用原结果覆盖到的标注。
+
+    场景：先整篇切分拿到逐句标注，再按「说话人 turn」重新归组（多人对话）。
+    新 Segment.text **一律取自 chunks**（逐字保留调用方给的原文）；
+    情绪取覆盖区间内的主导情绪（按字符数×强度加权），停顿类型/停顿时长取
+    覆盖到的最后一段（决定句末长短停顿），role 若任一覆盖段是台词则记为台词。
+
+    前提：chunks 是原文本的顺序切片（拼接后与原文本一致），否则对齐会错位。
+    """
+    def _nw(s):
+        return "".join((s or "").split())
+
+    src = list(result.segments or [])
+    out: list = []
+    si, off = 0, 0
+    for raw in chunks:
+        need = len(_nw(raw))
+        votes: dict = {}
+        last_seg = None
+        saw_speech = False
+        while need > 0 and si < len(src):
+            seg = src[si]
+            slen = len(_nw(seg.text))
+            if slen == 0:
+                si += 1
+                off = 0
+                continue
+            take = min(slen - off, need)
+            votes[seg.emotion] = votes.get(seg.emotion, 0.0) + take * max(
+                float(seg.intensity or 0.0), 0.05)
+            if seg.role == "speech":
+                saw_speech = True
+            last_seg = seg
+            off += take
+            need -= take
+            if off >= slen:
+                si += 1
+                off = 0
+        if last_seg is None:                      # 空块：补一个中性段占位，保持 1:1
+            out.append(Segment(text=str(raw), pause_type="end", emotion="neutral",
+                               intensity=0.0, pause_after=_pause_for("end", "neutral", 0.0, 1.0),
+                               role="narration", reason="rechunk 占位（空块）"))
+            continue
+        dom = max(votes, key=votes.get) if votes else "neutral"
+        tot = sum(votes.values()) or 1.0
+        out.append(Segment(
+            text=str(raw),
+            pause_type=last_seg.pause_type,
+            emotion=dom,
+            intensity=round(votes.get(dom, 0.0) / tot, 3) if votes else 0.0,
+            pause_after=last_seg.pause_after,
+            role="speech" if saw_speech else last_seg.role,
+            reason="按说话人归组（覆盖自 %s）" % last_seg.reason[:60],
+        ))
+    return PlanResult(segments=out, global_tone=result.global_tone,
+                      global_share=result.global_share, source=result.source,
+                      error=result.error)
 
 
 def verify_text_intact(text: str, result: PlanResult) -> bool:

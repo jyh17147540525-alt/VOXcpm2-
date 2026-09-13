@@ -21,6 +21,9 @@ import pytest
 # 链式导入（它会拉 librosa）。
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+# _stub 必须预置：若 soundfile 已被前面的测试模块导入，下面循环不会赋值，
+# 而结尾的 del 会引用它 —— 否则 NameError，且随 pytest 收集顺序时好时坏。
+_stub = None
 for _mod_name in ("soundfile",):
     if _mod_name not in sys.modules:
         _stub = types.ModuleType(_mod_name)

@@ -486,8 +486,15 @@ def _apply_emotion(pieces: list[np.ndarray], emotions: list[tuple[str, float]],
 
 # 显式情绪的「严格一致」韵律表：与 audio_edit.EMOTION_PRESETS 对齐（pitch 除外）。
 # 用户选定预设情绪时，对每一块施加完全相同的韵律，杜绝块间情绪混入。
-# pitch 一律为 0：情绪只通过语速/音量/停顿/呼吸表达，**不改音调**（语调保持不变，
-# 避免整体升降调带来的"变调感"；块间语调由 _align_pitch 统一拉平）。
+#
+# 为什么 pitch 一律为 0 —— 这不是偷懒，是音色保护：
+#   audio_edit.apply_pitch 的实现是「soxr 变速重采样 + WSOLA 恢复时长」，**没有相位声码器**。
+#   变速重采样会把共振峰（formant）连同基频一起缩放，WSOLA 只恢复时长、不恢复共振峰，
+#   因此任何非零半音都会让克隆音色发生整体偏移（±1 半音 ≈ 共振峰移 ~6%），
+#   而「音色保真」正是本项目的核心价值 → 默认不动音高。
+#   确实需要音高差异时，把 EMOTION_PITCH_SCALE 改成 1.0（见下），代价是音色偏移。
+_EMOTION_PITCH_SCALE = 0.0
+
 _EMOTION_UNIFORM = {
     "高兴": {"pitch": 0, "speed": 1.08, "volume": 1.12},
     "悲伤": {"pitch": 0, "speed": 0.86, "volume": 0.90},
@@ -495,13 +502,37 @@ _EMOTION_UNIFORM = {
     "温柔": {"pitch": 0, "speed": 0.95, "volume": 0.95},
     "愤怒": {"pitch": 0, "speed": 1.15, "volume": 1.25},
     "平静": {"pitch": 0, "speed": 1.00, "volume": 1.00},
+    # —— 以下四个是导演层（director / director_llm）会输出的标签，
+    #    原先缺失会导致「接了导演层但情绪静默不生效」，故补齐。
+    "惊讶": {"pitch": 0, "speed": 1.06, "volume": 1.12},
+    "恐惧": {"pitch": 0, "speed": 1.04, "volume": 0.96},
+    "疑问": {"pitch": 0, "speed": 1.00, "volume": 1.00},
+    "感叹": {"pitch": 0, "speed": 1.05, "volume": 1.10},
+}
+
+# 音高方案（半音，取值克制）。**仅当 EMOTION_PITCH_SCALE > 0 时才叠加**，
+# 默认 0 → 上表的 "pitch": 0 生效，音色零偏移（现状不变）。
+_EMOTION_PITCH = {
+    "高兴": 1.0, "悲伤": -1.0, "严肃": 0.0, "温柔": -0.3, "愤怒": 0.6, "平静": 0.0,
+    "惊讶": 1.2, "恐惧": -0.5, "疑问": 0.8, "感叹": 1.0,
 }
 
 _EMOTION_UNIFORM_ALIAS = {
     "happy": "高兴", "sad": "悲伤", "serious": "严肃", "gentle": "温柔",
     "angry": "愤怒", "calm": "平静", "neutral": "平静", "中性": "平静",
     "开心": "高兴", "快乐": "高兴", "难过": "悲伤", "伤心": "悲伤", "生气": "愤怒",
+    # 导演层 / LLM 导演层 / 前端下拉可能送来的写法，逐一归一到上面的键
+    "高兴": "高兴", "快乐": "高兴", "glad": "高兴", "pleased": "高兴",
+    "sorrow": "悲伤", "gloomy": "悲伤",
+    "mad": "愤怒", "furious": "愤怒", "irritated": "愤怒",
+    "scared": "恐惧", "afraid": "恐惧", "terror": "恐惧", "fear": "恐惧", "害怕": "恐惧",
+    "surprised": "惊讶", "surprise": "惊讶", "astonished": "惊讶", "惊喜": "惊讶",
+    "question": "疑问", "疑问": "疑问", "curious": "疑问",
+    "exclamation": "感叹", "感叹": "感叹", "excited": "感叹",
+    "tender": "温柔", "soft": "温柔",
+    "stern": "严肃", "solemn": "严肃", "plain": "平静",
 }
+
 
 
 def _apply_emotion_uniform(pieces: list[np.ndarray], emotion: str,
@@ -516,7 +547,10 @@ def _apply_emotion_uniform(pieces: list[np.ndarray], emotion: str,
         return pieces, []
     from audio_edit import apply_pitch, apply_speed, apply_volume
     out = list(pieces)
-    pitch_delta = float(acoustic["pitch"])
+    # 音高默认冻结在 0（保护克隆音色，见 _EMOTION_UNIFORM 上方说明）；
+    # EMOTION_PITCH_SCALE 显式调大才叠加 _EMOTION_PITCH 的半音方案。
+    pitch_delta = float(acoustic["pitch"]) + float(_EMOTION_PITCH_SCALE) * float(
+        _EMOTION_PITCH.get(key, 0.0))
     speed_factor = float(acoustic["speed"])
     volume_factor = float(acoustic["volume"])
     for i in range(len(out)):

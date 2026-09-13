@@ -315,3 +315,163 @@ def test_load_config_fills_defaults(tmp_path):
     assert cfg["base_url"]
     assert cfg["model"]
     assert "enabled" in cfg
+
+
+# ============================================================ L4 基调提示 / 按说话人归组
+#
+# 这一组来自 2026-09-13 把导演层接进服务时踩到的真实缺陷：
+#   ① 误把「全局基调」传给 plan(emotion=...) —— emotion 的语义是「强制全篇统一」，
+#      结果每一段都被钉成 neutral，看起来像导演层失效；
+#   ② 多人对话整篇规划后按字符对齐，会把 A 的情绪惯性渗进 B 的下一句。
+#      （实测：「…我等了多久！」把后面的「对不起。」也染成 exclamation）
+
+DIALOGUE = (
+    "你终于来了。\n"
+    "嗯。路上耽搁了。\n"
+    "耽搁？你知不知道我等了多久！\n"
+    "对不起。\n"
+    "算了，进来吧，外面冷。"
+)
+TURNS = DIALOGUE.split("\n")
+
+
+def test_tone_hint_does_not_pin_every_segment():
+    """回归：tone_hint 只作基准，绝不能像 emotion 那样把每段都钉死。"""
+    r = director.plan("耽搁？你知不知道我等了多久！", tone_hint="sad")
+    labels = {s.emotion for s in r.segments}
+    assert "exclamation" in labels, labels
+    assert labels != {"sad"}, "tone_hint 不应覆盖文本自身的明确线索"
+
+
+def test_tone_hint_used_only_when_own_tone_absent():
+    """本段自身判不出基调时，hint 才作为基准生效。"""
+    plain = "他坐了下来。"                      # 无任何情绪线索
+    assert director.plan(plain).global_tone == "neutral"
+    assert director.plan(plain, tone_hint="happy").global_tone == "happy"
+    # 文本自己有强线索（多个感叹号）时，hint 不该改变基调判定
+    strong = "太好了！太好了！"
+    assert director.plan(strong).global_tone == director.plan(
+        strong, tone_hint="sad").global_tone
+
+
+def test_tone_hint_neutral_is_ignored():
+    """hint 为 neutral 等于没提示，不应改变任何东西。"""
+    a = director.plan(DIALOGUE)
+    b = director.plan(DIALOGUE, tone_hint="neutral")
+    assert [s.emotion for s in a.segments] == [s.emotion for s in b.segments]
+
+
+def test_per_turn_planning_isolates_emotion_across_speakers():
+    """逐 turn 规划：前一说话人的情绪不得渗进后一说话人的台词。
+
+    注：split_with_pauses 会按长度把相邻短句并成一块，**并不区分说话人**
+    （实测「你终于来了。嗯。」会被并成一段），所以整篇规划 + 事后按字符对齐
+    在多人对话里从根上就是错位的 —— 这也是服务端改成逐 turn / turn 为切分
+    边界的直接原因。
+    """
+    whole = director.plan(DIALOGUE)
+    n_ex = [s.emotion for s in whole.segments].count("exclamation")
+    assert n_ex >= 2, "整篇规划本应出现情绪惯性（这是本用例的前提）"
+
+    per_turn = [[s.emotion for s in director.plan(t).segments] for t in TURNS]
+    assert per_turn[0] == ["neutral"], "开头的中性句应保持中性"
+    assert per_turn[3] == ["neutral"], "「对不起。」不该被上一句的怒气传染"
+    assert "exclamation" in per_turn[2], "带感叹号的那句自身仍应判出感叹"
+
+
+def test_rechunk_yields_one_segment_per_chunk():
+    base = director.plan(DIALOGUE)
+    rc = director.rechunk(base, TURNS)
+    assert len(rc.segments) == len(TURNS)
+    assert [s.text for s in rc.segments] == TURNS
+
+
+def test_rechunk_preserves_original_text():
+    """归组只换边界，绝不改字。"""
+    base = director.plan(DIALOGUE)
+    rc = director.rechunk(base, TURNS)
+    assert director.verify_text_intact(DIALOGUE, rc)
+
+
+def test_rechunk_handles_empty_chunk():
+    """空块也要占位，保证与调用方的 turn 索引 1:1（否则后续按索引取参全错位）。"""
+    base = director.plan(DIALOGUE)
+    chunks = ["你终于来了。", "", "对不起。"]
+    rc = director.rechunk(base, chunks)
+    assert len(rc.segments) == 3
+    assert rc.segments[1].text == ""
+
+
+def test_rechunk_does_not_mutate_source():
+    base = director.plan(DIALOGUE)
+    before = [s.text for s in base.segments]
+    director.rechunk(base, TURNS)
+    assert [s.text for s in base.segments] == before
+
+
+# ============================================================ L5 情绪标签闭环
+#
+# 导演层能吐出的情绪标签，必须都能在 synthesis_stab 的情绪表里落地。
+# 缺一个的后果是「接了导演层但情绪静默不生效」—— 无声的失效最难查。
+# 这里用 ast 解析源码而不是 import，避免测试依赖 numpy / scipy 等重包。
+
+EMITTABLE_LABELS = {
+    "neutral", "happy", "sad", "angry", "fear", "surprise", "question", "exclamation",
+}
+
+
+def _emotion_tables():
+    import ast
+
+    src = (_VOICE_CLONE / "synthesis_stab.py").read_text(encoding="utf-8")
+    wanted = {"_EMOTION_UNIFORM", "_EMOTION_UNIFORM_ALIAS",
+              "_EMOTION_PITCH", "_EMOTION_PITCH_SCALE"}
+    found = {}
+    for node in ast.parse(src).body:
+        if isinstance(node, ast.Assign):
+            for tgt in node.targets:
+                if isinstance(tgt, ast.Name) and tgt.id in wanted:
+                    found[tgt.id] = ast.literal_eval(node.value)
+    return found
+
+
+def test_every_emittable_label_has_a_preset():
+    t = _emotion_tables()
+    uniform, alias = t["_EMOTION_UNIFORM"], t["_EMOTION_UNIFORM_ALIAS"]
+    missing = sorted(l for l in EMITTABLE_LABELS if alias.get(l, l) not in uniform)
+    assert not missing, "这些标签在 synthesis_stab 里没有预设，会静默失效: %s" % missing
+
+
+def test_alias_targets_all_exist():
+    t = _emotion_tables()
+    uniform, alias = t["_EMOTION_UNIFORM"], t["_EMOTION_UNIFORM_ALIAS"]
+    dangling = {k: v for k, v in alias.items() if v not in uniform}
+    assert not dangling, "别名指向了不存在的预设: %s" % dangling
+
+
+def test_chinese_and_english_labels_both_resolve():
+    """前端下拉 / 导演层 / LLM 三种来源的写法都要能收敛到同一个预设。"""
+    t = _emotion_tables()
+    uniform, alias = t["_EMOTION_UNIFORM"], t["_EMOTION_UNIFORM_ALIAS"]
+    pairs = [("高兴", "happy"), ("悲伤", "sad"), ("愤怒", "angry"), ("生气", "angry"),
+             ("惊讶", "surprised"), ("恐惧", "fear"), ("害怕", "fear"),
+             ("疑问", "question"), ("感叹", "exclamation")]
+    for zh, en in pairs:
+        kz, ke = alias.get(zh, zh), alias.get(en, en)
+        assert kz == ke, "%s/%s 收敛结果不一致: %s vs %s" % (zh, en, kz, ke)
+        assert kz in uniform
+
+
+def test_pitch_frozen_by_default():
+    """默认必须冻结音高：apply_pitch 是 varispeed 实现，会连共振峰一起偏移，
+    对以音色保真为核心的声音克隆是净损失。改动这个常量前请先想清楚。"""
+    t = _emotion_tables()
+    assert t["_EMOTION_PITCH_SCALE"] == 0.0
+    assert all(v.get("pitch") == 0 for v in t["_EMOTION_UNIFORM"].values())
+
+
+def test_pitch_plan_covers_every_preset():
+    """若把 EMOTION_PITCH_SCALE 打开，每个预设都得有对应的半音值。"""
+    t = _emotion_tables()
+    missing = sorted(set(t["_EMOTION_UNIFORM"]) - set(t["_EMOTION_PITCH"]))
+    assert not missing, "缺少音高方案的标签: %s" % missing

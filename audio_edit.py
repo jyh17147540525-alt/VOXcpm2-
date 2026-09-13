@@ -110,14 +110,20 @@ def _wsola_stretch(y: np.ndarray, sr: int, ratio: float) -> np.ndarray:
 
 
 def apply_pitch(y: np.ndarray, sr: int, semitones: float) -> np.ndarray:
-    """音调调节：semitones 半音（正=升，负=降），保持时长、保持音色。
-    实现 = soxr 变速重采样（改音调+时长）+ WSOLA 恢复时长，无相位声码器。"""
+    """音调调节：semitones 半音（正=升，负=降），保持时长。
+
+    ⚠️ 实现 = soxr 变速重采样（音调 ×k、时长 ÷k）+ WSOLA 恢复时长，**无相位声码器**。
+    变速重采样会连共振峰（formant）一起缩放，WSOLA 只恢复时长、不恢复共振峰，
+    因此本函数**不保持音色**：任何非零半音都会整体偏移音色（±1 半音 ≈ 共振峰移 ~6%）。
+    对以「音色保真」为核心的声音克隆，默认应传 0；
+    需要真正的保音色变调，须改用相位声码器 / PSOLA 实现。
+    """
     semitones = float(semitones or 0)
     if abs(semitones) < 0.05:
         return y
     k = 2.0 ** (semitones / 12.0)          # 频率缩放因子
-    y_var = _varispeed_resample(y, sr, k)  # 音调 ×k、时长 ÷k
-    return _wsola_stretch(y_var, sr, ratio=k)  # 时长恢复，音调保持 ×k
+    y_var = _varispeed_resample(y, sr, k)  # 音调 ×k、时长 ÷k（共振峰同时 ×k）
+    return _wsola_stretch(y_var, sr, ratio=k)  # 只恢复时长，共振峰停在 ×k
 
 
 def apply_speed(y: np.ndarray, sr: int, factor: float) -> np.ndarray:

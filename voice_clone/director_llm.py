@@ -42,6 +42,7 @@ import urllib.request
 try:
     from .director import PlanResult, Segment
     from .director import plan as rule_plan
+    from .director import rechunk as _rechunk
     from .director import verify_text_intact
 except ImportError:  # pragma: no cover - 无包上下文的直接加载
     import sys as _sys
@@ -49,6 +50,7 @@ except ImportError:  # pragma: no cover - 无包上下文的直接加载
     _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from director import PlanResult, Segment  # type: ignore
     from director import plan as rule_plan  # type: ignore
+    from director import rechunk as _rechunk  # type: ignore
     from director import verify_text_intact  # type: ignore
 
 
@@ -366,11 +368,25 @@ def _cache_write(path: str, obj: dict) -> None:
 def plan_llm(text: str, max_chars: int = 60, *,
              config: dict | None = None,
              fallback: bool = True,
-             use_cache: bool | None = None) -> PlanResult:
+             use_cache: bool | None = None,
+             chunks: list | None = None,
+             context: str | None = None) -> PlanResult:
     """用 LLM 梳理文本，输出与 director.plan 同构的 PlanResult。
 
     任何环节失败（未启用 / 无 key / 网络不通 / 解析失败）都会自动降级到
     规则版（除非 fallback=False），降级原因记在 PlanResult.error 里。
+
+    chunks：可选，直接指定切分边界（如多人对话的说话人 turn 列表）。
+      - 不传 → 由规则版切分（默认行为，逐句）。
+      - 传了 → 按给定边界归组（director.rechunk），**LLM 仍能看到全文**（prompt
+        里带 full_text），一次调用即可拿到逐 turn 的韵律，无需事后按字符对齐。
+        这正是多人对话需要的粒度：turn 与结果天然 1:1，不会跨说话人串味。
+      ⚠️ chunks 必须是 text 的顺序切片（拼接后与 text 一致），否则对齐会错位。
+
+    context：可选，给 LLM 看的**上下文全文**，可以与 text 不同。
+      典型用法：text 是各 turn 台词按序拼接（用于精确对齐），context 额外带上
+      「(@角色名)」说话人标记，让模型知道每句是谁说的。
+      context 只进提示词、不参与切分，因此不影响 Segment.text 的对齐关系。
     """
     raw = (text or "").strip()
     cfg = config or load_config()
@@ -392,6 +408,11 @@ def plan_llm(text: str, max_chars: int = 60, *,
 
     # 分块交给规则版 —— LLM 只做标注，不参与切分，保证与现有流程一致的边界
     base = rule_plan(raw, max_chars=max_chars)
+    if chunks:
+        try:
+            base = _rechunk(base, [str(c) for c in chunks])
+        except Exception as e:
+            print("[warn] rechunk 失败，回落规则切分：%s" % e, flush=True)
     chunks = [s.text for s in base.segments]
     if not chunks:
         return _fallback("分块为空")
@@ -409,7 +430,7 @@ def plan_llm(text: str, max_chars: int = 60, *,
             r.source = "llm-cache"
             return r
 
-    full_text = raw[: int(cfg.get("full_text_limit", 6000))]
+    full_text = (context if context is not None else raw)[: int(cfg.get("full_text_limit", 6000))]
     batch = max(10, int(cfg.get("max_segments_per_call", 120)))
     merged_parsed = {"segments": []}
     tone = ""

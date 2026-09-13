@@ -123,6 +123,14 @@ try:
 except Exception as _e:  # onnxruntime 缺失等 -> 引擎不可用，不影响其它功能
     print(f"[warn] MDX separator unavailable: {_e}")
 
+# 导演层（模块4）：合成前的文本梳理 —— 台词/旁白判定、情绪推断、停顿规划。
+# 规则版必装；LLM 版（模块5）涉及网络+API Key，按需在请求内懒加载，避免启动变慢或强依赖。
+try:
+    from voice_clone import director as _director
+except Exception as _e:
+    _director = None
+    print(f"[warn] director (rule) unavailable: {_e}")
+
 
 def log_error(where: str, exc: BaseException):
     """把完整 traceback 追加写入 server_error.log，方便事后定位。
@@ -413,6 +421,178 @@ def parse_dialogue(text: str) -> list[dict]:
     if cur is not None:
         participations.append(cur)
     return participations
+
+
+# ================= 导演层接入（模块4：文本梳理 → 逐 turn 韵律） =================
+
+def _norm_ws(s: str) -> str:
+    """去掉全部空白字符。导演层保证不改字，所以去空白后的字符流可逐字对齐。"""
+    return re.sub(r"\s+", "", s or "")
+
+
+def run_director_plan(text: str, engine: str = "rule", emotion: str = "",
+                      tone_hint: str = "", chunks: list | None = None,
+                      context: str | None = None):
+    """跑一遍导演层，返回 PlanResult；不可用时返回 None（由调用方负责回落）。
+
+    engine="llm" 会尝试 LLM 内核（模块5），未配置 Key / 网络失败时
+    plan_llm(fallback=True) 会自动降级到规则版，PlanResult.source 标记实际通路。
+    chunks 仅对 LLM 通路有效：直接指定切分边界（多人对话的说话人 turn），
+    让 LLM 一次调用即可按 turn 返回韵律，不必事后按字符对齐。
+    context 仅对 LLM 通路有效：给模型看的上下文全文（可含 (@角色名) 标记），
+    只进提示词，不参与切分。
+    """
+    if _director is None:
+        return None
+    if str(engine).lower() == "llm":
+        try:
+            from voice_clone.director_llm import plan_llm
+            return plan_llm(text, fallback=True, chunks=chunks, context=context)
+        except Exception as e:
+            print(f"[warn] director_llm unavailable, fallback to rule: {e}", flush=True)
+    return _director.plan(text, emotion=emotion, tone_hint=tone_hint)
+
+
+def _seg_to_dict(seg) -> dict:
+    """把 director.Segment 折成一个 turn 级的参数字典（情绪取主导、数值取均值）。"""
+    return {
+        "emotion": seg.emotion,
+        "intensity": round(float(seg.intensity or 0.0), 3),
+        "pause": (round(float(seg.pause_after), 3) if seg.pause_after is not None else None),
+        "cfg": (round(float(seg.cfg), 2) if getattr(seg, "cfg", None) is not None else None),
+        "pace": (round(float(seg.pace), 3) if getattr(seg, "pace", None) is not None else None),
+        "pitch_st": (round(float(seg.pitch_st), 3)
+                     if getattr(seg, "pitch_st", None) is not None else None),
+    }
+
+
+def _aggregate_segments(segs: list) -> dict:
+    """把同一 turn 内的多个 Segment 折成一个参数（情绪按 字符数×强度 加权投票）。"""
+    votes: dict = {}
+    pauses: list = []
+    cfgs: list = []
+    paces: list = []
+    pitches: list = []
+    for s in segs or []:
+        w = len(_norm_ws(s.text)) * max(float(s.intensity or 0.0), 0.05)
+        votes[s.emotion] = votes.get(s.emotion, 0.0) + w
+        if s.pause_after is not None:
+            pauses.append(float(s.pause_after))
+        if getattr(s, "cfg", None) is not None:
+            cfgs.append(float(s.cfg))
+        if getattr(s, "pace", None) is not None:
+            paces.append(float(s.pace))
+        if getattr(s, "pitch_st", None) is not None:
+            pitches.append(float(s.pitch_st))
+    if not votes:
+        return {}
+    dom = max(votes, key=votes.get)
+    tot = sum(votes.values()) or 1.0
+    return {
+        "emotion": dom,
+        "intensity": round(votes.get(dom, 0.0) / tot, 3),
+        "pause": (round(sum(pauses) / len(pauses), 3) if pauses else None),
+        "cfg": (round(sum(cfgs) / len(cfgs), 2) if cfgs else None),
+        "pace": (round(sum(paces) / len(paces), 3) if paces else None),
+        "pitch_st": (round(sum(pitches) / len(pitches), 3) if pitches else None),
+    }
+
+
+def director_turn_params(text: str, engine: str = "rule", hint: str = "") -> dict:
+    """对**单个 turn**（同一说话人的一段台词）跑导演层，聚合出该 turn 的参数。
+
+    ⚠️ 为什么要逐 turn 独立规划，而不是整篇规划后再切：
+    规则版导演层带「情绪惯性」（承接上句情绪并衰减），这在连续旁白里是特性，
+    但在多人对话里是缺陷 —— 说话人不同，A 的怒气不该传染给 B 的下一句。
+    实测（整篇规划后对齐）：「…我等了多久！」的 question/exclamation 会衰减着
+    渗进后面两句完全不相干的台词，把「对不起。」也判成 exclamation。
+    逐 turn 规划让惯性只在同一说话人内部生效。
+
+    hint 为全局基调（由整篇扫描得出）。注意它走 tone_hint 而不是 emotion ——
+    emotion 的语义是「强制全篇统一」，传进去会让每段都被钉死成同一标签。
+    """
+    pr = run_director_plan(text, engine=engine, tone_hint=hint)
+    if pr is None or not pr.segments:
+        return {}
+    d = _aggregate_segments(pr.segments)
+    if d:
+        d["source"] = pr.source
+        d["tone"] = pr.global_tone
+    return d
+
+
+def _build_rule_plan(turns: list, texts: list, warns: list):
+    """规则引擎路径：整篇只用来取「全局基调」，判定逐 turn 独立做。
+
+    为什么不像 LLM 那样整篇规划后归组：规则版带「情绪惯性」（承接上句情绪并衰减），
+    整篇规划会让「…我等了多久！」的怒气衰减着渗进后面无关的台词。逐 turn 判定
+    让惯性只在同一说话人内部生效。
+    """
+    full = "\n".join(texts)
+    pr_all = run_director_plan(full, engine="rule")
+    hint = pr_all.global_tone if pr_all is not None else ""
+    per_turn = [director_turn_params(t, engine="rule", hint=hint) for t in texts]
+    info = {"engine": "rule", "source": (pr_all.source if pr_all is not None else "rule"),
+            "tone": hint, "share": (round(float(pr_all.global_share), 3)
+                                    if pr_all is not None else 0.0),
+            "segments": len(texts), "granularity": "per-turn", "error": ""}
+    return per_turn, info, warns
+
+
+def build_director_plan(turns: list, engine: str = "rule"):
+    """为整个对话生成 per-turn 参数表 + 概览信息。
+
+    - LLM 引擎：整篇一次调用，但把 **说话人 turn 作为切分边界** 传进去
+      （chunks=各 turn 文本）。LLM 仍能看到全文上下文（context 里额外带 (@角色名)），
+      返回结果与 turn 天然 1:1，无需事后按字符对齐，也就不会跨说话人串味。
+      LLM 未生效时**不**沿用整篇规则计划，而是转走逐 turn 规则判定（见下）。
+    - 规则引擎：逐 turn 独立判定。
+    返回 (per_turn列表 或 None, 概览dict 或 None, 警告列表)
+    """
+    warns: list = []
+    texts = [str(t.get("text") or "") for t in turns]
+    full = "\n".join(texts)
+    if _director is None:
+        warns.append("导演层模块未加载，本次按默认参数合成")
+        return None, None, warns
+
+    if str(engine).lower() == "llm":
+        # context 带上说话人标记，让模型知道每句是谁说的；text/chunks 保持裸台词，
+        # 保证 Segment 与 turn 逐字对齐（标记只进提示词，不进合成文本）
+        ctx_lines = []
+        for t in turns:
+            role = str(t.get("role") or "").strip()
+            body = str(t.get("text") or "")
+            ctx_lines.append(f"(@{role}){body}" if role and role != "旁白" else body)
+        pr = run_director_plan(full, engine="llm", chunks=texts,
+                               context="\n".join(ctx_lines))
+        if pr is None:
+            warns.append("LLM 导演层不可用，已回落规则版（逐 turn 判定）")
+            return _build_rule_plan(turns, texts, warns)
+        if pr.source == "rule":
+            # 未启用 / 无 Key / 网络失败 → LLM 已内部降级。此时若沿用整篇规则计划，
+            # 会把跨说话人的情绪惯性带回来（实测「对不起。」被判成 exclamation），
+            # 所以改走逐 turn 规则判定，保证降级后质量不倒退。
+            warns.append("LLM 内核未生效，已降级规则版（逐 turn 判定）：%s"
+                         % (pr.error or "未启用"))
+            per_turn, info, warns = _build_rule_plan(turns, texts, warns)
+            info["engine_attempted"] = "llm"
+            return per_turn, info, warns
+        per_turn = [_seg_to_dict(s) for s in pr.segments]
+        while len(per_turn) < len(texts):   # 长度兜底，保证与 turns 索引对齐
+            per_turn.append({})
+        per_turn = per_turn[:len(texts)]
+        try:
+            intact = bool(_director.verify_text_intact(full, pr))
+        except Exception:
+            intact = None
+        info = {"engine": "llm", "source": pr.source, "tone": pr.global_tone,
+                "share": round(float(pr.global_share), 3), "segments": len(pr.segments),
+                "granularity": "turn-boundary", "text_intact": intact,
+                "error": pr.error}
+        return per_turn, info, warns
+
+    return _build_rule_plan(turns, texts, warns)
 
 
 def prepare_clone_reference(ref_path: str, denoise_on: bool, remove_bg_on: bool) -> str:
@@ -887,6 +1067,32 @@ select option{background:var(--surface);color:var(--text)}
     <div class="checks" style="margin-bottom:12px">
       <label><input type="checkbox" id="betaDenoise"> <span data-i18n="betaDenoise">背景音降噪</span></label>
     </div>
+    <div class="grid" style="margin-bottom:12px">
+      <div class="pbox">
+        <label data-i18n="betaCfgLabel">CFG 表现力（1.0-3.0，越高越贴合提示；开启导演层后由导演逐段给建议值）</label>
+        <div class="prow"><input type="range" id="betaCfg" min="1" max="3" step="0.1" value="2"
+          oninput="document.getElementById('betaCfgv').textContent=this.value">
+          <span class="pv" id="betaCfgv">2.0</span></div>
+      </div>
+      <div class="pbox">
+        <label data-i18n="betaStepsLabel">扩散步数（4-30，越大越细腻越慢）</label>
+        <div class="prow"><input type="range" id="betaSteps" min="4" max="30" step="1" value="10"
+          oninput="document.getElementById('betaStepsv').textContent=this.value">
+          <span class="pv" id="betaStepsv">10</span></div>
+      </div>
+    </div>
+    <div class="checks" style="margin-bottom:12px;align-items:center">
+      <label title="导演层会在合成前先梳理文本：判断台词/旁白、推断情绪、规划停顿与表现力">
+        <input type="checkbox" id="betaDirector"> <span data-i18n="betaDirectorLabel">启用导演层（自动梳理情绪/停顿/表现力，不必手写情绪词）</span></label>
+      <label style="gap:6px"><span data-i18n="betaEngineLabel">内核</span>
+        <select id="betaEngine" class="vp-sel" style="width:auto;display:inline-block;padding:2px 8px;margin:0">
+          <option value="rule" data-i18n="betaEngineRule">规则版（本地·快）</option>
+          <option value="llm" data-i18n="betaEngineLlm">AI 内核（LLM·需配 Key）</option>
+        </select>
+      </label>
+      <button class="chip" onclick="betaPreviewPlan()" data-i18n="betaPlanBtn">预览梳理结果</button>
+    </div>
+    <div id="betaPlanOut" class="muted" style="display:none;font-size:12px;line-height:1.55;white-space:pre-wrap;max-height:200px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:12px;font-family:ui-monospace,Consolas,monospace"></div>
     <button class="gen" id="betaBtn" onclick="betaGenerate()" data-i18n="betaGenerate">🎭 多人朗读生成</button>
     <div class="status" id="betaStatus" style="display:none"><div class="spin"></div><div id="betaStatusText"></div></div>
     <div class="err" id="betaErr"></div>
@@ -1057,6 +1263,16 @@ const I18N={
       dialogueEmpty:'文本里用 (@音色包名) 指定角色后，这里会为每次参与生成独立面板。',
       turnLabel:'第{n}次参与',
       betaDenoise:'背景音降噪',
+      betaCfgLabel:'CFG 表现力（1.0-3.0，越高越贴合提示；开启导演层后由导演逐段给建议值）',
+      betaStepsLabel:'扩散步数（4-30，越大越细腻越慢）',
+      betaDirectorLabel:'启用导演层（自动梳理情绪/停顿/表现力，不必手写情绪词）',
+      betaEngineLabel:'内核',
+      betaEngineRule:'规则版（本地·快）',
+      betaEngineLlm:'AI 内核（LLM·需配 Key）',
+      betaPlanBtn:'预览梳理结果',
+      betaPlanLoading:'正在梳理文本…',
+      betaPlanFail:'梳理失败',
+      betaPlanTitle:'导演层梳理结果',
       backBtn:'← 返回',
       synthText:'合成文本',genBtn:'🔊 生成语音',
       packManage:'🎭 音色包管理',
@@ -1122,6 +1338,16 @@ const I18N={
       dialogueEmpty:'Add (@pack_name) tags in the text; each turn gets its own panel here.',
       turnLabel:'Turn {n}',
       betaDenoise:'Background noise reduction',
+      betaCfgLabel:'CFG expressiveness (1.0-3.0; higher follows the prompt more closely; the director suggests per-segment values when enabled)',
+      betaStepsLabel:'Diffusion steps (4-30; higher = finer but slower)',
+      betaDirectorLabel:'Enable director layer (auto-plans emotion / pauses / expressiveness — no manual emotion tags needed)',
+      betaEngineLabel:'Engine',
+      betaEngineRule:'Rule (local, fast)',
+      betaEngineLlm:'AI kernel (LLM, needs API key)',
+      betaPlanBtn:'Preview plan',
+      betaPlanLoading:'Planning text…',
+      betaPlanFail:'Planning failed',
+      betaPlanTitle:'Director plan',
       backBtn:'← Back',
       synthText:'Text to synthesize',genBtn:'🔊 Generate',
       packManage:'🎭 Voice Packs',
@@ -1242,7 +1468,7 @@ function betaPickVoice(name){
 // 渲染角色参数：解析文本里的 @音色，每个角色一组独立参数滑块
 let dialogues=[];   // 参与状态 [{role,seq,text,emotion,tone,volume,pitch,speed,pause,breath,collapsed,voice,narrative}]
 const TONE_OPTS={zh:['自然','温柔','严肃','活泼','低沉'],en:['Natural','Gentle','Serious','Lively','Low']};
-const EMO_OPTS={zh:['无','高兴','悲伤','生气','严肃','温柔'],en:['None','Happy','Sad','Angry','Serious','Gentle']};
+const EMO_OPTS={zh:['无','高兴','悲伤','生气','严肃','温柔','惊讶','恐惧'],en:['None','Happy','Sad','Angry','Serious','Gentle','Surprised','Fear']};
 function parseDialogue(text){
   const t=(text||'').replace(/（/g,'(').replace(/）/g,')');
   const EM={'高兴':'高兴','开心':'高兴','快乐':'高兴','happy':'高兴','悲伤':'悲伤','难过':'悲伤','伤心':'悲伤','sad':'悲伤','严肃':'严肃','serious':'严肃','温柔':'温柔','gentle':'温柔','soft':'温柔','愤怒':'愤怒','生气':'愤怒','angry':'愤怒','平静':'平静','calm':'平静','neutral':'平静','中性':'平静'};
@@ -1343,6 +1569,25 @@ function toggleDp(idx){
   if(body)body.style.display=dialogues[idx].collapsed?'none':'';
   if(arrow)arrow.textContent=dialogues[idx].collapsed?'▸':'▾';
 }
+function betaPlanEngine(){ const s=document.getElementById('betaEngine'); return s?s.value:'rule'; }
+async function betaPreviewPlan(){
+  const out=document.getElementById('betaPlanOut');
+  const text=(document.getElementById('betaText').value||'');
+  out.style.display='block';
+  if(!text.trim()){ out.textContent='❌ '+I18N[curLang].betaPlanFail; return; }
+  out.textContent=I18N[curLang].betaPlanLoading;
+  try{
+    const r=await fetch('/api/plan',{method:'POST',
+      headers:Object.assign({'Content-Type':'application/json'},apiHeaders()),
+      body:JSON.stringify({text:text,engine:betaPlanEngine()})});
+    if(!r.ok){ let m=I18N[curLang].betaPlanFail; try{const j=await r.json();m=j.detail||m;}catch(e){} throw new Error(m); }
+    const d=await r.json();
+    const head=(curLang==='zh'?'通路':'source')+'='+(d.source||'')+' · '
+      +(curLang==='zh'?'段数':'segments')+'='+(d.n_segments||0)+' · '
+      +(curLang==='zh'?'原文未改动':'text intact')+'='+(d.text_intact===null?'?':(d.text_intact?'✓':'✗'));
+    out.textContent=I18N[curLang].betaPlanTitle+'  ['+head+']\n'+(d.error?('⚠️ '+d.error+'\n'):'')+'\n'+(d.summary||'');
+  }catch(e){ out.textContent='❌ '+e.message; }
+}
 async function betaGenerate(){
   renderDialoguePanels();   // 确保 dialogues 与最新文本同步
   if(!dialogues.length){const e=document.getElementById('betaErr');e.textContent='❌ '+(curLang==='zh'?'请先在文本里用 (@音色包名) 指定角色':'Add (@pack_name) tags first');e.classList.add('show');return;}
@@ -1353,7 +1598,13 @@ async function betaGenerate(){
   const timer=setInterval(()=>{document.getElementById('betaStatusText').textContent=
     I18N[curLang].betaLoading+((Date.now()-t0)/1000).toFixed(1)+I18N[curLang].betaSeconds;},200);
   const turns=dialogues.map(d=>({role:d.voice||d.role,text:d.text,tone:d.tone,emotion:d.emotion,volume:d.volume,pitch:d.pitch||0,speed:d.speed||1,pause:d.pause||0.15,breath:d.breath||0.4}));
-  const body={turns:turns,denoise:document.getElementById('betaDenoise').checked,cfg_value:2.0,inference_timesteps:10};
+  // Beta 面板内的 CFG/步数（此前被硬编码成 2.0/10，UI 里的 #cfg/#steps 在 Beta 模式被 hide 了）
+  const cfgV=parseFloat((document.getElementById('betaCfg')||{}).value)||2.0;
+  const stepsV=parseInt((document.getElementById('betaSteps')||{}).value,10)||10;
+  const dirOn=!!((document.getElementById('betaDirector')||{}).checked);
+  const body={turns:turns,denoise:document.getElementById('betaDenoise').checked,
+    cfg_value:cfgV,inference_timesteps:stepsV,
+    use_director:dirOn,director_engine:betaPlanEngine()};
   try{
     const r=await fetch('/api/dialogue',{method:'POST',headers:Object.assign({'Content-Type':'application/json'},apiHeaders()),body:JSON.stringify(body)});
     clearInterval(timer);
@@ -1363,6 +1614,12 @@ async function betaGenerate(){
     document.getElementById('betaPlayer').src=URL.createObjectURL(blob);
     let meta='✅ '+(curLang==='zh'?'多人朗读完成':'Done')+' · '+(curLang==='zh'?'时长':'duration')+' '+dur+'s · '+name;
     if(segInfo){try{const si=JSON.parse(segInfo);meta+=' · '+si.n+(curLang==='zh'?' 段':' segments');
+      const dz=si.director;
+      if(dz){ meta+=' · '+(curLang==='zh'?'导演层':'director')+':'+dz.engine
+                +'/'+dz.source+'('+dz.granularity+')'; }
+      const emos=(si.segments||[]).map(function(s){return s.emotion;}).filter(function(x,i,a){
+        return x&&x!=='neutral'&&a.indexOf(x)===i;});
+      if(emos.length)meta+=' · '+(curLang==='zh'?'情绪':'emotions')+': '+emos.join('/');
       if(si.warnings&&si.warnings.length)meta+=' · ⚠️ '+si.warnings.join('; ');}catch(e){}}
     document.getElementById('betaMeta').textContent=meta;
     document.getElementById('betaRes').style.display='block';st.style.display='none';
@@ -2861,7 +3118,15 @@ def multi_speaker(request: Request,
 @app.post("/api/dialogue")
 async def dialogue(request: Request):
     """Beta：多人多轮对话合成。接收 turns 列表（每次参与一个 turn），
-    逐 turn 用对应音色包 + 语气/情绪/音量参数生成，段间停顿拼接。"""
+    逐 turn 用对应音色包 + 语气/情绪/音量参数生成，段间停顿拼接。
+
+    可选启用导演层（模块4/5）：use_director=true 时先对全文做一次梳理，
+    把推断出的情绪 / 句间停顿 / 表现力 cfg / 语速 落到对应 turn。
+    - 情绪：仅在该 turn 未显式指定（neutral）时接管，尊重用户手填的 (情绪)
+    - cfg ：这是 VoxCPM2 唯一真正影响表达力的模型级旋钮，导演层规划值在此落地
+    - 音高：默认**不施加**（apply_pitch 是 varispeed，会带偏共振峰损伤克隆音色），
+            规划值只回显在 X-Segments 里；确需施加传 director_apply_pitch=true
+    """
     require_auth(request)
     try:
         body = await request.json()
@@ -2873,6 +3138,9 @@ async def dialogue(request: Request):
     denoise_on = bool(body.get("denoise", False))
     cfg = float(body.get("cfg_value", 2.0))
     steps = int(body.get("inference_timesteps", 10))
+    use_director = bool(body.get("use_director", False))
+    director_engine = str(body.get("director_engine") or "rule")
+    director_apply_pitch = bool(body.get("director_apply_pitch", False))
 
     TONE_MAP = {"自然": (0, 1.0), "温柔": (0, 0.95), "严肃": (0, 0.92), "活泼": (1, 1.05), "低沉": (-2, 0.9),
                 "Natural": (0, 1.0), "Gentle": (0, 0.95), "Serious": (0, 0.92), "Lively": (1, 1.05), "Low": (-2, 0.9)}
@@ -2888,6 +3156,21 @@ async def dialogue(request: Request):
     pieces: list[np.ndarray] = []
     seg_report: list[dict] = []
     warnings: list[str] = []
+    plan_map = None
+    director_info = None
+    if use_director:
+        try:
+            plan_map, director_info, dwarns = build_director_plan(
+                turns, engine=director_engine)
+            warnings.extend(dwarns)
+            if director_info is not None:
+                director_info["apply_pitch"] = director_apply_pitch
+                print(f"[VoxCPM2][Director] 引擎={director_info['engine']} "
+                      f"通路={director_info['source']} 粒度={director_info['granularity']} "
+                      f"基调={director_info['tone']}", flush=True)
+        except Exception as e:
+            warnings.append(f"导演层执行失败，已回落默认参数：{e}")
+            log_error("director", e)
     with _infer_lock:
         for i, turn in enumerate(turns):
             role = str(turn.get("role") or "").strip()
@@ -2917,9 +3200,26 @@ async def dialogue(request: Request):
             pitch = tp + pitch_user
             speed = ts * speed_user
             vol = volume
+            # —— 导演层落地：仅接管「用户没显式填」的部分，绝不覆盖手填参数 ——
+            turn_cfg = cfg
+            dir_applied = None
+            if plan_map and i < len(plan_map):
+                pm = plan_map[i]
+                if emotion in ("", "neutral") and pm.get("emotion"):
+                    emotion = pm["emotion"]
+                if pm.get("pause") is not None:
+                    pause_turn = float(pm["pause"])
+                if pm.get("pace") is not None:
+                    # pace 走 WSOLA 语速，保音高保共振峰，安全
+                    speed *= float(pm["pace"])
+                if pm.get("cfg") is not None:
+                    turn_cfg = float(pm["cfg"])
+                if director_apply_pitch and pm.get("pitch_st") is not None:
+                    pitch += float(pm["pitch_st"])
+                dir_applied = pm
             wav, _ = _vc_stab.synthesize_stable(
                 model, text, ref_path, sr, pause=pause_turn, breath=breath_turn, emotion=emotion,
-                cfg_value=cfg, inference_timesteps=steps, normalize=True, denoise=denoise_on)
+                cfg_value=turn_cfg, inference_timesteps=steps, normalize=True, denoise=denoise_on)
             if _ae:
                 if abs(pitch) > 0.01: wav = _ae.apply_pitch(wav, sr, pitch)
                 if abs(speed - 1) > 0.01: wav = _ae.apply_speed(wav, sr, speed)
@@ -2929,8 +3229,14 @@ async def dialogue(request: Request):
             seg_report.append({"i": i, "voice": role, "emotion": emotion, "tone": tone,
                                "text": text[:24], "missing": missing,
                                "pitch": round(pitch, 2), "speed": round(speed, 3),
-                               "volume": round(vol, 2), "pause": pause_turn, "breath": breath_turn})
-            print(f"[VoxCPM2][Dialogue] turn{i}: {role} 语气={tone} 情绪={emotion}", flush=True)
+                               "volume": round(vol, 2), "pause": pause_turn, "breath": breath_turn,
+                               "cfg": round(turn_cfg, 2),
+                               "director": ({k: dir_applied[k] for k in
+                                             ("emotion", "intensity", "pause", "cfg", "pace", "pitch_st")}
+                                            if dir_applied else None)})
+            print(f"[VoxCPM2][Dialogue] turn{i}: {role} 语气={tone} 情绪={emotion} "
+                  f"cfg={turn_cfg:.2f}"
+                  f"{' [导演层]' if dir_applied else ''}", flush=True)
 
     if not pieces:
         raise HTTPException(status_code=400, detail="没有可合成的台词")
@@ -2944,9 +3250,53 @@ async def dialogue(request: Request):
     dur = round(len(final) / sr, 2)
     headers = {"X-Output-Name": name, "X-Duration": str(dur),
                "X-Segments": json.dumps({"n": len(seg_report), "segments": seg_report,
-                                         "warnings": warnings}, ensure_ascii=True),
+                                         "warnings": warnings, "director": director_info},
+                                        ensure_ascii=True),
                "Content-Disposition": f'inline; filename="{name}"'}
     return Response(content=buf.read(), media_type="audio/wav", headers=headers)
+
+
+@app.post("/api/plan")
+async def plan_endpoint(request: Request):
+    """导演层预览（不合成音频）：返回文本梳理结果，便于核对判定是否合理。
+
+    body: {text, engine?: "rule"|"llm", emotion?: "全局基调提示"}
+    返回完整规划（含每段的 role/emotion/intensity/pause/依据）+ 人类可读 summary。
+    """
+    require_auth(request)
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="请求体需为 JSON")
+    text = str(body.get("text") or "")
+    if not text.strip():
+        raise HTTPException(status_code=400, detail="text 不能为空")
+    engine = str(body.get("engine") or "rule")
+    plan_result = run_director_plan(text, engine=engine,
+                                    emotion=str(body.get("emotion") or ""))
+    if plan_result is None:
+        raise HTTPException(status_code=503, detail="导演层模块未加载")
+    intact = None
+    if _director is not None:
+        try:
+            intact = bool(_director.verify_text_intact(text, plan_result))
+        except Exception:
+            intact = None
+    return JSONResponse({
+        "source": plan_result.source,
+        "global_tone": plan_result.global_tone,
+        "global_share": round(float(plan_result.global_share), 3),
+        "text_intact": intact,
+        "error": plan_result.error,
+        "n_segments": len(plan_result.segments),
+        "segments": [{"i": i, "text": s.text, "role": s.role, "emotion": s.emotion,
+                      "intensity": round(float(s.intensity), 3),
+                      "pause_after": round(float(s.pause_after), 3),
+                      "pace": s.pace, "pitch_st": s.pitch_st, "cfg": s.cfg,
+                      "note": s.note, "reason": s.reason}
+                     for i, s in enumerate(plan_result.segments)],
+        "summary": plan_result.summary(),
+    })
 
 
 @app.get("/api/outputs/{name}")
