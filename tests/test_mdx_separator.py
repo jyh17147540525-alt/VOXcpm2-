@@ -29,8 +29,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import fixtures as F  # noqa: E402
 
-mdx = pytest.importorskip("voice_clone.mdx_separator",
-                          reason="voice_clone.mdx_separator 不可导入")
+# 直接走文件路径导入 mdx_separator，避开 voice_clone/__init__.py 的
+# 链式导入（它会拉 librosa，CI 裸 runner 不一定有）。
+import importlib.util as _ilu  # noqa: E402
+
+_mdx_path = Path(__file__).resolve().parent.parent / "voice_clone" / "mdx_separator.py"
+if not _mdx_path.exists():
+    pytest.skip("mdx_separator 源码缺失", allow_module_level=True)
+_spec = _ilu.spec_from_file_location("voice_clone_mdx_under_test", _mdx_path)
+mdx = _ilu.module_from_spec(_spec)  # type: ignore[arg-type]
+try:
+    _spec.loader.exec_module(mdx)  # type: ignore[union-attr]
+except Exception as _exc:  # 缺 numpy / 编码等
+    pytest.skip("mdx_separator 不可导入: %s" % _exc, allow_module_level=True)
+del _ilu, _spec, _mdx_path
 
 MODEL = mdx.DEFAULT_MODEL
 CFG = mdx._MODELS[MODEL]

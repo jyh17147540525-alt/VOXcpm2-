@@ -13,9 +13,16 @@ from pathlib import Path
 
 import pytest
 
+# 直接走文件路径导入 transcriber，避开 voice_clone/__init__.py 的
+# 链式导入（它会拉 librosa，CI 裸 runner 不一定有）。
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import importlib.util as _ilu  # noqa: E402
 
-from voice_clone import transcriber as T  # noqa: E402
+_transcriber_path = Path(__file__).resolve().parent.parent / "voice_clone" / "transcriber.py"
+_spec = _ilu.spec_from_file_location("voice_clone_transcriber_under_test", _transcriber_path)
+T = _ilu.module_from_spec(_spec)  # type: ignore[arg-type]
+_spec.loader.exec_module(T)  # type: ignore[union-attr]
+del _ilu, _spec, _transcriber_path
 
 
 # ============================== _fold / _text_atoms ==============================
