@@ -33,6 +33,25 @@ def test_every_provider_has_required_fields():
             assert p["base_url"].startswith("http"), p
 
 
+def test_every_provider_has_english_hints():
+    """中英双语界面要求：key_hint / note 都必须有英文版本。
+
+    否则英文界面下会出现「Key format: sk- 开头」这种半中半英的混排。
+    """
+    for p in LP.PROVIDERS:
+        assert str(p.get("key_hint_en") or "").strip(), f"{p['id']} 缺 key_hint_en"
+        assert str(p.get("note_en") or "").strip(), f"{p['id']} 缺 note_en"
+        assert p["key_hint_en"] != p["key_hint"], f"{p['id']} 的英文提示没真正翻译"
+        assert p["note_en"] != p["note"], f"{p['id']} 的英文说明没真正翻译"
+
+
+def test_describe_projects_english_hints():
+    """describe() 是预设表的投影，新字段也要一并透出。"""
+    d = LP.describe("deepseek")
+    assert str(d.get("key_hint_en") or "").strip()
+    assert str(d.get("note_en") or "").strip()
+
+
 def test_base_urls_do_not_end_with_slash():
     """统一不带尾斜杠，拼接 /chat/completions 时才不会出双斜杠。"""
     for p in LP.PROVIDERS:

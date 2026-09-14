@@ -190,23 +190,39 @@ def save_config(cfg: dict, path: str | None = None) -> str:
     return p
 
 
-def is_ready(cfg: dict | None = None) -> tuple:
-    """检查是否具备调用条件，返回 (可用?, 原因)。"""
+"""就绪检查的"原因码 → 中文文案"映射。
+
+中文文案保持原样（`is_ready` 的对外契约不变，现有调用方与测试都不用改），
+另外把**原因码**单独暴露出去，供前端做本地化 —— 否则英文界面下这行提示永远是中文。
+"""
+READY_REASONS = {
+    "not_enabled": "AI 内核未启用（llm_config.json 里 enabled 为 false，或在界面上打开开关）",
+    "no_key": "缺少 API Key —— 打开「AI 内核配置」填写，或写入 llm_config.json / api_key.txt",
+    "no_base_url": "缺少 base_url（接口地址）",
+    "no_model": "缺少 model（模型名）",
+}
+
+
+def readiness(cfg: dict | None = None) -> tuple:
+    """返回 (原因码, 中文文案)。原因码为 None 表示已就绪。"""
     c = cfg or load_config()
     if not c.get("enabled"):
-        return False, "AI 内核未启用（llm_config.json 里 enabled 为 false，或在界面上打开开关）"
+        return "not_enabled", READY_REASONS["not_enabled"]
     _p = _providers.get_provider(c.get("provider"))
-    if not (c.get("api_key") or "").strip():
-        if _p.get("local"):
-            # 本地服务通常无鉴权，不该因缺 Key 被拦
-            pass
-        else:
-            return False, "缺少 API Key —— 打开「AI 内核配置」填写，或写入 llm_config.json / api_key.txt"
+    if not (c.get("api_key") or "").strip() and not _p.get("local"):
+        # 本地服务通常无鉴权，不该因缺 Key 被拦
+        return "no_key", READY_REASONS["no_key"]
     if not (c.get("base_url") or "").strip():
-        return False, "缺少 base_url（接口地址）"
+        return "no_base_url", READY_REASONS["no_base_url"]
     if not (c.get("model") or "").strip():
-        return False, "缺少 model（模型名）"
-    return True, "ok"
+        return "no_model", READY_REASONS["no_model"]
+    return None, "ok"
+
+
+def is_ready(cfg: dict | None = None) -> tuple:
+    """检查是否具备调用条件，返回 (可用?, 原因)。"""
+    code, text = readiness(cfg)
+    return (code is None), text
 
 
 # --------------------------------------------------------------------- HTTP

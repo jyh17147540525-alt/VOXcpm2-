@@ -657,7 +657,7 @@ async def unhandled_exc_handler(request: Request, exc: Exception):
 LOGIN_HTML = """<!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>VoxCPM2 · 访问验证</title><style>*{margin:0;padding:0;box-sizing:border-box}
+<title>VoxCPM2 · 访问验证</title><link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iNyIgZmlsbD0iIzZhNTVlOCIvPjxnIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIyLjYiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgZmlsbD0ibm9uZSI+PHBhdGggZD0iTTE2IDd2MTAiLz48cGF0aCBkPSJNMTEgMTF2NSIvPjxwYXRoIGQ9Ik0yMSAxMXY1Ii8+PC9nPjxwYXRoIGQ9Ik0xMSAyMmgxMCIgc3Ryb2tlPSIjZmZmIiBzdHJva2Utd2lkdGg9IjIuNiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+PC9zdmc+"><style>*{margin:0;padding:0;box-sizing:border-box}
 :root{color-scheme:light;
 --font:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
 --bg:#f6f6f8;--surface:#ffffff;--surface-2:#fafafc;--surface-3:#f1f1f5;
@@ -749,7 +749,7 @@ document.getElementById('tk').addEventListener('keydown',e=>{if(e.key==='Enter')
 APP_HTML = """<!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>VoxCPM2 · 本地语音合成</title><style>*{margin:0;padding:0;box-sizing:border-box}
+<title>VoxCPM2 · 本地语音合成</title><link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iNyIgZmlsbD0iIzZhNTVlOCIvPjxnIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIyLjYiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgZmlsbD0ibm9uZSI+PHBhdGggZD0iTTE2IDd2MTAiLz48cGF0aCBkPSJNMTEgMTF2NSIvPjxwYXRoIGQ9Ik0yMSAxMXY1Ii8+PC9nPjxwYXRoIGQ9Ik0xMSAyMmgxMCIgc3Ryb2tlPSIjZmZmIiBzdHJva2Utd2lkdGg9IjIuNiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+PC9zdmc+"><style>*{margin:0;padding:0;box-sizing:border-box}
 :root{color-scheme:light;
 --font:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
 --bg:#f6f6f8;--surface:#ffffff;--surface-2:#fafafc;--surface-3:#f1f1f5;
@@ -1364,6 +1364,11 @@ const I18N={
       betaLlmGo:'⚙️ 配置 Key',
       modeSettings:'⚙️ 设置',
       setTitle:'⚙️ 设置 · AI 内核配置',
+      setReasonNotEnabled:'AI 内核未启用（把上面的开关打开即可）',
+      setReasonNoKey:'缺少 API Key —— 填好下面的密钥后保存',
+      setReasonNoBaseUrl:'缺少 base_url（接口地址）',
+      setReasonNoModel:'缺少 model（模型名）',
+      setReasonUnknown:'配置不完整',
       setDesc:'导演层的「AI 内核」需要一个可调用的大模型来梳理情绪与停顿。在这里填入任意 OpenAI 兼容服务的密钥即可启用——选中服务商后地址与模型会自动带出，也可以选「自定义」手填任何中转站或内网网关。密钥只保存在本机 llm_config.json，不会外传。',
       setEnableLabel:'启用 AI 内核',
       setProviderLabel:'服务商预设',
@@ -1456,7 +1461,12 @@ const I18N={
       betaLlmGo:'⚙️ Configure key',
       modeSettings:'⚙️ Settings',
       setTitle:'⚙️ Settings · AI Kernel',
-      setDesc:'The director layer\'s "AI kernel" needs a callable LLM to plan emotion and pauses. Paste a key from any OpenAI-compatible service to enable it — picking a provider fills in the endpoint and model automatically, or choose "Custom" to enter any relay/proxy gateway by hand. The key is stored only in your local llm_config.json and never sent anywhere else.',
+      setReasonNotEnabled:'AI kernel is off (flip the switch above to enable)',
+      setReasonNoKey:'No API key yet — fill in the key below and save',
+      setReasonNoBaseUrl:'Missing base_url (endpoint)',
+      setReasonNoModel:'Missing model name',
+      setReasonUnknown:'Configuration incomplete',
+      setDesc:'The "AI kernel" drives the director layer — it needs a callable LLM to plan emotion and pauses. Paste a key from any OpenAI-compatible service to enable it — picking a provider fills in the endpoint and model automatically, or choose "Custom" to enter any relay/proxy gateway by hand. The key is stored only in your local llm_config.json and never sent anywhere else.',
       setEnableLabel:'Enable AI kernel',
       setProviderLabel:'Provider preset',
       setKeyLabel:'API Key',
@@ -1710,7 +1720,7 @@ async function betaPreviewPlan(){
     const head=(curLang==='zh'?'通路':'source')+'='+(d.source||'')+' · '
       +(curLang==='zh'?'段数':'segments')+'='+(d.n_segments||0)+' · '
       +(curLang==='zh'?'原文未改动':'text intact')+'='+(d.text_intact===null?'?':(d.text_intact?'✓':'✗'));
-    out.textContent=I18N[curLang].betaPlanTitle+'  ['+head+']\n'+(d.error?('⚠️ '+d.error+'\n'):'')+'\n'+(d.summary||'');
+    out.textContent=I18N[curLang].betaPlanTitle+'  ['+head+']\\n'+(d.error?('⚠️ '+d.error+'\\n'):'')+'\\n'+(d.summary||'');
   }catch(e){ out.textContent='❌ '+e.message; }
 }
 async function betaGenerate(){
@@ -2311,6 +2321,16 @@ function llmProviderById(id){
 }
 function llmIsZh(){return curLang==='zh';}
 function llmPName(p){return p?(llmIsZh()?p.name_zh:p.name_en):'';}
+/* 就绪原因本地化：后端给 reason_code，前端查 i18n；取不到再退回后端的中文文案 */
+function llmReasonText(c){
+  const key={not_enabled:'setReasonNotEnabled',no_key:'setReasonNoKey',
+             no_base_url:'setReasonNoBaseUrl',no_model:'setReasonNoModel'}[c&&c.reason_code];
+  if(key){
+    const v=(I18N[curLang]||{})[key];
+    if(v)return v;
+  }
+  return (c&&c.reason)||(llmIsZh()?'配置不完整':'Configuration incomplete');
+}
 
 async function settingsLoad(notify){
   const err=document.getElementById('setErr');
@@ -2378,7 +2398,7 @@ function setOnProviderChange(silent){
   dl.textContent='';
   (p.models||[]).forEach(m=>{const o=document.createElement('option');o.value=m;dl.appendChild(o);});
   const note=document.getElementById('setProviderNote');
-  let s=p.note||'';
+  let s=(llmIsZh()?p.note:(p.note_en||p.note))||'';
   if(p.key_url){
     s+=(s?' ':'')+(llmIsZh()?'申请 Key：':'Get a key: ')+p.key_url;
   }
@@ -2390,7 +2410,7 @@ function setOnProviderChange(silent){
   const mh=document.getElementById('setModelHint');
   mh.textContent=(llmIsZh()?'模型名区分大小写，必须与服务商文档完全一致。':'Model names are case-sensitive; copy exactly from the provider docs.');
   const kh=document.getElementById('setKeyHint');
-  kh.textContent=(llmIsZh()?'格式提示：':'Key format: ')+(p.key_hint||'')+
+  kh.textContent=(llmIsZh()?'格式提示：':'Key format: ')+(llmIsZh()?p.key_hint:(p.key_hint_en||p.key_hint))+
     (p.local?(llmIsZh()?'。本地服务无鉴权，可留空或随便填。':' Local server: any value works.'):'');
 }
 
@@ -2434,7 +2454,7 @@ function refreshStatusUI(c){
     txt.textContent=llmIsZh()?'已就绪':'Ready';
     txt.style.color='var(--ok-ink)';
   }else{
-    txt.textContent=c.reason||(llmIsZh()?'未就绪':'Not ready');
+    txt.textContent=llmReasonText(c);
     txt.style.color='var(--warn-ink)';
   }
   const srcMap={
@@ -2486,14 +2506,14 @@ function renderTestResult(d){
         d.models.slice(0,25).join(', ')+
         (d.models.length>25?(llmIsZh()?' …等':' …'):'');
     }
-    if(d.reply)extra=(extra?extra+'\n':'')+(llmIsZh()?'模型回复：':'Reply: ')+d.reply;
-    if(d.warnings&&d.warnings.length)extra+=(extra?'\n':'')+'⚠ '+d.warnings.join('；');
+    if(d.reply)extra=(extra?extra+'\\n':'')+(llmIsZh()?'模型回复：':'Reply: ')+d.reply;
+    if(d.warnings&&d.warnings.length)extra+=(extra?'\\n':'')+'⚠ '+d.warnings.join('；');
     setResult(true,'✅ '+d.message,extra);
   }else{
     let extra='';
     if(d.detail)extra=d.detail;
-    if(d.models&&d.models.length)extra+=(extra?'\n':'')+(llmIsZh()?'该 Key 可见 ':'Key can see ')+d.models.length+(llmIsZh()?' 个模型':' models');
-    if(d.stage)extra+=(extra?'\n':'')+(llmIsZh()?'失败阶段：':'Failed at stage: ')+d.stage;
+    if(d.models&&d.models.length)extra+=(extra?'\\n':'')+(llmIsZh()?'该 Key 可见 ':'Key can see ')+d.models.length+(llmIsZh()?' 个模型':' models');
+    if(d.stage)extra+=(extra?'\\n':'')+(llmIsZh()?'失败阶段：':'Failed at stage: ')+d.stage;
     setResult(false,'❌ '+d.message,extra);
   }
 }
@@ -2559,7 +2579,7 @@ async function setFetchModels(){
       if(!mv){document.getElementById('setModel').value=d.models[0];}
     }else{
       setResult(!!d.ok,(llmIsZh()?'未能拉到模型列表':'Could not list models'),
-        (d.message||'')+(llmIsZh()?'\n部分服务商不提供 /models 接口，这不代表 Key 无效——可改用「仅测试连接」。':'\nSome providers do not expose /models; this does not mean the key is invalid — use "Test connection" instead.'));
+        (d.message||'')+(llmIsZh()?'\\n部分服务商不提供 /models 接口，这不代表 Key 无效——可改用「仅测试连接」。':'\\nSome providers do not expose /models; this does not mean the key is invalid — use "Test connection" instead.'));
     }
   }catch(e){
     err.textContent=(e&&e.message)||String(e);
@@ -2583,7 +2603,7 @@ async function refreshBetaLlmBar(){
       txt.textContent=(llmIsZh()?'AI 内核已就绪：':'AI kernel ready: ')+(pn||c.provider)+' · '+(c.model||'');
       txt.style.color='var(--text-1)';
     }else{
-      txt.textContent=(llmIsZh()?'AI 内核未就绪 — ':'AI kernel not ready — ')+(c.reason||'');
+      txt.textContent=(llmIsZh()?'AI 内核未就绪 — ':'AI kernel not ready — ')+llmReasonText(c);
       txt.style.color='var(--warn-ink)';
     }
   }catch(e){
@@ -3794,8 +3814,10 @@ def llm_providers_endpoint(request: Request):
     return JSONResponse({"providers": [
         {"id": p["id"], "name_zh": p["name_zh"], "name_en": p["name_en"],
          "base_url": p["base_url"], "models": list(p["models"]),
-         "key_hint": p["key_hint"], "key_url": p["key_url"],
-         "local": bool(p.get("local")), "note": p["note"]}
+         "key_hint": p["key_hint"], "key_hint_en": p.get("key_hint_en", ""),
+         "key_url": p["key_url"], "note": p["note"],
+         "note_en": p.get("note_en", ""),
+         "local": bool(p.get("local"))}
         for p in LP.PROVIDERS
     ]})
 
@@ -3809,6 +3831,11 @@ def llm_get_config(request: Request):
         raise HTTPException(status_code=503, detail="director_llm 模块不可用")
     cfg = dl.load_config()
     ready, why = dl.is_ready(cfg)
+    # 机器可读的原因码：前端按它做本地化，英文界面才不会显示中文提示
+    try:
+        _rcode, _ = dl.readiness(cfg)
+    except Exception:
+        _rcode = None
     # 判断 key 的真实来源，便于界面提示"当前用的是环境变量而非本地文件"
     src = "none"
     raw_key = str(cfg.get("api_key") or "").strip()
@@ -3853,6 +3880,7 @@ def llm_get_config(request: Request):
         "full_text_limit": cfg.get("full_text_limit", 6000),
         "ready": ready,
         "reason": why if not ready else "",
+        "reason_code": _rcode if not ready else None,
         "config_path": dl.CONFIG_PATH,
     })
 
