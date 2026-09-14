@@ -710,14 +710,22 @@ def _smooth_edges(y: np.ndarray, sr: int, fade_ms: float = 5.0) -> np.ndarray:
 
 def _join_pieces(pieces: list[np.ndarray], chunks_with_pause: list[tuple[str, str]],
                  sr: int, pause: float, breath: float) -> np.ndarray:
-    """分级停顿拼接：句末=长停顿(可带呼吸声)、逗号=短停顿、硬切=极短停顿。
-    每处呼吸声独立生成（随机时长/音色），块边界做 DC 移除 + 淡入淡出，消除杂音。"""
+    """分级停顿拼接：句末=长停顿(带换气)、逗号=短停顿、硬切=极短停顿。
+
+    句末的换气用**吸气 → 呼气**双相结构（一次完整的生理换气周期），
+    由 ``BreathState`` 驱动，使相邻换气按 AR(1) 相关而非独立随机。
+    块边界做 DC 移除 + 淡入淡出，消除杂音。
+    """
     if not pieces:
         return np.zeros(0, dtype=np.float32)
     try:
-        from audio_edit import generate_breath
+        from audio_edit import generate_breath, BreathState
     except Exception:
         generate_breath = None
+        BreathState = None
+
+    # 整段共用一个状态机：换气之间才有"惯性"，逐处新建就退化成 i.i.d.
+    breath_state = BreathState(rho=0.42) if BreathState is not None else None
 
     pause_end = max(0.30, pause * 2.0)     # 句末长停顿
     pause_comma = max(0.10, pause)         # 逗号短停顿
@@ -736,8 +744,23 @@ def _join_pieces(pieces: list[np.ndarray], chunks_with_pause: list[tuple[str, st
         if ptype == "end":
             gap = np.zeros(int(pause_end * sr), dtype=np.float32)
             if generate_breath is not None and breath > 0.01:
-                breath_wav = generate_breath(sr, breath)  # 每处独立生成，避免机械重复
-                out = np.concatenate([out, gap, breath_wav, gap, c])
+                # 一次完整换气：吸气（快、亮）+ 呼气（缓、暗）
+                if breath_state is not None:
+                    amp_in, dur_in, s_in = breath_state.next_params(breath * 0.90)
+                    amp_out, dur_out, s_out = breath_state.next_params(breath * 0.65)
+                else:
+                    amp_in, dur_in, s_in = breath * 0.90, None, None
+                    amp_out, dur_out, s_out = breath * 0.65, None, None
+                inhale = generate_breath(sr, amp_in, duration=dur_in,
+                                         seed=s_in, kind="inhale")
+                exhale = generate_breath(sr, amp_out, duration=dur_out,
+                                         seed=s_out, kind="exhale")
+                if len(inhale) or len(exhale):
+                    inner = np.zeros(int(max(0.02, pause * 0.35) * sr),
+                                     dtype=np.float32)
+                    out = np.concatenate([out, gap, inhale, inner, exhale, gap, c])
+                else:
+                    out = np.concatenate([out, gap, c])
             else:
                 out = np.concatenate([out, gap, c])
         elif ptype == "comma":
