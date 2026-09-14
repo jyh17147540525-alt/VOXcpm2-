@@ -1552,6 +1552,7 @@ function setLang(l){
   document.getElementById('langEn').style.opacity=(l==='en')?'1':'.5';
   if(window.updateThemeBtn)updateThemeBtn();
   try{localStorage.setItem('voxcpm_lang',l);}catch(_){}
+  repaintDynamicText();
 }
 function tr(zh,en){return curLang==='zh'?zh:en;}
 // ===== 主题（深色/浅色） =====
@@ -2373,13 +2374,17 @@ async function settingsLoad(notify){
 function setKeyFieldFromStatus(c){
   const el=document.getElementById('setKey');
   el.value=''; SET_KEY_DIRTY=false;
-  const ph=el.getAttribute('data-i18n-ph');
+  // 注意：data-i18n-ph 的值是"键名"，必须查 I18N 取译文，
+  // 直接用属性值会把 setKeyPh 这种键名当成占位文字露出来。
+  const key=el.getAttribute('data-i18n-ph');
+  const dict=I18N[curLang]||I18N.zh||{};
+  const phText=(key&&dict[key])||'API Key';
   if(c&&c.has_key){
     // 已存密钥：不回显明文，用 placeholder 显示脱敏串作为"已配置"的视觉凭证
     el.placeholder=(llmIsZh()?'已保存：':'Saved: ')+(c.api_key_masked||'••••')+
       (llmIsZh()?'（留空则不修改）':' (leave blank to keep)');
   }else{
-    el.placeholder=ph||'API Key';
+    el.placeholder=phText;
   }
 }
 
@@ -2609,6 +2614,25 @@ async function refreshBetaLlmBar(){
   }catch(e){
     dot.style.background='var(--disabled)';
     txt.textContent=llmIsZh()?'无法读取内核状态':'Cannot read kernel status';
+  }
+}
+/* 切换语言后重绘"由 JS 动态生成"的文案。
+   setLang 只会刷新带 data-i18n / data-i18n-ph 属性的元素，而这些提示是
+   JS 在渲染时按语言拼出来的，不重绘就会留下上一种语言的残留
+   （症状：标签已是中文，但就绪状态/Key 提示/服务商说明还是英文）。
+   刻意用同步的 LLM_CUR 缓存而不是重新拉接口 —— 异步回来时语言可能又被切了。 */
+function repaintDynamicText(){
+  const sc=document.getElementById('settingsCard');
+  if(sc&&!sc.classList.contains('hide')&&LLM_CUR){
+    setOnProviderChange(true);
+    if(!SET_KEY_DIRTY)setKeyFieldFromStatus(LLM_CUR);   // 别清掉用户刚敲进去的 key
+    refreshStatusUI(LLM_CUR);
+  }
+  const bc=document.getElementById('betaCard');
+  if(bc&&!bc.classList.contains('hide'))refreshBetaLlmBar();
+  if(typeof renderDialoguePanels==='function'){
+    const dp=document.getElementById('dialoguePanels');
+    if(dp&&dp.offsetParent!==null){try{renderDialoguePanels();}catch(_){}}
   }
 }
 function pre(t){const el=document.getElementById('text');el.value=t+el.value.replace(/^\([^()]*\)|^（[^（）]*）/,'');el.focus();}
