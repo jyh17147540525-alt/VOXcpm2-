@@ -902,6 +902,7 @@ select option{background:var(--surface);color:var(--text)}
     <button class="tab" data-mode="hifi" onclick="setMode('hifi')" data-i18n="modeHifi">🎙️ 极致克隆</button>
     <button class="tab" data-mode="beta" onclick="setMode('beta')" data-i18n="modeBeta">🧪 内测 Beta</button>
     <button class="tab" data-mode="train" onclick="setMode('train')" data-i18n="modeTrain">🎓 训练</button>
+    <button class="tab" data-mode="settings" onclick="setMode('settings')" data-i18n="modeSettings">⚙️ 设置</button>
   </div>
 
   <div class="card" id="mainCard">
@@ -1040,6 +1041,91 @@ select option{background:var(--surface);color:var(--text)}
     <div class="hist" id="hist"><div class="muted" data-i18n="noHistory">还没有生成记录</div></div>
   </div>
 
+  <div class="card hide" id="settingsCard">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+      <button class="chip" onclick="setMode(prevMode||'design')" data-i18n="backBtn" style="padding:6px 12px;border:1px solid var(--border-2);border-radius:8px;background:var(--surface);cursor:pointer;font-size:13px">← 返回</button>
+      <span class="badge">LLM</span>
+      <label data-i18n="setTitle" style="margin:0">⚙️ 设置 · AI 内核配置</label>
+    </div>
+
+    <div class="muted" style="margin-bottom:14px;line-height:1.7" data-i18n="setDesc">导演层的「AI 内核」需要一个可调用的大模型来梳理情绪与停顿。在这里填入任意 OpenAI 兼容服务的密钥即可启用——选中服务商后地址与模型会自动带出，也可以选「自定义」手填任何中转站或内网网关。密钥只保存在本机 <code>llm_config.json</code>，不会外传。</div>
+
+    <!-- 总开关 + 状态灯 -->
+    <div style="border:1px solid var(--border-2);border-radius:10px;padding:12px 14px;margin-bottom:14px;background:var(--surface-2)">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-weight:600">
+          <input type="checkbox" id="setEnabled"> <span data-i18n="setEnableLabel">启用 AI 内核</span>
+        </label>
+        <span id="setStatusDot" style="width:9px;height:9px;border-radius:50%;background:var(--disabled);display:inline-block"></span>
+        <span id="setStatusText" class="muted" style="font-size:13px"></span>
+      </div>
+      <div class="muted" id="setSourceNote" style="font-size:12px;margin-top:8px;line-height:1.6"></div>
+    </div>
+
+    <!-- 服务商 -->
+    <div class="field">
+      <label data-i18n="setProviderLabel">服务商预设</label>
+      <select class="vp-sel" id="setProvider" onchange="setOnProviderChange()"></select>
+      <div class="muted" id="setProviderNote" style="margin-top:6px;line-height:1.65;font-size:12px"></div>
+    </div>
+
+    <!-- 三项核心 -->
+    <div class="field">
+      <label data-i18n="setKeyLabel">API Key</label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <input type="password" id="setKey" autocomplete="off" style="flex:1;min-width:220px"
+               oninput="setKeyWasTyped()"
+               data-i18n-ph="setKeyPh" placeholder="粘贴你的 API Key（留空表示不修改已保存的密钥）">
+        <button class="chip" id="setKeyToggle" onclick="setToggleKeyView()" style="padding:8px 12px" data-i18n="setShow">👁 显示</button>
+      </div>
+      <div class="muted" id="setKeyHint" style="margin-top:6px;font-size:12px;line-height:1.6"></div>
+    </div>
+
+    <div class="field">
+      <label data-i18n="setBaseLabel">接口地址 base_url</label>
+      <input type="text" id="setBaseUrl" placeholder="https://api.deepseek.com/v1">
+      <div class="muted" id="setBaseHint" style="margin-top:6px;font-size:12px;line-height:1.6"></div>
+    </div>
+
+    <div class="field">
+      <label data-i18n="setModelLabel">模型名 model</label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <input type="text" id="setModel" list="setModelList" placeholder="deepseek-chat" style="flex:1;min-width:200px">
+        <datalist id="setModelList"></datalist>
+        <button class="chip" id="setFetchModelsBtn" onclick="setFetchModels()" style="padding:8px 12px" data-i18n="setFetchModels">⬇ 拉取可用模型</button>
+      </div>
+      <div class="muted" id="setModelHint" style="margin-top:6px;font-size:12px;line-height:1.6"></div>
+    </div>
+
+    <!-- 高级参数 -->
+    <details style="border:1px solid var(--border-2);border-radius:10px;padding:10px 12px;margin-bottom:14px">
+      <summary style="cursor:pointer;font-weight:600;font-size:14px;outline:none" data-i18n="setAdvanced">🔧 高级参数（默认即可）</summary>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-top:10px">
+        <div><div class="muted" style="font-size:11px" data-i18n="setTimeout">超时（秒）</div>
+          <input type="number" id="setTimeout" min="5" max="600" step="5" value="60"></div>
+        <div><div class="muted" style="font-size:11px" data-i18n="setTemp">温度 temperature</div>
+          <input type="number" id="setTemp" min="0" max="2" step="0.1" value="0.3"></div>
+        <div><div class="muted" style="font-size:11px" data-i18n="setProxy">代理（留空=直连）</div>
+          <input type="text" id="setProxy" placeholder="http://127.0.0.1:7890"></div>
+      </div>
+      <div class="checks" style="margin-top:10px;flex-wrap:wrap;gap:14px">
+        <label><input type="checkbox" id="setJsonMode" checked> <span data-i18n="setJsonMode">使用 JSON 模式（兼容层不支持时自动回退）</span></label>
+        <label><input type="checkbox" id="setCache" checked> <span data-i18n="setCache">缓存梳理结果（同文本不重复调用）</span></label>
+      </div>
+    </details>
+
+    <!-- 动作 -->
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      <button class="chip" id="setSaveBtn" onclick="settingsSave()" style="padding:9px 20px;background:var(--violet);color:var(--on-accent);font-weight:600" data-i18n="setSave">💾 保存并测试</button>
+      <button class="chip" id="setTestBtn" onclick="settingsTest()" style="padding:9px 18px" data-i18n="setTest">🔌 仅测试连接</button>
+      <button class="chip" id="setReloadBtn" onclick="settingsLoad(true)" style="padding:9px 18px" data-i18n="setReload">↻ 重新读取</button>
+    </div>
+
+    <div class="err" id="setErr"></div>
+    <div id="setResult" style="display:none;border:1px solid var(--border-2);border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:13px;line-height:1.7"></div>
+    <div class="muted" id="setConfigPath" style="font-size:11px;word-break:break-all"></div>
+  </div>
+
   <div class="card hide" id="betaCard">
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
       <button class="chip" onclick="setMode(prevMode||'design')" data-i18n="backBtn" style="padding:6px 12px;border:1px solid var(--border-2);border-radius:8px;background:var(--surface);cursor:pointer;font-size:13px">← 返回</button>
@@ -1091,6 +1177,11 @@ select option{background:var(--surface);color:var(--text)}
         </select>
       </label>
       <button class="chip" onclick="betaPreviewPlan()" data-i18n="betaPlanBtn">预览梳理结果</button>
+    </div>
+    <div id="betaLlmBar" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px;padding:8px 10px;border:1px solid var(--border-2);border-radius:8px;background:var(--surface-2);font-size:12px">
+      <span id="betaLlmDot" style="width:8px;height:8px;border-radius:50%;background:var(--disabled);display:inline-block;flex:0 0 auto"></span>
+      <span id="betaLlmText" class="muted" style="flex:1;min-width:160px"></span>
+      <button class="chip" onclick="setMode('settings')" style="padding:4px 12px;font-size:12px" data-i18n="betaLlmGo">⚙️ 配置 Key</button>
     </div>
     <div id="betaPlanOut" class="muted" style="display:none;font-size:12px;line-height:1.55;white-space:pre-wrap;max-height:200px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:12px;font-family:ui-monospace,Consolas,monospace"></div>
     <button class="gen" id="betaBtn" onclick="betaGenerate()" data-i18n="betaGenerate">🎭 多人朗读生成</button>
@@ -1270,6 +1361,23 @@ const I18N={
       betaEngineRule:'规则版（本地·快）',
       betaEngineLlm:'AI 内核（LLM·需配 Key）',
       betaPlanBtn:'预览梳理结果',
+      betaLlmGo:'⚙️ 配置 Key',
+      modeSettings:'⚙️ 设置',
+      setTitle:'⚙️ 设置 · AI 内核配置',
+      setDesc:'导演层的「AI 内核」需要一个可调用的大模型来梳理情绪与停顿。在这里填入任意 OpenAI 兼容服务的密钥即可启用——选中服务商后地址与模型会自动带出，也可以选「自定义」手填任何中转站或内网网关。密钥只保存在本机 llm_config.json，不会外传。',
+      setEnableLabel:'启用 AI 内核',
+      setProviderLabel:'服务商预设',
+      setKeyLabel:'API Key',
+      setKeyPh:'粘贴你的 API Key（留空表示不修改已保存的密钥）',
+      setShow:'👁 显示',
+      setBaseLabel:'接口地址 base_url',
+      setModelLabel:'模型名 model',
+      setFetchModels:'⬇ 拉取可用模型',
+      setAdvanced:'🔧 高级参数（默认即可）',
+      setTimeout:'超时（秒）',setTemp:'温度 temperature',setProxy:'代理（留空=直连）',
+      setJsonMode:'使用 JSON 模式（兼容层不支持时自动回退）',
+      setCache:'缓存梳理结果（同文本不重复调用）',
+      setSave:'💾 保存并测试',setTest:'🔌 仅测试连接',setReload:'↻ 重新读取',
       betaPlanLoading:'正在梳理文本…',
       betaPlanFail:'梳理失败',
       betaPlanTitle:'导演层梳理结果',
@@ -1345,6 +1453,23 @@ const I18N={
       betaEngineRule:'Rule (local, fast)',
       betaEngineLlm:'AI kernel (LLM, needs API key)',
       betaPlanBtn:'Preview plan',
+      betaLlmGo:'⚙️ Configure key',
+      modeSettings:'⚙️ Settings',
+      setTitle:'⚙️ Settings · AI Kernel',
+      setDesc:'The director layer\'s "AI kernel" needs a callable LLM to plan emotion and pauses. Paste a key from any OpenAI-compatible service to enable it — picking a provider fills in the endpoint and model automatically, or choose "Custom" to enter any relay/proxy gateway by hand. The key is stored only in your local llm_config.json and never sent anywhere else.',
+      setEnableLabel:'Enable AI kernel',
+      setProviderLabel:'Provider preset',
+      setKeyLabel:'API Key',
+      setKeyPh:'Paste your API key (leave blank to keep the saved one)',
+      setShow:'👁 Show',
+      setBaseLabel:'Endpoint base_url',
+      setModelLabel:'Model name',
+      setFetchModels:'⬇ Fetch models',
+      setAdvanced:'🔧 Advanced (defaults are fine)',
+      setTimeout:'Timeout (s)',setTemp:'Temperature',setProxy:'Proxy (blank = direct)',
+      setJsonMode:'Use JSON mode (auto-fallback if unsupported)',
+      setCache:'Cache planning results (skip repeat calls)',
+      setSave:'💾 Save & test',setTest:'🔌 Test connection',setReload:'↻ Reload',
       betaPlanLoading:'Planning text…',
       betaPlanFail:'Planning failed',
       betaPlanTitle:'Director plan',
@@ -2123,14 +2248,16 @@ document.getElementById('trainStopBtn').addEventListener('click',stopTrain);
 
 function setMode(m){
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.mode===m));
-  const beta=(m==='beta'), tr=(m==='train'), off=beta||tr;
+  const beta=(m==='beta'), tr=(m==='train'), st=(m==='settings'), off=beta||tr||st;
   document.getElementById('mainCard').classList.toggle('hide',off);
   document.getElementById('histCard').classList.toggle('hide',off);
   document.getElementById('packCard').classList.toggle('hide',off);
   document.getElementById('betaCard').classList.toggle('hide',!beta);
   document.getElementById('trainCard').classList.toggle('hide',!tr);
-  if(beta){prevMode=mode||'design';renderDialoguePanels();return;}
+  document.getElementById('settingsCard').classList.toggle('hide',!st);
+  if(beta){prevMode=mode||'design';renderDialoguePanels();refreshBetaLlmBar();return;}
   if(tr){prevMode=(mode&&mode!=='train')?mode:'design';refreshTrainUI();return;}
+  if(st){prevMode=(mode&&mode!=='settings')?mode:'design';settingsLoad();return;}
   mode=m;
   document.getElementById('refField').classList.toggle('hide',m==='design');
   document.getElementById('packSelField').classList.toggle('hide',m==='design');
@@ -2147,6 +2274,322 @@ function setMode(m){
 function updatePtField(){
   // 极致克隆下，逐字文本仅在上传参考音频时显示/必填；选用音色包时隐藏、无需填写
   document.getElementById('ptField').classList.toggle('hide', !(mode==='hifi' && !selectedPackId));
+}
+
+/* ==================== AI 内核配置（LLM Key 填写窗口） ====================
+   设计要点：
+   - 服务商预设由后端 /api/llm/providers 下发，前端不硬编码任何地址，
+     避免"UI 一份、后端一份"的漂移。
+   - api_key 后端只回显脱敏串；输入框留空 = 不修改已存密钥（三态语义）。
+   - 「保存并测试」一步到位：配置落盘 + 立刻验证连通性。
+*/
+let LLM_PROVIDERS=[], LLM_CUR=null, SET_KEY_DIRTY=false;
+
+async function llmApi(path,opts){
+  const o=Object.assign({headers:Object.assign({'Content-Type':'application/json'},apiHeaders())},opts||{});
+  const r=await fetch(path,o);
+  let d=null;
+  try{d=await r.json();}catch(e){d={detail:'返回内容不是合法 JSON'};}
+  if(!r.ok && !(d&&d.stage)){ // 非业务性失败（如 401/503）才当异常抛
+    const msg=(d&&(d.detail||d.reason||d.message))||('HTTP '+r.status);
+    const err=new Error(msg); err.status=r.status; err.body=d; throw err;
+  }
+  return d||{};
+}
+
+async function ensureProviders(){
+  if(LLM_PROVIDERS.length)return LLM_PROVIDERS;
+  try{
+    const d=await llmApi('/api/llm/providers');
+    LLM_PROVIDERS=d.providers||[];
+  }catch(e){LLM_PROVIDERS=[];}
+  return LLM_PROVIDERS;
+}
+
+function llmProviderById(id){
+  return LLM_PROVIDERS.find(p=>p.id===id)||LLM_PROVIDERS.find(p=>p.id==='custom')||null;
+}
+function llmIsZh(){return curLang==='zh';}
+function llmPName(p){return p?(llmIsZh()?p.name_zh:p.name_en):'';}
+
+async function settingsLoad(notify){
+  const err=document.getElementById('setErr');
+  err.style.display='none';
+  await ensureProviders();
+  const sel=document.getElementById('setProvider');
+  if(sel.options.length!==LLM_PROVIDERS.length){
+    sel.textContent='';
+    LLM_PROVIDERS.forEach(p=>{
+      const o=document.createElement('option');
+      o.value=p.id; o.textContent=(p.local?'🏠 ':'')+llmPName(p);
+      sel.appendChild(o);
+    });
+  }
+  try{
+    const c=await llmApi('/api/llm/config');
+    LLM_CUR=c;
+    document.getElementById('setEnabled').checked=!!c.enabled;
+    sel.value=c.provider||'custom';
+    if(!sel.value)sel.value='custom';
+    document.getElementById('setBaseUrl').value=c.base_url||'';
+    document.getElementById('setModel').value=c.model||'';
+    document.getElementById('setTimeout').value=c.timeout||60;
+    document.getElementById('setTemp').value=c.temperature!==undefined?c.temperature:0.3;
+    document.getElementById('setProxy').value=c.proxy||'';
+    document.getElementById('setJsonMode').checked=!!c.json_mode;
+    document.getElementById('setCache').checked=!!c.cache;
+    document.getElementById('setConfigPath').textContent=
+      (llmIsZh()?'配置文件：':'Config file: ')+(c.config_path||'');
+    setOnProviderChange(true);
+    setKeyFieldFromStatus(c);
+    refreshStatusUI(c);
+    if(notify)setResult(true,(llmIsZh()?'已重新读取配置':'Config reloaded'));
+  }catch(e){
+    err.textContent=(e&&e.message)||String(e);
+    err.style.display='block';
+  }
+}
+
+function setKeyFieldFromStatus(c){
+  const el=document.getElementById('setKey');
+  el.value=''; SET_KEY_DIRTY=false;
+  const ph=el.getAttribute('data-i18n-ph');
+  if(c&&c.has_key){
+    // 已存密钥：不回显明文，用 placeholder 显示脱敏串作为"已配置"的视觉凭证
+    el.placeholder=(llmIsZh()?'已保存：':'Saved: ')+(c.api_key_masked||'••••')+
+      (llmIsZh()?'（留空则不修改）':' (leave blank to keep)');
+  }else{
+    el.placeholder=ph||'API Key';
+  }
+}
+
+function setOnProviderChange(silent){
+  const id=document.getElementById('setProvider').value;
+  const p=llmProviderById(id);
+  if(!p)return;
+  if(!silent){
+    // 切换服务商时，地址、模型与超时跟随预设（用户之后仍可手改）
+    document.getElementById('setBaseUrl').value=p.base_url||'';
+    document.getElementById('setModel').value=(p.models&&p.models[0])||'';
+    // 本地模型首次调用要加载权重，默认给足超时，避免"第一次点测试就失败"
+    document.getElementById('setTimeout').value=p.local?300:60;
+  }
+  const dl=document.getElementById('setModelList');
+  dl.textContent='';
+  (p.models||[]).forEach(m=>{const o=document.createElement('option');o.value=m;dl.appendChild(o);});
+  const note=document.getElementById('setProviderNote');
+  let s=p.note||'';
+  if(p.key_url){
+    s+=(s?' ':'')+(llmIsZh()?'申请 Key：':'Get a key: ')+p.key_url;
+  }
+  note.textContent=s;
+  const dh=document.getElementById('setBaseHint');
+  dh.textContent=llmIsZh()
+    ?'不带 /chat/completions，程序会自动补上。切换服务商会自动填入预设地址。'
+    :'Do NOT include /chat/completions; the app appends it. Switching provider fills the preset.';
+  const mh=document.getElementById('setModelHint');
+  mh.textContent=(llmIsZh()?'模型名区分大小写，必须与服务商文档完全一致。':'Model names are case-sensitive; copy exactly from the provider docs.');
+  const kh=document.getElementById('setKeyHint');
+  kh.textContent=(llmIsZh()?'格式提示：':'Key format: ')+(p.key_hint||'')+
+    (p.local?(llmIsZh()?'。本地服务无鉴权，可留空或随便填。':' Local server: any value works.'):'');
+}
+
+function setToggleKeyView(){
+  const el=document.getElementById('setKey');
+  const btn=document.getElementById('setKeyToggle');
+  const show=el.type==='password';
+  el.type=show?'text':'password';
+  btn.textContent=show?(llmIsZh()?'🙈 隐藏':'🙈 Hide'):(llmIsZh()?'👁 显示':'👁 Show');
+}
+
+function setKeyWasTyped(){SET_KEY_DIRTY=true;}
+
+function settingsPayload(){
+  const body={
+    enabled:document.getElementById('setEnabled').checked,
+    provider:document.getElementById('setProvider').value,
+    base_url:document.getElementById('setBaseUrl').value.trim(),
+    model:document.getElementById('setModel').value.trim(),
+    timeout:parseInt(document.getElementById('setTimeout').value,10)||60,
+    temperature:parseFloat(document.getElementById('setTemp').value),
+    proxy:document.getElementById('setProxy').value.trim(),
+    json_mode:document.getElementById('setJsonMode').checked,
+    cache:document.getElementById('setCache').checked
+  };
+  if(isNaN(body.temperature))body.temperature=0.3;
+  // 只有用户真的敲过 key 才带上该字段 → 留空可安全表示"不改动已存密钥"
+  const kv=document.getElementById('setKey').value;
+  if(SET_KEY_DIRTY && kv!==undefined)body.api_key=kv;
+  return body;
+}
+
+function refreshStatusUI(c){
+  const dot=document.getElementById('setStatusDot');
+  const txt=document.getElementById('setStatusText');
+  const note=document.getElementById('setSourceNote');
+  if(!c)return;
+  const ready=!!c.ready;
+  dot.style.background=ready?'var(--green)':'var(--warn-ink)';
+  if(ready){
+    txt.textContent=llmIsZh()?'已就绪':'Ready';
+    txt.style.color='var(--ok-ink)';
+  }else{
+    txt.textContent=c.reason||(llmIsZh()?'未就绪':'Not ready');
+    txt.style.color='var(--warn-ink)';
+  }
+  const srcMap={
+    config_file:llmIsZh()?'来自 llm_config.json':'from llm_config.json',
+    api_key_txt:llmIsZh()?'来自 api_key.txt':'from api_key.txt',
+    env:llmIsZh()?'来自环境变量（不是本文件）':'from an environment variable',
+    local_placeholder:llmIsZh()?'本地服务占位符（无需真实 Key）':'local placeholder (no real key needed)',
+    unknown:'—',none:llmIsZh()?'尚未配置密钥':'no key yet'
+  };
+  let s='';
+  if(c.has_key){
+    s=(llmIsZh()?'当前密钥 ':'Current key ')+(srcMap[c.key_source]||'')+
+      (llmIsZh()?'，长度 ':' , length ')+(c.api_key_masked||'').length+
+      (llmIsZh()?' 位。':' chars.');
+    if(c.key_source==='env'){
+      s+=(llmIsZh()
+        ?' ⚠️ 环境变量优先级在文件之上，改本页面可能不生效。'
+        :' ⚠️ Env vars take precedence; edits here may not apply.');
+    }
+  }else{
+    s=llmIsZh()?'还没有配置密钥，填好下面三项并保存即可启用。':'No key configured yet. Fill the fields below and save.';
+  }
+  note.textContent=s;
+}
+
+function setResult(ok,msg,extra){
+  const box=document.getElementById('setResult');
+  box.style.display='block';
+  box.style.borderColor=ok?'var(--res-border)':'rgba(239,68,68,.4)';
+  box.style.background=ok?'var(--res-bg)':'rgba(239,68,68,.08)';
+  box.style.color=ok?'var(--ok-ink)':'#ef4444';
+  let html='';
+  if(msg)html+='<div>'+String(msg).replace(/</g,'&lt;')+'</div>';
+  if(extra)html+='<div style="margin-top:6px;font-size:12px;color:var(--text-2);line-height:1.6">'+String(extra).replace(/</g,'&lt;')+'</div>';
+  box.innerHTML=html;
+}
+
+function setBusy(on,btnId){
+  const b=document.getElementById(btnId);
+  if(b){b.disabled=!!on;b.style.opacity=on?'0.6':'1';}
+}
+
+function renderTestResult(d){
+  if(!d)return;
+  if(d.ok){
+    let extra='';
+    if(d.models&&d.models.length){
+      extra=(llmIsZh()?'可用模型（'+d.models.length+'）：':'Models ('+d.models.length+'): ')+
+        d.models.slice(0,25).join(', ')+
+        (d.models.length>25?(llmIsZh()?' …等':' …'):'');
+    }
+    if(d.reply)extra=(extra?extra+'\n':'')+(llmIsZh()?'模型回复：':'Reply: ')+d.reply;
+    if(d.warnings&&d.warnings.length)extra+=(extra?'\n':'')+'⚠ '+d.warnings.join('；');
+    setResult(true,'✅ '+d.message,extra);
+  }else{
+    let extra='';
+    if(d.detail)extra=d.detail;
+    if(d.models&&d.models.length)extra+=(extra?'\n':'')+(llmIsZh()?'该 Key 可见 ':'Key can see ')+d.models.length+(llmIsZh()?' 个模型':' models');
+    if(d.stage)extra+=(extra?'\n':'')+(llmIsZh()?'失败阶段：':'Failed at stage: ')+d.stage;
+    setResult(false,'❌ '+d.message,extra);
+  }
+}
+
+async function settingsSave(){
+  const err=document.getElementById('setErr');
+  err.style.display='none';
+  setBusy(true,'setSaveBtn');
+  try{
+    const d=await llmApi('/api/llm/config',{method:'POST',body:JSON.stringify(settingsPayload())});
+    renderTestResult(d);
+    if(d.saved){
+      await settingsLoad();               // 拉回服务端真值（含脱敏 key 与就绪状态）
+      renderTestResult(d);                // settingsLoad 会清空结果框，再写回
+    }
+  }catch(e){
+    // 400 校验失败也带着可读原因，统一走结果框展示（比红字错误框更醒目）
+    const b=e&&e.body;
+    if(b&&b.reason){
+      setResult(false,'❌ '+b.reason,
+        b.warnings&&b.warnings.length?('⚠ '+b.warnings.join('；')):'');
+    }else{
+      err.textContent=(e&&e.message)||String(e);
+      err.style.display='block';
+    }
+  }finally{setBusy(false,'setSaveBtn');}
+}
+
+async function settingsTest(){
+  const err=document.getElementById('setErr');
+  err.style.display='none';
+  setBusy(true,'setTestBtn');
+  try{
+    const d=await llmApi('/api/llm/test',{method:'POST',body:JSON.stringify(settingsPayload())});
+    renderTestResult(d);
+    if(d.ok&&d.models&&d.models.length){
+      const dl=document.getElementById('setModelList');
+      const cur=dl.textContent;
+      d.models.slice(0,50).forEach(m=>{
+        const o=document.createElement('option');o.value=m;dl.appendChild(o);
+      });
+    }
+  }catch(e){
+    err.textContent=(e&&e.message)||String(e);
+    err.style.display='block';
+  }finally{setBusy(false,'setTestBtn');}
+}
+
+async function setFetchModels(){
+  const err=document.getElementById('setErr');
+  err.style.display='none';
+  setBusy(true,'setFetchModelsBtn');
+  try{
+    const d=await llmApi('/api/llm/test',{method:'POST',
+      body:JSON.stringify(Object.assign(settingsPayload(),{probe_chat:false}))});
+    const dl=document.getElementById('setModelList');
+    dl.textContent='';
+    (d.models||[]).forEach(m=>{const o=document.createElement('option');o.value=m;dl.appendChild(o);});
+    if(d.models&&d.models.length){
+      setResult(true,(llmIsZh()?'拉到 ':'Found ')+d.models.length+(llmIsZh()?' 个可用模型，点模型输入框可从下拉选择。':' models. Click the model field to pick one.'),
+        d.models.slice(0,40).join(', ')+(d.models.length>40?' …':''));
+      const mv=document.getElementById('setModel').value.trim();
+      if(!mv){document.getElementById('setModel').value=d.models[0];}
+    }else{
+      setResult(!!d.ok,(llmIsZh()?'未能拉到模型列表':'Could not list models'),
+        (d.message||'')+(llmIsZh()?'\n部分服务商不提供 /models 接口，这不代表 Key 无效——可改用「仅测试连接」。':'\nSome providers do not expose /models; this does not mean the key is invalid — use "Test connection" instead.'));
+    }
+  }catch(e){
+    err.textContent=(e&&e.message)||String(e);
+    err.style.display='block';
+  }finally{setBusy(false,'setFetchModelsBtn');}
+}
+
+/* Beta 面板里的精简状态条 */
+let LLM_BAR_CACHE=null;
+async function refreshBetaLlmBar(){
+  const dot=document.getElementById('betaLlmDot');
+  const txt=document.getElementById('betaLlmText');
+  if(!dot||!txt)return;
+  try{
+    const c=await llmApi('/api/llm/config');
+    LLM_BAR_CACHE=c;
+    const ready=!!c.ready;
+    dot.style.background=ready?'var(--green)':'var(--warn-ink)';
+    if(ready){
+      const pn=llmPName(llmProviderById(c.provider));
+      txt.textContent=(llmIsZh()?'AI 内核已就绪：':'AI kernel ready: ')+(pn||c.provider)+' · '+(c.model||'');
+      txt.style.color='var(--text-1)';
+    }else{
+      txt.textContent=(llmIsZh()?'AI 内核未就绪 — ':'AI kernel not ready — ')+(c.reason||'');
+      txt.style.color='var(--warn-ink)';
+    }
+  }catch(e){
+    dot.style.background='var(--disabled)';
+    txt.textContent=llmIsZh()?'无法读取内核状态':'Cannot read kernel status';
+  }
 }
 function pre(t){const el=document.getElementById('text');el.value=t+el.value.replace(/^\([^()]*\)|^（[^（）]*）/,'');el.focus();}
 
@@ -3306,6 +3749,261 @@ def get_output(name: str, request: Request):
     if not str(path).startswith(str(OUTPUT_DIR.resolve())) or not path.exists():
         raise HTTPException(status_code=404, detail="文件不存在")
     return FileResponse(str(path), media_type="audio/wav", filename=name)
+
+
+# --------------------------------------------------------------- AI 内核配置
+# 给「AI 内核配置」界面用的三个端点：
+#   GET  /api/llm/providers  —— 服务商预设清单（前端下拉直接渲染，不再硬编码）
+#   GET  /api/llm/config     —— 读当前配置（api_key 脱敏回显）
+#   POST /api/llm/config     —— 保存配置；可选 test_only 只测不存
+#   POST /api/llm/test       —— 用（当前或传入的）配置测连通性
+
+
+def _llm_module():
+    """懒加载 director_llm，返回 None 表示不可用（与 LLM 引擎的加载策略一致）。"""
+    try:
+        from voice_clone import director_llm as _dl
+        return _dl
+    except Exception as _e:
+        print(f"[warn] director_llm unavailable: {_e}", flush=True)
+        return None
+
+
+def _mask_key(key: str) -> str:
+    """脱敏：只留头尾各 4 位，中间打码。空值返回空串。
+
+    前端据此显示"已配置"，并要求用户在改 Key 时重新完整输入，
+    避免把完整 Key 往返传输、也避免误把脱敏串存回配置。
+    """
+    k = str(key or "")
+    if not k:
+        return ""
+    if len(k) <= 8:
+        return "*" * len(k)
+    return f"{k[:4]}{'*' * min(12, len(k) - 8)}{k[-4:]}"
+
+
+@app.get("/api/llm/providers")
+def llm_providers_endpoint(request: Request):
+    """返回服务商预设清单，供前端渲染下拉与联动提示。"""
+    require_auth(request)
+    try:
+        from voice_clone import llm_providers as LP
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"llm_providers 模块不可用：{e}")
+    return JSONResponse({"providers": [
+        {"id": p["id"], "name_zh": p["name_zh"], "name_en": p["name_en"],
+         "base_url": p["base_url"], "models": list(p["models"]),
+         "key_hint": p["key_hint"], "key_url": p["key_url"],
+         "local": bool(p.get("local")), "note": p["note"]}
+        for p in LP.PROVIDERS
+    ]})
+
+
+@app.get("/api/llm/config")
+def llm_get_config(request: Request):
+    """读当前 LLM 配置。api_key 脱敏后回显，另附就绪状态与来源。"""
+    require_auth(request)
+    dl = _llm_module()
+    if dl is None:
+        raise HTTPException(status_code=503, detail="director_llm 模块不可用")
+    cfg = dl.load_config()
+    ready, why = dl.is_ready(cfg)
+    # 判断 key 的真实来源，便于界面提示"当前用的是环境变量而非本地文件"
+    src = "none"
+    raw_key = str(cfg.get("api_key") or "").strip()
+    prov = dl._providers.get_provider(cfg.get("provider"))
+    if raw_key:
+        if prov.get("local") and raw_key == prov["id"]:
+            # 本地部署的占位符，不是用户真实配置的密钥
+            src = "local_placeholder"
+        else:
+            try:
+                import json as _json
+                file_key = ""
+                if os.path.isfile(dl.CONFIG_PATH):
+                    with open(dl.CONFIG_PATH, encoding="utf-8") as f:
+                        file_key = str((_json.load(f) or {}).get("api_key") or "").strip()
+                txt_key = ""
+                if os.path.isfile(dl.API_KEY_TXT):
+                    with open(dl.API_KEY_TXT, encoding="utf-8") as f:
+                        txt_key = f.read().strip()
+                if file_key and file_key == raw_key:
+                    src = "config_file"
+                elif txt_key and txt_key == raw_key:
+                    src = "api_key_txt"
+                else:
+                    src = "env"
+            except Exception:
+                src = "unknown"
+    return JSONResponse({
+        "enabled": bool(cfg.get("enabled")),
+        "provider": cfg.get("provider", ""),
+        "base_url": cfg.get("base_url", ""),
+        "model": cfg.get("model", ""),
+        "api_key_masked": _mask_key(raw_key),
+        "has_key": bool(raw_key),
+        "key_source": src,
+        "timeout": cfg.get("timeout", 60),
+        "temperature": cfg.get("temperature", 0.3),
+        "proxy": cfg.get("proxy", ""),
+        "json_mode": bool(cfg.get("json_mode", True)),
+        "cache": bool(cfg.get("cache", True)),
+        "max_segments_per_call": cfg.get("max_segments_per_call", 120),
+        "full_text_limit": cfg.get("full_text_limit", 6000),
+        "ready": ready,
+        "reason": why if not ready else "",
+        "config_path": dl.CONFIG_PATH,
+    })
+
+
+@app.post("/api/llm/config")
+async def llm_save_config(request: Request):
+    """保存 LLM 配置。
+
+    body: {enabled?, provider?, base_url?, model?, api_key?, timeout?,
+           temperature?, proxy?, json_mode?, cache?, test_only?}
+
+    约定：**api_key 传空字符串或省略时保持原值不变**（界面只回显脱敏串，
+    无法把明文回传），只有显式传入非空才覆盖。传 null 表示清空。
+    """
+    require_auth(request)
+    dl = _llm_module()
+    if dl is None:
+        raise HTTPException(status_code=503, detail="director_llm 模块不可用")
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="请求体需为 JSON")
+    body = body or {}
+
+    cur = dl.load_config()
+    patch: dict = {}
+
+    for k in ("enabled",):
+        if k in body:
+            patch[k] = bool(body[k])
+    for k in ("provider", "base_url", "model", "proxy"):
+        if k in body:
+            patch[k] = str(body[k] or "").strip()
+    for k in ("temperature", "max_segments_per_call", "full_text_limit"):
+        if k in body:
+            try:
+                patch[k] = type(dl.DEFAULT_CONFIG[k])(body[k])
+            except Exception:
+                raise HTTPException(status_code=400, detail=f"{k} 取值非法：{body[k]!r}")
+    for k in ("json_mode", "cache"):
+        if k in body:
+            patch[k] = bool(body[k])
+    # timeout 单独处理（见下）
+    if "timeout" in body:
+        try:
+            patch["timeout"] = int(body["timeout"])
+        except Exception:
+            raise HTTPException(status_code=400, detail=f"timeout 取值非法：{body['timeout']!r}")
+
+    # api_key 三态处理
+    if "api_key" in body:
+        raw = body["api_key"]
+        if raw is None:
+            patch["api_key"] = ""          # 显式清空
+        else:
+            v = str(raw)
+            if v.strip():
+                patch["api_key"] = v        # 显式传入 → 覆盖（保存时统一清洗）
+            # 空串 → 不动（视为"未修改"）
+
+    # 保存前用预设补全 base_url / model 空缺
+    merged = dl._providers.apply_preset({**cur, **patch})
+
+    # timeout 智能纠偏：用户没显式指定，且本次切了服务商 → 清掉遗留值，
+    # 让 load_config 按新服务商填推荐值（云 60s / 本地 300s）。
+    # 保护的是这种真实场景：老配置里留着云 API 的 timeout=60，用户切成本地
+    # Ollama 后，27B 冷启 + 长文本规划超过 60s，会看到"配置对了却总超时"。
+    _prov_prev = dl._providers.get_provider(cur.get("provider"))
+    _prov_new = dl._providers.get_provider(merged.get("provider"))
+    if "timeout" not in body and _prov_new["id"] != _prov_prev["id"]:
+        merged["timeout"] = None      # save_config 会删掉该键 → 走推荐值
+
+    # Key 校验分两档 —— 这个区分很重要：
+    #   a) **格式性错误**（含中文、超长、把网址填进 Key 框）永远硬拦：
+    #      这类输入 100% 是误操作，存下来只会变成难查的故障。
+    #   b) **"key 为空"** 只在"用户想启用"时才硬拦。
+    #      否则会产生死锁：用户从「本地 Ollama」切回「DeepSeek」时必定先经历
+    #      "非本地 + 无 key"的中间态，若此时拒绝保存，就永远切不回去了。
+    ok_key, tip = dl._providers.key_looks_valid(
+        merged.get("api_key"), merged.get("provider"))
+    key_empty = not str(merged.get("api_key") or "").strip()
+    if not ok_key and not key_empty:
+        return JSONResponse({"ok": False, "stage": "validate",
+                             "reason": tip}, status_code=400)
+    if str(merged.get("api_key") or "").strip():
+        merged["api_key"] = dl._providers.normalize_key(merged["api_key"])
+
+    warnings = []
+    if not str(merged.get("base_url") or "").strip():
+        warnings.append("base_url 为空")
+    if not str(merged.get("model") or "").strip():
+        warnings.append("model 为空")
+    if tip:
+        warnings.append(tip)
+
+    # 想启用却没 key（非本地服务）→ 这才是真正该硬拦的时刻
+    _prov = dl._providers.get_provider(merged.get("provider"))
+    if merged.get("enabled") and key_empty and not _prov.get("local"):
+        return JSONResponse({
+            "ok": False, "stage": "validate",
+            "reason": "要启用 AI 内核必须填写 API Key（当前服务商：%s）。"
+                      "如果只是想先保存配置，请先取消勾选「启用 AI 内核」。"
+                      % _prov["name_zh"],
+            "warnings": warnings,
+        }, status_code=400)
+
+    if bool(body.get("test_only")):
+        res = dl.test_connection(merged)
+        res["saved"] = False
+        res["warnings"] = warnings
+        return JSONResponse(res)
+
+    path = dl.save_config(merged)
+
+    want_test = bool(body.get("test", True))
+    res = dl.test_connection(merged, probe_chat=want_test)
+    res["saved"] = True
+    res["warnings"] = warnings
+    res["config_path"] = path
+    # 保存成功但连通失败时返回 200（配置确实落盘了），由 ok 字段表达连通性
+    return JSONResponse(res)
+
+
+@app.post("/api/llm/test")
+async def llm_test(request: Request):
+    """测连通性。body 可传一份临时配置（不落盘）；为空则测当前已存配置。
+
+    body: {provider?, base_url?, model?, api_key?, timeout?, proxy?,
+           probe_chat?(默认 true)}
+    """
+    require_auth(request)
+    dl = _llm_module()
+    if dl is None:
+        raise HTTPException(status_code=503, detail="director_llm 模块不可用")
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    body = body or {}
+
+    base = dl.load_config()
+    patch = {k: body[k] for k in
+             ("provider", "base_url", "model", "timeout", "proxy") if k in body}
+    if body.get("api_key"):
+        patch["api_key"] = str(body["api_key"])
+    cand = dl._providers.apply_preset({**base, **patch})
+    if str(cand.get("api_key") or "").strip():
+        cand["api_key"] = dl._providers.normalize_key(cand["api_key"])
+
+    res = dl.test_connection(cand, probe_chat=bool(body.get("probe_chat", True)))
+    return JSONResponse(res)
 
 
 # ============================== 音频导出 (MP3/WAV/M4A) ==============================

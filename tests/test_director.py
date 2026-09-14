@@ -280,8 +280,32 @@ def test_is_ready_rejects_incomplete_config():
     ok, why = llm.is_ready({"enabled": True, "base_url": "u", "api_key": ""})
     assert not ok and "Key" in why
 
-    ok, _ = llm.is_ready({"enabled": True, "base_url": "u", "api_key": "sk-x"})
+    # 缺 model 也不可调用（_chat 会直接取 cfg["model"]）
+    ok, why = llm.is_ready({"enabled": True, "base_url": "u", "api_key": "sk-x"})
+    assert not ok and "model" in why
+
+    # 缺 base_url 同样不可调用
+    ok, why = llm.is_ready({"enabled": True, "api_key": "sk-x", "model": "m"})
+    assert not ok and "base_url" in why
+
+    # 三项齐全才算就绪
+    ok, _ = llm.is_ready({"enabled": True, "base_url": "u",
+                          "model": "m", "api_key": "sk-x"})
     assert ok
+
+
+def test_is_ready_allows_local_provider_without_key():
+    """本地部署（Ollama 等）无鉴权，缺 Key 也应视为就绪。"""
+    ok, why = llm.is_ready({"enabled": True, "provider": "ollama",
+                            "base_url": "http://127.0.0.1:11434/v1",
+                            "model": "qwen2.5:7b", "api_key": ""})
+    assert ok, why
+
+
+def test_is_ready_local_provider_still_needs_url_and_model():
+    ok, why = llm.is_ready({"enabled": True, "provider": "ollama",
+                            "base_url": "", "model": "", "api_key": ""})
+    assert not ok and ("base_url" in why or "model" in why)
 
 
 def test_plan_llm_falls_back_to_rule_without_key():

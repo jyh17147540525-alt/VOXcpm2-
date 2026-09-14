@@ -36,8 +36,17 @@ import hashlib
 import json
 import os
 import re
+import time
 import urllib.error
 import urllib.request
+
+try:
+    from . import llm_providers as _providers
+except ImportError:  # pragma: no cover - 无包上下文的直接加载
+    import sys as _sys0
+
+    _sys0.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import llm_providers as _providers  # type: ignore
 
 try:
     from .director import PlanResult, Segment
@@ -63,9 +72,13 @@ CACHE_DIR = os.path.join(_BASE_DIR, "_llm_cache")
 
 DEFAULT_CONFIG = {
     "enabled": False,
+    "provider": "deepseek",    # 服务商预设 id（见 llm_providers.PROVIDERS）
     "base_url": "https://api.deepseek.com/v1",
     "model": "deepseek-chat",
     "api_key": "",
+    # 用户在界面上显式清空过密钥 → 跳过 api_key.txt / 环境变量回退。
+    # 否则环境变量里的 DEEPSEEK_API_KEY 会让"清空"看起来没生效。
+    "api_key_cleared": False,
     "timeout": 60,
     "temperature": 0.3,
     "proxy": "",               # 留空 = 不走代理（沙箱里的 HTTP_PROXY 常指向失效代理）
@@ -89,16 +102,45 @@ def load_config(path: str | None = None) -> dict:
     """读取配置。缺失字段用默认值补齐；api_key 支持多来源回退。"""
     cfg = dict(DEFAULT_CONFIG)
     p = path or CONFIG_PATH
+    _user_set_timeout = False
     if os.path.isfile(p):
         try:
             with open(p, encoding="utf-8") as f:
                 user = json.load(f)
             if isinstance(user, dict):
+                _user_set_timeout = "timeout" in user
                 cfg.update({k: v for k, v in user.items() if v is not None})
         except Exception:
             pass
 
+    # 服务商预设兜底：base_url / model 为空时按 provider 补全。
+    # 必须在 api_key 回退链**之前**做，因为要不要回退取决于是否本地部署。
+    cfg = _providers.apply_preset(cfg)
+    _p = _providers.get_provider(cfg.get("provider"))
+
+    # timeout 按服务商给推荐值 —— 仅当用户从未显式设过（配置文件里没有该键）。
+    # 一旦用户自己填过，就完全尊重他的选择，不再"智能纠偏"，避免他设了 30s
+    # 却发现程序偷偷改成 300s。切服务商时由 save_config 清掉遗留值，
+    # 让推荐值重新生效（见 save_config 里对 provider 变化的处理）。
+    if not _user_set_timeout:
+        cfg["timeout"] = _providers.recommended_timeout(cfg.get("provider"))
+
+    # 用户在界面上显式清空过密钥 → 尊重这个决定，跳过全部回退。
+    # 否则环境变量里的 DEEPSEEK_API_KEY 会把 key "变回来"，用户以为没清掉。
+    if cfg.get("api_key_cleared") and not (cfg.get("api_key") or "").strip():
+        if _p.get("local"):
+            cfg["api_key"] = _p["id"]
+        return cfg
+
     # api_key 回退链：配置文件 → api_key.txt → 环境变量
+    # ⚠️ 本地部署（Ollama / LM Studio / vLLM）无鉴权：此时空 key 是**正常状态**，
+    # 绝不能拿环境变量里的 DEEPSEEK_API_KEY 去填 —— 那会把一个云服务商的密钥
+    # 塞进本地请求，既无意义又可能把密钥发给本机之外的地址（若 base_url 被改错）。
+    if _p.get("local"):
+        if not (cfg.get("api_key") or "").strip():
+            cfg["api_key"] = _p["id"]        # 占位符，让 Bearer 头格式统一
+        return cfg
+
     if not (cfg.get("api_key") or "").strip():
         if os.path.isfile(API_KEY_TXT):
             try:
@@ -116,7 +158,13 @@ def load_config(path: str | None = None) -> dict:
 
 
 def save_config(cfg: dict, path: str | None = None) -> str:
-    """写回配置（保留未知字段）。"""
+    """写回配置（保留未知字段）。
+
+    特殊处理 `api_key_cleared`：当 caller 显式把 api_key 写成空串时，打上
+    "用户已清空"标记，让 load_config 不再去 api_key.txt / 环境变量捞 key —— 
+    否则用户点了清空、界面上却依旧显示"已配置"，属于欺骗性的 UI。
+    写入非空 key 时自动清除该标记。
+    """
     p = path or CONFIG_PATH
     data = dict(DEFAULT_CONFIG)
     if os.path.isfile(p):
@@ -128,6 +176,15 @@ def save_config(cfg: dict, path: str | None = None) -> str:
         except Exception:
             pass
     data.update(cfg or {})
+    # 调用方想"让 timeout 回到推荐值"时，传 timeout=None 即可 —— 这里把它删掉，
+    # 下次 load_config 就会按当前服务商填入推荐值（云 60s / 本地 300s）。
+    if (cfg or {}).get("timeout", "keep") is None:
+        data.pop("timeout", None)
+    # 依据最终 key 值决定标记状态，避免调用方漏传而留下陈旧标记
+    if (data.get("api_key") or "").strip():
+        data["api_key_cleared"] = False
+    elif "api_key" in (cfg or {}):
+        data["api_key_cleared"] = True
     with open(p, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
     return p
@@ -137,11 +194,18 @@ def is_ready(cfg: dict | None = None) -> tuple:
     """检查是否具备调用条件，返回 (可用?, 原因)。"""
     c = cfg or load_config()
     if not c.get("enabled"):
-        return False, "llm_config.json 里 enabled 仍为 false（未启用）"
+        return False, "AI 内核未启用（llm_config.json 里 enabled 为 false，或在界面上打开开关）"
+    _p = _providers.get_provider(c.get("provider"))
     if not (c.get("api_key") or "").strip():
-        return False, "缺少 API Key（llm_config.json / api_key.txt / 环境变量 都没有）"
+        if _p.get("local"):
+            # 本地服务通常无鉴权，不该因缺 Key 被拦
+            pass
+        else:
+            return False, "缺少 API Key —— 打开「AI 内核配置」填写，或写入 llm_config.json / api_key.txt"
     if not (c.get("base_url") or "").strip():
-        return False, "缺少 base_url"
+        return False, "缺少 base_url（接口地址）"
+    if not (c.get("model") or "").strip():
+        return False, "缺少 model（模型名）"
     return True, "ok"
 
 
@@ -200,6 +264,172 @@ def _chat(cfg: dict, messages: list) -> str:
         raise RuntimeError("API 调用失败 HTTP %s：%s" % (e.code, detail))
     except urllib.error.URLError as e:
         raise RuntimeError("网络不可达：%s" % e)
+
+
+# --------------------------------------------------------------------- 诊断
+# 供 Web UI 的「测试连接」用。设计原则：**永不抛异常**，一律返回
+# {"ok": bool, "stage": str, "message": str, ...}，让前端直接渲染。
+
+
+def list_models(cfg: dict) -> list:
+    """尝试拉取 /models 列表。失败返回空列表（不抛异常）。
+
+    部分服务商不实现 /models（或需要特殊权限），所以拿不到列表**不代表**
+    Key 无效 —— 调用方不能据此判定失败。
+    """
+    url = str(cfg.get("base_url") or "").rstrip("/") + "/models"
+    try:
+        req = urllib.request.Request(
+            url,
+            headers={"Authorization": "Bearer %s" % cfg.get("api_key", "")},
+            method="GET",
+        )
+        with _opener(cfg).open(req, timeout=min(float(cfg.get("timeout", 60)), 15)) as resp:
+            body = json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        return []
+    items = body.get("data") if isinstance(body, dict) else None
+    if not isinstance(items, list):
+        return []
+    out = []
+    for it in items:
+        if isinstance(it, dict):
+            mid = it.get("id") or it.get("name")
+            if mid:
+                out.append(str(mid))
+        elif isinstance(it, str):
+            out.append(it)
+    return sorted(set(out))
+
+
+def test_connection(cfg: dict | None = None, *, probe_chat: bool = True) -> dict:
+    """端到端连通性诊断，给 UI 的「测试连接」按钮用。
+
+    分三段独立判定，便于定位问题到底出在哪一层：
+      1. 本地配置完整性（不联网）
+      2. GET /models（鉴权 + 网络；拿不到列表不算失败）
+      3. POST /chat/completions 极短探针（真正验证能否干活）
+
+    参数 probe_chat=False 时跳过第 3 段，纯看配置与鉴权，用于"省一次调用"。
+    """
+    from . import llm_providers as LP
+
+    c = LP.apply_preset(dict(cfg or load_config()))
+    provider = LP.get_provider(c.get("provider") or LP.detect_provider(c.get("base_url")))
+
+    result = {
+        "ok": False,
+        "stage": "config",
+        "message": "",
+        "provider": provider["id"],
+        "provider_name": provider["name_zh"],
+        "base_url": c.get("base_url", ""),
+        "model": c.get("model", ""),
+        "models": [],
+        "latency_ms": None,
+        "chat_ok": False,
+    }
+
+    # --- 第 1 段：配置完整性
+    if not str(c.get("base_url") or "").strip():
+        result["message"] = "还没填 base_url（接口地址）"
+        return result
+    if not str(c.get("model") or "").strip():
+        result["message"] = "还没填模型名（model）"
+        return result
+
+    raw_key = c.get("api_key") or ""
+    ok_key, tip = LP.key_looks_valid(raw_key, provider["id"])
+    if not ok_key:
+        result["message"] = tip
+        return result
+    c["api_key"] = LP.normalize_key(raw_key)
+    result["key_hint"] = tip  # 通过时可能带"本地服务"之类的说明
+
+    # --- 第 2 段：/models（鉴权探针）
+    t0 = time.time()
+    models = list_models(c)
+    result["latency_ms"] = int((time.time() - t0) * 1000)
+    result["models"] = models
+    result["stage"] = "models"
+
+    # --- 第 3 段：真实 chat 探针
+    if not probe_chat:
+        result["ok"] = True
+        result["stage"] = "models"
+        result["message"] = (
+            f"配置完整，鉴权接口连通（{len(models)} 个模型可见）"
+            if models else "配置完整；该服务商未提供模型列表接口，建议做一次实际生成验证"
+        )
+        return result
+
+    probe = {
+        "model": c["model"],
+        "messages": [{"role": "user", "content": "回复两个字：收到"}],
+        "temperature": 0.0,
+    }
+    url = str(c["base_url"]).rstrip("/") + "/chat/completions"
+    result["stage"] = "chat"
+    # 探针超时 = min(配置超时, 上限)。本地模型首次调用要加载权重（实测 27B
+    # 冷启 ~30s），所以本地服务的上限放宽，否则用户第一次点"测试连接"必失败。
+    _cap = 300 if provider.get("local") else 60
+    _probe_timeout = max(5.0, min(float(c.get("timeout", 60)), float(_cap)))
+    result["probe_timeout_s"] = _probe_timeout
+    t0 = time.time()
+    try:
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(probe, ensure_ascii=False).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json; charset=utf-8",
+                "Authorization": "Bearer %s" % c["api_key"],
+            },
+            method="POST",
+        )
+        with _opener(c).open(req, timeout=_probe_timeout) as resp:
+            body = json.loads(resp.read().decode("utf-8"))
+        content = ""
+        try:
+            content = body["choices"][0]["message"]["content"]
+        except Exception:
+            pass
+        result["latency_ms"] = int((time.time() - t0) * 1000)
+        result["ok"] = True
+        result["chat_ok"] = True
+        result["stage"] = "chat"
+        result["reply"] = str(content)[:40]
+        result["message"] = (
+            f"连接成功 · {result['latency_ms']}ms"
+            + (f" · 可见 {len(models)} 个模型" if models else "")
+        )
+        return result
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", "replace")[:300]
+        result["latency_ms"] = int((time.time() - t0) * 1000)
+        if e.code == 401:
+            msg = "API Key 无效或被拒绝（401）—— 请检查 Key 是否复制完整、是否属于当前服务商"
+        elif e.code == 403:
+            msg = "无权访问该模型（403）—— 可能 Key 没有开通此模型权限"
+        elif e.code == 402:
+            msg = "账户余额不足（402）"
+        elif e.code == 404:
+            msg = ("接口地址或模型名不存在（404）—— 请确认 base_url 是否漏了 /v1 "
+                   "或 compatible-mode 之类的路径，以及模型名是否拼错")
+        elif e.code == 429:
+            msg = "触发限流（429），Key 有效但请求过频，稍后重试"
+        else:
+            msg = "API 调用失败 HTTP %s" % e.code
+        result["message"] = msg
+        result["detail"] = detail
+        return result
+    except urllib.error.URLError as e:
+        result["latency_ms"] = int((time.time() - t0) * 1000)
+        result["message"] = "网络不可达：%s" % e
+        return result
+    except Exception as e:
+        result["latency_ms"] = int((time.time() - t0) * 1000)
+        result["message"] = "未预期的错误：%s" % e
+        return result
 
 
 # --------------------------------------------------------------------- 提示词
