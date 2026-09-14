@@ -2419,12 +2419,20 @@ function setOnProviderChange(silent){
     (p.local?(llmIsZh()?'。本地服务无鉴权，可留空或随便填。':' Local server: any value works.'):'');
 }
 
-function setToggleKeyView(){
+/* ⚠️ #setKeyToggle 带 data-i18n，切语言后会被打回「👁 显示」——但此时 Key 可能正
+   处于明文状态，标签就错反了。所以把"只按当前显示状态重画标签"拆出来单独调用，
+   不能靠 setToggleKeyView()（那个会真的切换 type）。 */
+function renderKeyToggleLabel(){
   const el=document.getElementById('setKey');
   const btn=document.getElementById('setKeyToggle');
-  const show=el.type==='password';
-  el.type=show?'text':'password';
-  btn.textContent=show?(llmIsZh()?'🙈 隐藏':'🙈 Hide'):(llmIsZh()?'👁 显示':'👁 Show');
+  if(!el||!btn)return;
+  const shown=(el.type==='text');
+  btn.textContent=shown?(llmIsZh()?'🙈 隐藏':'🙈 Hide'):(llmIsZh()?'👁 显示':'👁 Show');
+}
+function setToggleKeyView(){
+  const el=document.getElementById('setKey');
+  el.type=(el.type==='password')?'text':'password';
+  renderKeyToggleLabel();
 }
 
 function setKeyWasTyped(){SET_KEY_DIRTY=true;}
@@ -2622,6 +2630,12 @@ async function refreshBetaLlmBar(){
    （症状：标签已是中文，但就绪状态/Key 提示/服务商说明还是英文）。
    刻意用同步的 LLM_CUR 缓存而不是重新拉接口 —— 异步回来时语言可能又被切了。 */
 function repaintDynamicText(){
+  repaintModelBadge();   // #modelBadge 会被上面的 [data-i18n] 重刷打回静态文案，必须重放
+  repaintRecBtn();       // #recBtn 同理，且它没有定时器兜底
+  /* 这两个都是"从当前状态重算文本"的幂等函数，直接调用即为重放：
+     #setKeyToggle 的显/隐标签、#trImportBtn 的「已勾选 N 条」计数 */
+  renderKeyToggleLabel();
+  trUpdImportBtn();
   const sc=document.getElementById('settingsCard');
   if(sc&&!sc.classList.contains('hide')&&LLM_CUR){
     setOnProviderChange(true);
@@ -2658,12 +2672,23 @@ function applyEmotion(name){
 
 function apiHeaders(){return {'x-api-key':API_TOKEN};}
 
+/* ⚠️ #modelBadge 在 HTML 上带 data-i18n=modelNotLoaded，而 setLang() 会一刀切地给
+   所有 [data-i18n] 元素刷 textContent —— 于是切一次语言就把 JS 写进去的
+   「模型已加载 · 48kHz」打回静态的「模型未加载」，看起来像模型掉了。
+   所以这里记住最后一次状态，切语言后由 repaintModelBadge() 重放。
+   （用 var 而非 let：避免 repaintDynamicText 早于本行执行时的 TDZ 风险。） */
+var MODEL_BADGE_LAST=null;
 function setModelBadge(state,extra){
+  MODEL_BADGE_LAST=[state,extra];
   const b=document.getElementById('modelBadge');
     if(state==='loading'){b.textContent=tr('模型加载中…(约20-60秒)','Loading model…(20-60s)');b.className='badge';b.style.cursor='default';b.onclick=null;}
     else if(state==='error'){b.textContent=tr('模型加载失败 · 点此重试','Model load failed · click to retry');b.className='badge warn';b.style.cursor='pointer';b.onclick=()=>warmupModel();}
     else if(state==='ready'){b.textContent=tr('模型已加载 · ','Model ready · ')+(extra||'');b.className='badge ok';b.style.cursor='default';b.onclick=null;}
     else {b.textContent=extra||tr('模型未加载','Model not loaded');b.className='badge';b.style.cursor='default';b.onclick=null;}
+}
+/* 切语言后重放徽标状态（见 setModelBadge 上方注释）。 */
+function repaintModelBadge(){
+  if(MODEL_BADGE_LAST)setModelBadge(MODEL_BADGE_LAST[0],MODEL_BADGE_LAST[1]);
 }
 async function refreshStatus(){
   try{
@@ -2933,6 +2958,23 @@ async function savePack(){
   finally{btn.disabled=false;}
 }
 
+/* ⚠️ #recBtn 在 HTML 上带 data-i18n=recStart，setLang 的静态重刷会在切语言时把
+   「⏹ 停止录制」/「🎤 重新录制」打回「🎤 开始录制」。而它只在 startRec/stopRec/
+   resetRec 里被改，**没有定时器兜底** —— 所以必须记住最后一次状态并重放。
+   （用 var：避免 repaintDynamicText 早于本行执行时的 TDZ 风险。）
+   注意 handler 也要一起重放：停止录制时 onclick 指向 stopRec，不能丢。 */
+var REC_BTN_LAST=null;
+function setRecBtn(zh,en,bg,handler){
+  REC_BTN_LAST=[zh,en,bg,handler];
+  const btn=document.getElementById('recBtn');
+  if(!btn)return;
+  btn.textContent=tr(zh,en);btn.style.background=bg;btn.onclick=handler;
+}
+function repaintRecBtn(){
+  if(REC_BTN_LAST)setRecBtn(REC_BTN_LAST[0],REC_BTN_LAST[1],
+                            REC_BTN_LAST[2],REC_BTN_LAST[3]);
+}
+
 // ===== 拖拽上传（视频/音频 → 音色包）=====
 function setVpDropHint(t){
   const el=document.getElementById('vpDropHint');
@@ -3043,8 +3085,7 @@ async function startRec(){
     };
     mediaRec.start();
     recSecs=0;
-    const btn=document.getElementById('recBtn');
-    btn.textContent=tr('⏹ 停止录制','⏹ Stop Recording');btn.style.background='var(--danger)';btn.onclick=stopRec;
+    setRecBtn('⏹ 停止录制','⏹ Stop Recording','var(--danger)',stopRec);
     document.getElementById('recStatus').textContent=tr('录制中 ','Recording ')+'0.0s';
     recTimer=setInterval(()=>{recSecs+=0.1;document.getElementById('recStatus').textContent=tr('录制中 ','Recording ')+recSecs.toFixed(1)+'s';},100);
   }catch(e){showVpErr(tr('无法访问麦克风：','Microphone access failed: ')+(e.message||e.name)+tr('（请允许浏览器麦克风权限）','(please allow microphone permission)'));}
@@ -3052,14 +3093,12 @@ async function startRec(){
 function stopRec(){
   if(mediaRec&&mediaRec.state!=='inactive')mediaRec.stop();
   clearInterval(recTimer);
-  const btn=document.getElementById('recBtn');
-  btn.textContent=tr('🎤 重新录制','🎤 Re-record');btn.style.background='var(--sky)';btn.onclick=startRec;
+  setRecBtn('🎤 重新录制','🎤 Re-record','var(--sky)',startRec);
   document.getElementById('recStatus').textContent=tr('录制完成，可回放或重新录制','Recording done. Playback or re-record.');
 }
 function resetRec(){
   recBlob=null;recChunks=[];recSecs=0;
-  const btn=document.getElementById('recBtn');
-  if(btn){btn.textContent=tr('🎤 开始录制','🎤 Start Recording');btn.style.background='var(--sky)';btn.onclick=startRec;}
+  setRecBtn('🎤 开始录制','🎤 Start Recording','var(--sky)',startRec);
   const w=document.getElementById('recWrap');if(w)w.classList.add('hide');
   const s=document.getElementById('recStatus');if(s)s.textContent=tr('点击下方按钮授权麦克风后开始朗读，建议 10–30 秒清晰语句；录制完可回放确认。','Click the button, allow microphone access, then read for 10–30s. Playback to confirm after recording.');
 }

@@ -37,6 +37,14 @@ Python 字符串里面。用 node --check 在 CI 里兜住，比等用户报"页
 全局词法作用域**，所以「同一个 let 在两个块里各声明一次」会让第二个块整体抛错，
 而逐块检查永远发现不了。
 
+还拦第二类 bug：**`data-i18n` 与 JS 动态文本打架**（`check_i18n_dynamic_ownership`）
+--------------------------------------------------------------------------
+`setLang()` 是一刀切的 —— `querySelectorAll('[data-i18n]')` 全部刷成字典值。
+于是「既有 data-i18n、文本又由 JS 维护」的元素，切一次语言就被打回静态文案。
+2026-09-14 真实事故：切语言后 #modelBadge 从「模型已加载 · 48kHz」变成
+「模型未加载」，看起来像模型掉了；#recBtn 从「🎤 重新录制」变回「🎤 开始录制」。
+这类 bug 语法上完全合法，node --check 永远放行，只能靠语义检查兜住。
+
 用法：
     python scripts/check_inline_js.py            # 自动定位 server.py
     python scripts/check_inline_js.py path.py
@@ -49,6 +57,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import warnings
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -81,8 +90,21 @@ def _literal(node: ast.AST) -> str | None:
 
 
 def rendered_pages(src_path: Path) -> dict[str, str]:
-    """取出模块级 *_HTML 常量的「运行时取值」，并套用 render() 的替换。"""
-    tree = ast.parse(src_path.read_text(encoding="utf-8", errors="replace"))
+    r"""取出模块级 *_HTML 常量的「运行时取值」，并套用 render() 的替换。
+
+    ⚠️ 这里为什么要吞掉 SyntaxWarning
+    ----------------------------------
+    APP_HTML 里大量 JS 正则字面量写成 `/\(([^()]*)\)/`、`/\.wav$/`。对 Python 来说
+    `\(`、`\.` 是"无效转义"，会报 SyntaxWarning；但 Python 的规则是**原样保留**
+    反斜杠，所以 JS 收到的正是正确的 `\(`，运行时完全没问题。
+
+    **不要**为了消这个警告把 APP_HTML 改成 raw string —— 那会让 `\n` 不再是换行，
+    页面格式会整体塌掉，是个远比警告严重的事故。所以只在解析时静音。
+    """
+    src = src_path.read_text(encoding="utf-8", errors="replace")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", SyntaxWarning)
+        tree = ast.parse(src)
     out: dict[str, str] = {}
     for node in tree.body:
         if not isinstance(node, ast.Assign):
@@ -115,6 +137,188 @@ def check_with_node(code: str, node: str) -> tuple[bool, str]:
             Path(fd.name).unlink()
         except OSError:
             pass
+
+
+def _i18n_tagged_ids(html: str) -> dict[str, str]:
+    """HTML 里「带 id 且带 data-i18n」的元素 -> i18n 键名。"""
+    out: dict[str, str] = {}
+    for m in re.finditer(r"<[a-zA-Z][\w-]*\b([^>]*)>", html, re.S):
+        attrs = m.group(1)
+        mi = re.search(r'data-i18n\s*=\s*"([^"]*)"', attrs)
+        if not mi:
+            continue
+        moid = re.search(r'id\s*=\s*"([^"]*)"', attrs)
+        if moid:
+            out[moid.group(1)] = mi.group(1)
+    return out
+
+
+def _function_defs(js: str) -> list[tuple[str, int, int]]:
+    """[(函数名, 起点, 终点)] —— 按花括号配对定位每个具名函数的完整跨度。"""
+    out: list[tuple[str, int, int]] = []
+    for m in re.finditer(r"function\s+(\w+)\s*\([^)]*\)\s*\{", js):
+        depth = 0
+        for i in range(m.end() - 1, len(js)):
+            if js[i] == "{":
+                depth += 1
+            elif js[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    out.append((m.group(1), m.start(), i + 1))
+                    break
+    return out
+
+
+def _function_body(js: str, fname: str) -> str:
+    """抠出某个具名函数的完整文本（含 `function ... {...}`）；找不到返回空串。"""
+    for name, s, e in _function_defs(js):
+        if name == fname:
+            return js[s:e]
+    return ""
+
+
+def _scope_texts(js: str) -> list[str]:
+    """所有「变量作用域单元」：每个具名函数体 + 去掉函数体后的顶层代码。
+
+    ⚠️ 必须分开统计，不能把整份 JS 拼起来一次性找变量别名：
+        const b = document.getElementById('modelBadge');  b.textContent = ...
+    这里的 b 是**函数局部**变量，不同函数里的同名 b 指向不同元素。
+    拼在一起会让后写覆盖先写，从而漏判 —— 第一版正是因此漏掉了 #modelBadge，
+    而用 btn 的 #recBtn 因没撞名侥幸通过。这种"看运气"的检查等于没有。
+    """
+    defs = _function_defs(js)
+    texts = [js[s:e] for _n, s, e in defs]
+    cut: list[str] = []
+    last = 0
+    for _n, s, e in sorted(defs, key=lambda t: t[1]):
+        if s >= last:
+            cut.append(js[last:s])
+            last = e
+    cut.append(js[last:])
+    texts.append("".join(cut))
+    return texts
+
+
+def _written_ids_in(text: str) -> set[str]:
+    """在**单个作用域单元**内，文本被动态写过的元素 id。"""
+    written: set[str] = set()
+    for m in re.finditer(
+            r"getElementById\(\s*'([^']+)'\s*\)\s*\.\s*"
+            r"(?:textContent|innerHTML)\s*=", text):
+        written.add(m.group(1))
+    alias: dict[str, set[str]] = {}
+    for m in re.finditer(
+            r"(?:const|let|var)\s+(\w+)\s*=\s*"
+            r"document\.getElementById\(\s*'([^']+)'\s*\)", text):
+        alias.setdefault(m.group(1), set()).add(m.group(2))
+    for m in re.finditer(r"\b(\w+)\.(?:textContent|innerHTML)\s*=", text):
+        written |= alias.get(m.group(1), set())
+    return written
+
+
+def _js_written_ids(js: str) -> set[str]:
+    """JS 里文本被动态写过的元素 id（按作用域单元分别统计后取并集）。
+
+    两种写法都要认：
+      document.getElementById('x').textContent = ...
+      const b = document.getElementById('x');  b.textContent = ...   <- 别漏了这种
+    """
+    out: set[str] = set()
+    for t in _scope_texts(js):
+        out |= _written_ids_in(t)
+    return out
+
+
+# setLang() 的收尾钩子。它**直接或经多层转调**写到的元素，视为「切语言后会重放」。
+# 必须做多层展开，真实链路是：
+#     repaintDynamicText → repaintModelBadge → setModelBadge
+# 只展开一层会把 #modelBadge 误判成「没重放」（第一版就犯了这个错）。
+REPLAY_ENTRY = "repaintDynamicText"
+REPLAY_MAX_DEPTH = 4
+REPLAY_MAX_FUNCS = 60
+
+# 切语言时即使被打回静态文案、也无需重放的元素 —— 逐个给出理由，不要图省事乱加。
+TRANSIENT_OK = {
+    "statusText": "生成中由定时器高频重写",
+    "vpStatusText": "提取中由定时器高频重写",
+    "recStatus": "录音中由定时器高频重写",
+    "trainStartBtn": "训练轮询每 2s 重写",
+    "vpDropHint": "拖拽瞬间的提示，放下/离开即被重设，不可能停在切语言的那一刻",
+    "trainAddBtn": "只在一次上传请求期间显示「上传中」，请求结束就写回与静态文案"
+                   "相同的值，且那时按钮是 disabled 的",
+}
+
+
+def _functions(js: str) -> dict[str, str]:
+    """具名函数 -> 完整定义文本。"""
+    return {n: js[s:e] for n, s, e in _function_defs(js)}
+
+
+def _replay_texts(js: str) -> list[str]:
+    """REPLAY_ENTRY 及其（多层）被调函数 —— 以**独立作用域单元**返回。"""
+    fns = _functions(js)
+    entry = fns.get(REPLAY_ENTRY, "")
+    if not entry:
+        return []
+    out = [entry]
+    seen = {REPLAY_ENTRY}
+    frontier = [entry]
+    for _ in range(REPLAY_MAX_DEPTH):
+        nxt = []
+        for body in frontier:
+            for name in sorted(set(re.findall(r"\b(\w+)\s*\(", body))):
+                if name in seen or name not in fns:
+                    continue
+                seen.add(name)
+                if len(seen) > REPLAY_MAX_FUNCS:
+                    return out
+                nxt.append(fns[name])
+                out.append(fns[name])
+        if not nxt:
+            break
+        frontier = nxt
+    return out
+
+
+def check_i18n_dynamic_ownership(html: str, js: str) -> int:
+    """拦「data-i18n 与 JS 动态文本打架」这一类 bug。
+
+    setLang() 是一刀切的：`querySelectorAll('[data-i18n]')` 全部刷成字典值。
+    所以任何「既有 data-i18n、文本又由 JS 动态维护」的元素，切一次语言就会被
+    打回静态文案。真实事故（2026-09-14）：
+
+        #modelBadge  切语言后从「模型已加载 · 48kHz」变成「模型未加载」
+        #recBtn      录制后从「🎤 重新录制」变回「🎤 开始录制」（且无定时器兜底）
+
+    规则：冲突元素必须要么在 TRANSIENT_OK 里（附理由），要么由
+    repaintDynamicText() 重放，否则报错。
+    """
+    i18n_ids = _i18n_tagged_ids(html)
+    written = _js_written_ids(js)
+    risky = sorted(set(i18n_ids) & written)
+    if not risky:
+        return 0
+
+    replayed: set[str] = set()
+    for t in _replay_texts(js):
+        replayed |= _written_ids_in(t)
+    bad = [i for i in risky if i not in TRANSIENT_OK and i not in replayed]
+    ok_ids = [i for i in risky if i in replayed]
+    transient = [i for i in risky if i in TRANSIENT_OK]
+
+    if bad:
+        print("  i18n/动态文本冲突: FAIL", file=sys.stderr)
+        for i in bad:
+            print(f"      #{i} 带 data-i18n=\"{i18n_ids[i]}\" 但文本由 JS 写，"
+                  f"切语言会被打回静态文案", file=sys.stderr)
+        print(f"      -> 修法：在 {REPLAY_ENTRY}() 里加一个 repaint 调用重放它的状态，"
+              f"或确认它确实会被高频重写后加进 TRANSIENT_OK（并写清理由）",
+              file=sys.stderr)
+        return len(bad)
+
+    print(f"  i18n/动态文本冲突: OK（重放 {len(ok_ids)} 个"
+          f"{'，瞬时豁免 ' + str(len(transient)) + ' 个' if transient else ''}）")
+    return 0
 
 
 def main() -> int:
@@ -166,11 +370,13 @@ def main() -> int:
                 for line in err.splitlines()[:25]:
                     print(f"      {line}", file=sys.stderr)
 
+        failed += check_i18n_dynamic_ownership(html, "\n".join(scripts))
         total_failed += failed
 
     if total_failed:
-        print(f"\n[fail] {total_failed} 处内联 JS 语法错误 —— "
-              f"页面交互会整体失效，请修复后再提交。", file=sys.stderr)
+        print(f"\n[fail] {total_failed} 处内联 JS 问题 —— "
+              f"页面交互会整体失效或状态显示错误，请修复后再提交。",
+              file=sys.stderr)
         return 1
     print("[ok] 全部通过")
     return 0
