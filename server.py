@@ -671,7 +671,7 @@ LOGIN_HTML = """<!DOCTYPE html>
 --res-bg:rgba(16,185,129,.08);--res-border:rgba(16,185,129,.25);--green:#10b981;--green-ink:#0b9d6e;
 --sky:#0ea5e9;--sky-ink:#0284c7;--violet:#7c5cff;--disabled:#b8b8c2;
 --focus:rgba(106,85,232,.14);--shadow-1:rgba(16,16,24,.05);--shadow-2:rgba(16,16,24,.12);
---range-track:#e6e6ec;--card-hi:rgba(255,255,255,.95)}
+--range-track:#e6e6ec;--card-hi:rgba(255,255,255,.95);--grid-line:rgba(90,70,214,.05)}
 html[data-theme="dark"]{color-scheme:dark;
 --bg:#0a0a0f;--surface:#131318;--surface-2:#18181f;--surface-3:#1f1f28;
 --border:rgba(255,255,255,.07);--border-2:rgba(255,255,255,.14);
@@ -684,10 +684,11 @@ html[data-theme="dark"]{color-scheme:dark;
 --res-bg:rgba(16,185,129,.10);--res-border:rgba(16,185,129,.3);--green:#34d399;--green-ink:#4ade80;
 --sky:#38bdf8;--sky-ink:#7dd3fc;--violet:#8f80ff;--disabled:#3f3f4c;
 --focus:rgba(124,107,255,.35);--shadow-1:rgba(0,0,0,.35);--shadow-2:rgba(0,0,0,.55);
---range-track:#2a2a36;--card-hi:rgba(255,255,255,.05)}
+--range-track:#2a2a36;--card-hi:rgba(255,255,255,.05);--grid-line:rgba(124,107,255,.10)}
+:root{--r-sm:8px;--r-md:12px;--r-lg:16px;--r-xl:20px;--r-full:999px;--sp-1:4px;--sp-2:8px;--sp-3:12px;--sp-4:16px;--sp-5:20px;--sp-6:24px;--sp-8:32px;--fs-xxs:11px;--fs-xs:12px;--fs-sm:13px;--fs-md:14px;--fs-lg:16px;--fs-xl:18px;--fs-2xl:24px;--ease:cubic-bezier(.4,0,.2,1);--ease-out:cubic-bezier(0,0,.2,1);--ease-spring:cubic-bezier(.34,1.56,.64,1);--t-fast:.15s;--t-base:.22s;--t-slow:.32s;--ring:0 0 0 3px var(--focus);--glow-1:0 0 0 1px var(--accent-glow),0 0 16px var(--accent-glow);--glow-2:0 0 0 1px var(--accent-glow),0 0 28px var(--accent-glow);--mono:ui-monospace,"SF Mono","Cascadia Code",Consolas,monospace}
 body{font-family:var(--font);background:var(--bg);
-background-image:radial-gradient(760px 320px at 50% -8%,var(--ambient),transparent 70%);
-background-attachment:fixed;min-height:100vh;display:flex;align-items:center;justify-content:center;
+background-image:linear-gradient(var(--grid-line) 1px,transparent 1px),linear-gradient(90deg,var(--grid-line) 1px,transparent 1px),radial-gradient(760px 320px at 50% -8%,var(--ambient),transparent 70%);
+background-size:34px 34px,34px 34px,auto;background-attachment:fixed;min-height:100vh;display:flex;align-items:center;justify-content:center;
 padding:20px;color:var(--text);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 .card{background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:40px 38px;max-width:420px;width:100%;
 box-shadow:inset 0 1px 0 var(--card-hi),0 1px 2px var(--shadow-1),0 24px 60px -28px var(--shadow-2);position:relative;overflow:hidden}
@@ -696,14 +697,14 @@ h1{font-size:24px;font-weight:650;color:var(--text);margin:6px 0 4px;letter-spac
 p.sub{font-size:13px;color:var(--text-2);margin-bottom:26px;line-height:1.6}
 label{display:block;font-size:13px;color:var(--text-1);margin-bottom:8px;font-weight:550}
 input{width:100%;padding:12px 14px;border:1px solid var(--border-2);border-radius:12px;font-size:14px;
-font-family:ui-monospace,"SF Mono","Cascadia Code",Consolas,monospace;transition:border-color .16s ease,box-shadow .16s ease;
+font-family:ui-monospace,"SF Mono","Cascadia Code",Consolas,monospace;transition:border-color var(--t-fast) var(--ease),box-shadow var(--t-fast) var(--ease);
 background:var(--surface);color:var(--text)}
 input:hover{border-color:var(--text-3)}
 input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--focus)}
 button{width:100%;margin-top:18px;padding:13px;background:linear-gradient(180deg,var(--accent-3),var(--accent-2));color:var(--on-accent);
 border:none;border-radius:12px;font-size:15px;font-weight:600;cursor:pointer;
 box-shadow:inset 0 1px 0 rgba(255,255,255,.22),0 4px 16px var(--accent-glow);
-transition:transform .15s ease,box-shadow .2s ease,filter .2s ease}
+transition:transform var(--t-fast) var(--ease),box-shadow var(--t-base) var(--ease),filter var(--t-base) var(--ease)}
 button:hover{transform:translateY(-1px);box-shadow:inset 0 1px 0 rgba(255,255,255,.22),0 8px 24px var(--accent-glow);filter:brightness(1.05)}
 button:active{transform:translateY(0);filter:brightness(.98)}
 .err{margin-top:12px;padding:10px 12px;background:var(--err-bg);color:var(--err-ink);border-radius:10px;font-size:13px;display:none}
@@ -711,10 +712,10 @@ button:active{transform:translateY(0);filter:brightness(.98)}
 code{background:var(--accent-soft);color:var(--accent-ink);padding:1px 6px;border-radius:5px;font-size:11px}
 textarea,input[type=text],input[type=file],input[type=password],input[type=number],select{background:var(--surface);color:var(--text);caret-color:var(--accent)}
 select option{background:var(--surface);color:var(--text)}
-::placeholder{color:var(--text-3);opacity:1}
-input[type=checkbox]{accent-color:var(--accent)}</style><script>(function(){try{var t='';try{t=localStorage.getItem('voxcpm_theme')||'';}catch(e){}if(t!=='dark'&&t!=='light'){try{var qs=new URLSearchParams(location.search);var q=qs.get('theme')||qs.get('vox_theme');if(q==='dark'||q==='light'){t=q;}}catch(e){}}if(t!=='dark'&&t!=='light'){t=(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light';}document.documentElement.setAttribute('data-theme',t);}catch(e){document.documentElement.setAttribute('data-theme','light');}})();</script></head><body>
+::placeholder{color:var(--text-3);opacity:1}.ic{width:18px;height:18px;flex:0 0 auto;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;display:inline-block;vertical-align:-4px;transition:transform var(--t-fast) var(--ease),opacity var(--t-fast) var(--ease)}.ic-btn{display:inline-flex;align-items:center;justify-content:center;gap:7px}.ic-btn:active .ic{transform:scale(.9)}.ic-btn:disabled .ic{opacity:.5}@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important;scroll-behavior:auto!important}}
+input[type=checkbox]{accent-color:var(--accent)}</style><script>(function(){try{var t='';try{t=localStorage.getItem('voxcpm_theme')||'';}catch(e){}if(t!=='dark'&&t!=='light'){try{var qs=new URLSearchParams(location.search);var q=qs.get('theme')||qs.get('vox_theme');if(q==='dark'||q==='light'){t=q;}}catch(e){}}if(t!=='dark'&&t!=='light'){t=(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light';}document.documentElement.setAttribute('data-theme',t);}catch(e){document.documentElement.setAttribute('data-theme','light');}})();</script></head><body><svg aria-hidden="true" style="position:absolute;width:0;height:0;overflow:hidden"><defs><symbol id="i-wave" viewBox="0 0 24 24"><path d="M2 10v3"/><path d="M6 6v11"/><path d="M10 3v18"/><path d="M14 8v7"/><path d="M18 5v13"/><path d="M22 10v3"/></symbol></defs></svg>
 <div class="card">
-  <h1>🎙️ VoxCPM2 <span data-i18n="loginLocal">本地服务</span></h1>
+  <h1><svg class="ic" style="width:22px;height:22px;color:var(--accent)"><use href="#i-wave"/></svg> VoxCPM2 <span data-i18n="loginLocal">本地服务</span></h1>
   <p class="sub" data-i18n="loginSub">该服务已启用访问验证，请输入访问令牌。</p>
   <label data-i18n="loginToken">访问令牌 (Access Token)</label>
   <input type="password" id="tk" placeholder="vox2_..." autofocus>
@@ -763,7 +764,7 @@ APP_HTML = """<!DOCTYPE html>
 --res-bg:rgba(16,185,129,.08);--res-border:rgba(16,185,129,.25);--green:#10b981;--green-ink:#0b9d6e;
 --sky:#0ea5e9;--sky-ink:#0284c7;--violet:#7c5cff;--disabled:#b8b8c2;
 --focus:rgba(106,85,232,.14);--shadow-1:rgba(16,16,24,.05);--shadow-2:rgba(16,16,24,.12);
---range-track:#e6e6ec;--card-hi:rgba(255,255,255,.95)}
+--range-track:#e6e6ec;--card-hi:rgba(255,255,255,.95);--grid-line:rgba(90,70,214,.05)}
 html[data-theme="dark"]{color-scheme:dark;
 --bg:#0a0a0f;--surface:#131318;--surface-2:#18181f;--surface-3:#1f1f28;
 --border:rgba(255,255,255,.07);--border-2:rgba(255,255,255,.14);
@@ -776,11 +777,12 @@ html[data-theme="dark"]{color-scheme:dark;
 --res-bg:rgba(16,185,129,.10);--res-border:rgba(16,185,129,.3);--green:#34d399;--green-ink:#4ade80;
 --sky:#38bdf8;--sky-ink:#7dd3fc;--violet:#8f80ff;--disabled:#3f3f4c;
 --focus:rgba(124,107,255,.35);--shadow-1:rgba(0,0,0,.35);--shadow-2:rgba(0,0,0,.55);
---range-track:#2a2a36;--card-hi:rgba(255,255,255,.05)}
+--range-track:#2a2a36;--card-hi:rgba(255,255,255,.05);--grid-line:rgba(124,107,255,.10)}
+:root{--r-sm:8px;--r-md:12px;--r-lg:16px;--r-xl:20px;--r-full:999px;--sp-1:4px;--sp-2:8px;--sp-3:12px;--sp-4:16px;--sp-5:20px;--sp-6:24px;--sp-8:32px;--fs-xxs:11px;--fs-xs:12px;--fs-sm:13px;--fs-md:14px;--fs-lg:16px;--fs-xl:18px;--fs-2xl:24px;--ease:cubic-bezier(.4,0,.2,1);--ease-out:cubic-bezier(0,0,.2,1);--ease-spring:cubic-bezier(.34,1.56,.64,1);--t-fast:.15s;--t-base:.22s;--t-slow:.32s;--ring:0 0 0 3px var(--focus);--glow-1:0 0 0 1px var(--accent-glow),0 0 16px var(--accent-glow);--glow-2:0 0 0 1px var(--accent-glow),0 0 28px var(--accent-glow);--mono:ui-monospace,"SF Mono","Cascadia Code",Consolas,monospace}
 html{scroll-behavior:smooth}
 body{font-family:var(--font);font-size:14px;line-height:1.6;color:var(--text);padding:30px 20px 60px;
-background:var(--bg);background-image:radial-gradient(900px 340px at 50% -10%,var(--ambient),transparent 70%);
-background-attachment:fixed;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+background:var(--bg);background-image:linear-gradient(var(--grid-line) 1px,transparent 1px),linear-gradient(90deg,var(--grid-line) 1px,transparent 1px),radial-gradient(900px 340px at 50% -10%,var(--ambient),transparent 70%);
+background-size:34px 34px,34px 34px,auto;background-attachment:fixed;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 ::-webkit-scrollbar{width:10px;height:10px}
 ::-webkit-scrollbar-thumb{background:var(--border-2);border-radius:999px;border:2px solid transparent;background-clip:content-box}
 ::-webkit-scrollbar-thumb:hover{background:var(--text-3);background-clip:content-box}
@@ -793,40 +795,45 @@ box-shadow:inset 0 1px 0 var(--card-hi),0 1px 2px var(--shadow-1),0 12px 36px -2
 background:linear-gradient(180deg,var(--accent-3),var(--accent-2))}
 .top h1{font-size:18px;font-weight:650;letter-spacing:-.02em;display:flex;align-items:center;gap:10px}
 .badges{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.badge{font-size:12px;padding:5px 11px;border-radius:999px;background:var(--surface-3);color:var(--text-1);border:1px solid var(--border);transition:all .16s ease}
+.badge{font-size:12px;padding:5px 11px;border-radius:999px;background:var(--surface-3);color:var(--text-1);border:1px solid var(--border);transition:all var(--t-fast) var(--ease)}
 .badge.ok{background:var(--ok-bg);color:var(--ok-ink);border-color:transparent;display:inline-flex;align-items:center;gap:5px}
 .badge.ok::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--ok-ink)}
 .badge.warn{background:var(--warn-bg);color:var(--warn-ink);border-color:transparent}
 button.badge{cursor:pointer}
 button.badge:hover{border-color:var(--border-2)}
 .card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px;margin-bottom:20px;
-box-shadow:inset 0 1px 0 var(--card-hi),0 1px 2px var(--shadow-1),0 12px 40px -28px var(--shadow-2)}
+box-shadow:inset 0 1px 0 var(--card-hi),0 1px 2px var(--shadow-1),0 12px 40px -28px var(--shadow-2);transition:border-color var(--t-base) var(--ease),box-shadow var(--t-base) var(--ease)}
+.card:hover{border-color:var(--accent-glow);box-shadow:inset 0 1px 0 var(--card-hi),0 1px 2px var(--shadow-1),0 12px 40px -28px var(--shadow-2),var(--glow-1)}
+.card:not(.hide){animation:fadeUp var(--t-base) var(--ease)}
+.toast{position:fixed;left:50%;bottom:28px;transform:translate(-50%,12px);background:var(--surface);color:var(--text);border:1px solid var(--accent-glow);border-radius:var(--r-full);padding:9px 18px;font-size:13px;box-shadow:var(--glow-1),0 8px 24px var(--shadow-2);opacity:0;pointer-events:none;transition:opacity var(--t-base) var(--ease),transform var(--t-base) var(--ease);z-index:999}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+.chip.ic-btn{display:inline-flex;align-items:center;gap:6px}
 .tabs{display:flex;gap:4px;margin-bottom:20px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--border);
 border-radius:12px;padding:4px;box-shadow:inset 0 1px 0 var(--card-hi),0 1px 2px var(--shadow-1)}
-.tab{padding:8px 16px;border:none;border-radius:9px;background:transparent;cursor:pointer;font-size:13.5px;color:var(--text-2);transition:all .16s ease;font-weight:500}
+.tab{padding:8px 16px;border:none;border-radius:9px;background:transparent;cursor:pointer;font-size:13.5px;color:var(--text-2);transition:all var(--t-fast) var(--ease);font-weight:500}
 .tab:hover{color:var(--text);background:var(--surface-3)}
 .tab.active{background:linear-gradient(180deg,var(--accent-3),var(--accent-2));color:var(--on-accent);font-weight:600;
 box-shadow:inset 0 1px 0 rgba(255,255,255,.16),0 2px 8px var(--accent-glow)}
 label{display:block;font-size:13px;font-weight:550;color:var(--text-1);margin-bottom:7px}
 textarea{width:100%;padding:13px 14px;border:1px solid var(--border-2);border-radius:12px;font-size:14px;
-min-height:110px;resize:vertical;font-family:inherit;line-height:1.65;transition:border-color .16s ease,box-shadow .16s ease}
-input[type=text],input[type=file]{width:100%;padding:11px 13px;border:1px solid var(--border-2);border-radius:12px;font-size:14px;transition:border-color .16s ease,box-shadow .16s ease}
+min-height:110px;resize:vertical;font-family:inherit;line-height:1.65;transition:border-color var(--t-fast) var(--ease),box-shadow var(--t-fast) var(--ease)}
+input[type=text],input[type=file]{width:100%;padding:11px 13px;border:1px solid var(--border-2);border-radius:12px;font-size:14px;transition:border-color var(--t-fast) var(--ease),box-shadow var(--t-fast) var(--ease)}
 textarea:hover,input[type=text]:hover,input[type=file]:hover{border-color:var(--text-3)}
 textarea:focus,input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--focus)}
 .field{margin-bottom:16px}
 .hide{display:none}
 .chips{display:flex;gap:7px;flex-wrap:wrap;margin-top:8px}
-.chip{font-size:12px;padding:6px 12px;background:var(--accent-soft);color:var(--accent-ink);border-radius:999px;cursor:pointer;border:1px solid transparent;transition:all .16s ease}
+.chip{font-size:12px;padding:6px 12px;background:var(--accent-soft);color:var(--accent-ink);border-radius:999px;cursor:pointer;border:1px solid transparent;transition:all var(--t-fast) var(--ease)}
 .chip:hover{background:var(--accent-soft-2);border-color:var(--border)}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px}
-.pbox{background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:13px 14px;transition:border-color .16s ease}
+.pbox{background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:13px 14px;transition:border-color var(--t-fast) var(--ease)}
 .pbox:hover{border-color:var(--border-2)}
 .pbox label{font-size:12px;color:var(--text-2);font-weight:500;margin-bottom:8px}
 .prow{display:flex;align-items:center;gap:10px}
 .pv{font-family:ui-monospace,"SF Mono","Cascadia Code",Consolas,monospace;font-size:13px;color:var(--accent);min-width:34px;text-align:right;font-weight:600;font-variant-numeric:tabular-nums}
 input[type=range]{flex:1;-webkit-appearance:none;appearance:none;height:5px;border-radius:999px;background:var(--range-track);cursor:pointer}
 input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:16px;height:16px;border-radius:50%;
-background:var(--surface);border:2px solid var(--accent);box-shadow:0 1px 3px var(--shadow-2);transition:transform .15s ease,box-shadow .15s ease}
+background:var(--surface);border:2px solid var(--accent);box-shadow:0 1px 3px var(--shadow-2);transition:transform var(--t-fast) var(--ease),box-shadow var(--t-fast) var(--ease)}
 input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.15);box-shadow:0 2px 8px var(--accent-glow)}
 input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:var(--surface);border:2px solid var(--accent);box-shadow:0 1px 3px var(--shadow-2);cursor:pointer}
 input[type=range]::-moz-range-track{height:5px;border-radius:999px;background:var(--range-track)}
@@ -836,7 +843,7 @@ input[type=checkbox]{accent-color:var(--accent);width:15px;height:15px;cursor:po
 .gen{width:100%;padding:15px;background:linear-gradient(180deg,var(--accent-3),var(--accent-2));color:var(--on-accent);border:none;border-radius:13px;
 font-size:15px;font-weight:600;cursor:pointer;letter-spacing:.01em;
 box-shadow:inset 0 1px 0 rgba(255,255,255,.2),0 4px 16px var(--accent-glow);
-transition:transform .15s ease,box-shadow .2s ease,filter .2s ease}
+transition:transform var(--t-fast) var(--ease),box-shadow var(--t-base) var(--ease),filter var(--t-base) var(--ease)}
 .gen:hover:not(:disabled){transform:translateY(-1px);box-shadow:inset 0 1px 0 rgba(255,255,255,.2),0 8px 26px var(--accent-glow);filter:brightness(1.05)}
 .gen:active:not(:disabled){transform:translateY(0);filter:brightness(.98)}
 .gen:disabled{background:var(--disabled);box-shadow:none;cursor:not-allowed}
@@ -851,7 +858,7 @@ white-space:pre-wrap;line-height:1.6}
 .err.show{display:block}
 .res{margin-top:18px;padding:16px;background:var(--res-bg);border:1px solid var(--res-border);border-radius:14px;display:none;
 box-shadow:inset 0 1px 0 var(--card-hi)}
-.res.show{display:block;animation:fadeUp .25s ease}
+.res.show{display:block;animation:fadeUp var(--t-base) var(--ease)}
 @keyframes fadeUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 .res .meta{font-size:12px;color:var(--ok-ink);margin-bottom:10px}
 audio{width:100%}
@@ -863,46 +870,81 @@ audio{width:100%}
 .muted{color:var(--text-3);font-size:12px}
 .api{font-family:ui-monospace,"SF Mono","Cascadia Code",Consolas,monospace;font-size:12px;background:var(--surface-2);padding:12px 14px;
 border-radius:10px;color:var(--text-1);white-space:pre-wrap;line-height:1.7;overflow-x:auto;border:1px solid var(--border)}
-.ptab{padding:9px 16px;border:1px solid var(--border);border-radius:10px;background:var(--surface);cursor:pointer;font-size:13px;color:var(--text-1);transition:all .16s ease}
+.ptab{padding:9px 16px;border:1px solid var(--border);border-radius:10px;background:var(--surface);cursor:pointer;font-size:13px;color:var(--text-1);transition:all var(--t-fast) var(--ease)}
 .ptab:hover{border-color:var(--accent)}
 .ptab.active{background:linear-gradient(180deg,var(--accent-3),var(--accent-2));color:var(--on-accent);border-color:transparent;box-shadow:inset 0 1px 0 rgba(255,255,255,.16),0 2px 8px var(--accent-glow)}
 .pack{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 13px;
-border:1px solid var(--border);border-radius:12px;margin-bottom:8px;background:var(--surface);transition:border-color .16s ease,box-shadow .16s ease}
+border:1px solid var(--border);border-radius:12px;margin-bottom:8px;background:var(--surface);transition:border-color var(--t-fast) var(--ease),box-shadow var(--t-fast) var(--ease)}
 .pack:hover{border-color:var(--border-2);box-shadow:0 2px 10px var(--shadow-1)}
 .pack .info{min-width:0}
 .pack .nm{font-size:14px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pack .meta{font-size:12px;color:var(--text-2);margin-top:2px}
 .pack .acts{display:flex;gap:6px;flex-shrink:0}
-.pack .acts button{padding:6px 11px;border:1px solid var(--border);background:var(--surface);border-radius:8px;font-size:12px;cursor:pointer;color:var(--text-1);transition:all .15s ease}
+.pack .acts button{padding:6px 11px;border:1px solid var(--border);background:var(--surface);border-radius:8px;font-size:12px;cursor:pointer;color:var(--text-1);transition:all var(--t-fast) var(--ease)}
 .pack .acts button:hover{border-color:var(--accent);color:var(--link)}
 .pack .acts .del:hover{border-color:var(--danger-ink);color:var(--danger-ink)}
 .pack .acts .use{background:linear-gradient(180deg,var(--accent-3),var(--accent-2));color:var(--on-accent);border-color:transparent;box-shadow:0 2px 8px var(--accent-glow)}
-.vp-sel{width:100%;padding:10px 13px;border:1px solid var(--border-2);border-radius:12px;font-size:14px;margin-top:6px;background:var(--surface);transition:border-color .16s ease,box-shadow .16s ease;cursor:pointer}
+.vp-sel{width:100%;padding:10px 13px;border:1px solid var(--border-2);border-radius:12px;font-size:14px;margin-top:6px;background:var(--surface);transition:border-color var(--t-fast) var(--ease),box-shadow var(--t-fast) var(--ease);cursor:pointer}
 .vp-sel:hover{border-color:var(--text-3)}
 .vp-sel:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--focus)}
 textarea,input[type=text],input[type=file],input[type=password],input[type=number],select{background:var(--surface);color:var(--text);caret-color:var(--accent)}
 select option{background:var(--surface);color:var(--text)}
-::placeholder{color:var(--text-3);opacity:1}</style><script>(function(){try{var t='';try{t=localStorage.getItem('voxcpm_theme')||'';}catch(e){}if(t!=='dark'&&t!=='light'){try{var qs=new URLSearchParams(location.search);var q=qs.get('theme')||qs.get('vox_theme');if(q==='dark'||q==='light'){t=q;}}catch(e){}}if(t!=='dark'&&t!=='light'){t=(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light';}document.documentElement.setAttribute('data-theme',t);}catch(e){document.documentElement.setAttribute('data-theme','light');}})();</script></head><body>
+::placeholder{color:var(--text-3);opacity:1}.ic{width:18px;height:18px;flex:0 0 auto;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;display:inline-block;vertical-align:-4px;transition:transform var(--t-fast) var(--ease),opacity var(--t-fast) var(--ease)}.ic-btn{display:inline-flex;align-items:center;justify-content:center;gap:7px}.ic-btn:active .ic{transform:scale(.9)}.ic-btn:disabled .ic{opacity:.5}@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important;scroll-behavior:auto!important}}</style><script>(function(){try{var t='';try{t=localStorage.getItem('voxcpm_theme')||'';}catch(e){}if(t!=='dark'&&t!=='light'){try{var qs=new URLSearchParams(location.search);var q=qs.get('theme')||qs.get('vox_theme');if(q==='dark'||q==='light'){t=q;}}catch(e){}}if(t!=='dark'&&t!=='light'){t=(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light';}document.documentElement.setAttribute('data-theme',t);}catch(e){document.documentElement.setAttribute('data-theme','light');}})();</script></head><body><svg aria-hidden="true" style="position:absolute;width:0;height:0;overflow:hidden"><defs>
+<symbol id="i-wave" viewBox="0 0 24 24"><path d="M2 10v3"/><path d="M6 6v11"/><path d="M10 3v18"/><path d="M14 8v7"/><path d="M18 5v13"/><path d="M22 10v3"/></symbol>
+<symbol id="i-mic" viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></symbol>
+<symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></symbol>
+<symbol id="i-flask" viewBox="0 0 24 24"><path d="M10 2v7.5L4.5 18a2 2 0 0 0 1.8 3h11.4a2 2 0 0 0 1.8-3L14 9.5V2"/><path d="M8.5 2h7"/><path d="M7 16h10"/></symbol>
+<symbol id="i-cpu" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2"/></symbol>
+<symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></symbol>
+<symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></symbol>
+<symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/></symbol>
+<symbol id="i-save" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></symbol>
+<symbol id="i-zap" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></symbol>
+<symbol id="i-rotate" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></symbol>
+<symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></symbol>
+<symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></symbol>
+<symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+<symbol id="i-alert" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+<symbol id="i-clipboard" viewBox="0 0 24 24"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></symbol>
+<symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h6"/><path d="M16 7h4"/><circle cx="13" cy="7" r="2.2"/><path d="M4 17h4"/><path d="M14 17h6"/><circle cx="11" cy="17" r="2.2"/></symbol>
+<symbol id="i-headphones" viewBox="0 0 24 24"><path d="M4 15v-2a8 8 0 0 1 16 0v2"/><path d="M4 15a2 2 0 0 1 4 0v3a2 2 0 0 1-4 0Z"/><path d="M16 15a2 2 0 0 1 4 0v3a2 2 0 0 1-4 0Z"/></symbol>
+<symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 2 9 5-9 5-9-5 9-5Z"/><path d="m3 13 9 5 9-5"/></symbol>
+<symbol id="i-emotion" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8.4 14.4a4.6 4.6 0 0 0 7.2 0"/><path d="M9.2 9.5h.01"/><path d="M14.8 9.5h.01"/></symbol>
+<symbol id="i-puzzle" viewBox="0 0 24 24"><rect x="3" y="3" width="7.5" height="7.5" rx="1.6"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.6"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.6"/><path d="M17.25 13.8v7"/><path d="M13.8 17.25h7"/></symbol>
+<symbol id="i-volume" viewBox="0 0 24 24"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.6 8.6a4.8 4.8 0 0 1 0 6.8"/><path d="M18.6 5.6a9 9 0 0 1 0 12.8"/></symbol>
+<symbol id="i-cap" viewBox="0 0 24 24"><path d="M22 9 12 4 2 9l10 5 10-5Z"/><path d="M6 11.6V16c0 1.7 2.7 3 6 3s6-1.3 6-3v-4.4"/></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></symbol>
+<symbol id="i-file-text" viewBox="0 0 24 24"><path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7Z"/><path d="M14 2v5h5"/><path d="M9 13h6"/><path d="M9 17h4"/></symbol>
+<symbol id="i-sparkles" viewBox="0 0 24 24"><path d="M12 3.2 13.9 9l5.8 1.9-5.8 1.9L12 18.6 10.1 12.8 4.3 10.9 10.1 9Z"/><path d="M19 3v3"/><path d="M17.5 4.5h3"/></symbol>
+<symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7Z"/><path d="M14 2v5h5"/></symbol>
+<symbol id="i-inbox" viewBox="0 0 24 24"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.6 5h12.8l3.6 7v7a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-7Z"/></symbol>
+<symbol id="i-book" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/></symbol>
+<symbol id="i-rocket" viewBox="0 0 24 24"><path d="M5.2 15.2C3.6 16.8 3 20.6 3 20.6s3.8-.6 5.4-2.2"/><path d="M12.6 3.4c2.9-1.1 6.9-.2 6.9-.2s.9 4-.2 6.9c-1.5 4-5 6.9-8.6 7.9L7.9 15c1-3.6 3.9-7.1 7.9-8.6Z"/><circle cx="15.2" cy="8.8" r="1.5"/></symbol>
+<symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2.2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></symbol><symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2.4"/></symbol>
+<symbol id="i-moon" viewBox="0 0 24 24"><path d="M20.5 14.8A8.6 8.6 0 0 1 9.2 3.5a8.6 8.6 0 1 0 11.3 11.3Z"/></symbol>
+<symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.2"/><path d="M12 2v2.4"/><path d="M12 19.6V22"/><path d="M2 12h2.4"/><path d="M19.6 12H22"/><path d="m4.9 4.9 1.7 1.7"/><path d="m17.4 17.4 1.7 1.7"/><path d="m19.1 4.9-1.7 1.7"/><path d="m6.6 17.4-1.7 1.7"/></symbol>
+</defs></svg>
 <div class="wrap">
   <div class="top">
-    <h1>🎙️ VoxCPM2 <span class="muted" style="font-size:13px" data-i18n="localDeploy">本地部署</span></h1>
+    <h1><svg class="ic" style="width:20px;height:20px;color:var(--accent)"><use href="#i-wave"/></svg> VoxCPM2 <span class="muted" style="font-size:13px" data-i18n="localDeploy">本地部署</span></h1>
     <div class="badges">
       <span class="badge" id="devBadge">检测中…</span>
       <span class="badge ok">2B · 48kHz</span>
       <span class="badge" id="modelBadge" data-i18n="modelNotLoaded">模型未加载</span>
       <button class="badge" id="langZh" onclick="setLang('zh')" style="cursor:pointer;border:1px solid var(--border-2)">中</button>
       <button class="badge" id="langEn" onclick="setLang('en')" style="cursor:pointer;border:1px solid var(--border-2);opacity:.5">EN</button>
-      <button class="badge" id="themeBtn" onclick="toggleTheme()" style="cursor:pointer;border:1px solid var(--border-2)" title=""></button>
+      <button class="badge ic-btn" id="themeBtn" onclick="toggleTheme()" style="cursor:pointer;border:1px solid var(--border-2)" title=""><svg class="ic" id="themeBtnIc" style="width:14px;height:14px"><use href="#i-moon"/></svg><span id="themeBtnTxt"></span></button>
     </div>
   </div>
 
   <div class="tabs" id="mainNav" style="margin-bottom:16px">
-    <button class="tab active" data-mode="design" onclick="setMode('design')" data-i18n="modeDesign">🎨 语音设计</button>
-    <button class="tab" data-mode="clone" onclick="setMode('clone')" data-i18n="modeClone">🎛️ 音色克隆</button>
-    <button class="tab" data-mode="hifi" onclick="setMode('hifi')" data-i18n="modeHifi">🎙️ 极致克隆</button>
-    <button class="tab" data-mode="beta" onclick="setMode('beta')" data-i18n="modeBeta">🧪 内测 Beta</button>
-    <button class="tab" data-mode="train" onclick="setMode('train')" data-i18n="modeTrain">🎓 训练</button>
-    <button class="tab" data-mode="settings" onclick="setMode('settings')" data-i18n="modeSettings">⚙️ 设置</button>
+    <button class="tab active ic-btn" data-mode="design" onclick="setMode('design')"><svg class="ic"><use href="#i-wave"/></svg><span data-i18n="modeDesign">语音设计</span></button>
+    <button class="tab ic-btn" data-mode="clone" onclick="setMode('clone')"><svg class="ic"><use href="#i-copy"/></svg><span data-i18n="modeClone">音色克隆</span></button>
+    <button class="tab ic-btn" data-mode="hifi" onclick="setMode('hifi')"><svg class="ic"><use href="#i-mic"/></svg><span data-i18n="modeHifi">极致克隆</span></button>
+    <button class="tab ic-btn" data-mode="beta" onclick="setMode('beta')"><svg class="ic"><use href="#i-flask"/></svg><span data-i18n="modeBeta">内测 Beta</span></button>
+    <button class="tab ic-btn" data-mode="train" onclick="setMode('train')"><svg class="ic"><use href="#i-cpu"/></svg><span data-i18n="modeTrain">训练</span></button>
+    <button class="tab ic-btn" data-mode="settings" onclick="setMode('settings')"><svg class="ic"><use href="#i-gear"/></svg><span data-i18n="modeSettings">设置</span></button>
   </div>
 
   <div class="card" id="mainCard">
@@ -964,7 +1006,7 @@ select option{background:var(--surface);color:var(--text)}
     <div class="muted" style="font-size:12px;margin:-6px 0 10px" data-i18n="refTip">提示：参考音频超过 30 秒时会自动分段，按说话人声纹融合为约 25 秒的代表音频，显著缓解长音频克隆的失真与音色漂移。</div>
 
     <div class="field">
-      <label data-i18n="emoLabel">🎭 情绪语气（可选，套用一组音调/语速/停顿预设，可再手动微调）</label>
+      <label><svg class="ic"><use href="#i-emotion"/></svg> <span data-i18n="emoLabel">情绪语气（可选，套用一组音调/语速/停顿预设，可再手动微调）</span></label>
       <select id="emotionSel" class="vp-sel" onchange="applyEmotion(this.value)">
         <option value="" data-i18n="emoNone">— 不指定情绪 —</option>
         <option value="高兴" data-i18n="emoHappy">高兴</option>
@@ -976,7 +1018,7 @@ select option{background:var(--surface);color:var(--text)}
       </select>
     </div>
     <div class="field">
-      <label data-i18n="loraLabel">🧩 LoRA 微调音色（训练页产出，选用后整段生效）</label>
+      <label><svg class="ic"><use href="#i-puzzle"/></svg> <span data-i18n="loraLabel">LoRA 微调音色（训练页产出，选用后整段生效）</span></label>
       <select id="loraSel" class="vp-sel" onchange="onLoraSel()">
         <option value="" data-i18n="loraNone">— 不使用 —</option>
       </select>
@@ -1018,7 +1060,7 @@ select option{background:var(--surface);color:var(--text)}
       <label title="解析 <break>/<prosody>/<emotion> 等 SSML 标签，强制控制停顿/重音/语速"><input type="checkbox" id="ssml"> <span data-i18n="ssmlLabel">启用 SSML 标签</span></label>
     </div>
 
-    <button class="gen" id="btn" onclick="generate()" data-i18n="genBtn">🔊 生成语音</button>
+    <button class="gen" id="btn" onclick="generate()"><svg class="ic"><use href="#i-volume"/></svg> <span data-i18n="genBtn">生成语音</span></button>
 
     <div class="status" id="status"><div class="spin"></div><div id="statusText" data-i18n="statusIdle">生成中…</div></div>
     <div class="err" id="err"></div>
@@ -1031,7 +1073,7 @@ select option{background:var(--surface);color:var(--text)}
           <option value="wav">导出 WAV</option>
           <option value="m4a">导出 M4A</option>
         </select>
-        <button id="exportBtn" onclick="exportAudio()" data-i18n="exportLabel" style="padding:8px 14px;border:1px solid var(--border-2);border-radius:8px;background:var(--surface);cursor:pointer;font-size:13px">⬇️ 导出</button>
+        <button id="exportBtn" onclick="exportAudio()" style="padding:8px 14px;border:1px solid var(--border-2);border-radius:8px;background:var(--surface);cursor:pointer;font-size:13px"><svg class="ic"><use href="#i-download"/></svg> <span data-i18n="exportLabel">导出</span></button>
       </div>
     </div>
   </div>
@@ -1045,7 +1087,7 @@ select option{background:var(--surface);color:var(--text)}
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
       <button class="chip" onclick="setMode(prevMode||'design')" data-i18n="backBtn" style="padding:6px 12px;border:1px solid var(--border-2);border-radius:8px;background:var(--surface);cursor:pointer;font-size:13px">← 返回</button>
       <span class="badge">LLM</span>
-      <label data-i18n="setTitle" style="margin:0">⚙️ 设置 · AI 内核配置</label>
+      <label style="margin:0"><svg class="ic"><use href="#i-gear"/></svg> <span data-i18n="setTitle">设置 · AI 内核配置</span></label>
     </div>
 
     <div class="muted" style="margin-bottom:14px;line-height:1.7" data-i18n="setDesc">导演层的「AI 内核」需要一个可调用的大模型来梳理情绪与停顿。在这里填入任意 OpenAI 兼容服务的密钥即可启用——选中服务商后地址与模型会自动带出，也可以选「自定义」手填任何中转站或内网网关。密钥只保存在本机 <code>llm_config.json</code>，不会外传。</div>
@@ -1076,7 +1118,8 @@ select option{background:var(--surface);color:var(--text)}
         <input type="password" id="setKey" autocomplete="off" style="flex:1;min-width:220px"
                oninput="setKeyWasTyped()"
                data-i18n-ph="setKeyPh" placeholder="粘贴你的 API Key（留空表示不修改已保存的密钥）">
-        <button class="chip" id="setKeyToggle" onclick="setToggleKeyView()" style="padding:8px 12px" data-i18n="setShow">👁 显示</button>
+        <button class="chip ic-btn" id="setKeyToggle" onclick="setToggleKeyView()" style="padding:8px 12px"><svg class="ic" id="setKeyToggleIc"><use href="#i-eye"/></svg><span id="setKeyToggleTxt" data-i18n="setShow">显示</span></button>
+        <button class="chip ic-btn" id="setKeyCopy" onclick="copyKey()" style="padding:8px 12px" title="复制"><svg class="ic"><use href="#i-clipboard"/></svg></button>
       </div>
       <div class="muted" id="setKeyHint" style="margin-top:6px;font-size:12px;line-height:1.6"></div>
     </div>
@@ -1092,14 +1135,14 @@ select option{background:var(--surface);color:var(--text)}
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <input type="text" id="setModel" list="setModelList" placeholder="deepseek-chat" style="flex:1;min-width:200px">
         <datalist id="setModelList"></datalist>
-        <button class="chip" id="setFetchModelsBtn" onclick="setFetchModels()" style="padding:8px 12px" data-i18n="setFetchModels">⬇ 拉取可用模型</button>
+        <button class="chip ic-btn" id="setFetchModelsBtn" onclick="setFetchModels()" style="padding:8px 12px"><svg class="ic"><use href="#i-download"/></svg><span data-i18n="setFetchModels">拉取可用模型</span></button>
       </div>
       <div class="muted" id="setModelHint" style="margin-top:6px;font-size:12px;line-height:1.6"></div>
     </div>
 
     <!-- 高级参数 -->
     <details style="border:1px solid var(--border-2);border-radius:10px;padding:10px 12px;margin-bottom:14px">
-      <summary style="cursor:pointer;font-weight:600;font-size:14px;outline:none" data-i18n="setAdvanced">🔧 高级参数（默认即可）</summary>
+      <summary style="cursor:pointer;font-weight:600;font-size:14px;outline:none"><svg class="ic"><use href="#i-sliders"/></svg> <span data-i18n="setAdvanced">高级参数（默认即可）</span></summary>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-top:10px">
         <div><div class="muted" style="font-size:11px" data-i18n="setTimeout">超时（秒）</div>
           <input type="number" id="setTimeout" min="5" max="600" step="5" value="60"></div>
@@ -1116,9 +1159,9 @@ select option{background:var(--surface);color:var(--text)}
 
     <!-- 动作 -->
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
-      <button class="chip" id="setSaveBtn" onclick="settingsSave()" style="padding:9px 20px;background:var(--violet);color:var(--on-accent);font-weight:600" data-i18n="setSave">💾 保存并测试</button>
-      <button class="chip" id="setTestBtn" onclick="settingsTest()" style="padding:9px 18px" data-i18n="setTest">🔌 仅测试连接</button>
-      <button class="chip" id="setReloadBtn" onclick="settingsLoad(true)" style="padding:9px 18px" data-i18n="setReload">↻ 重新读取</button>
+      <button class="chip ic-btn" id="setSaveBtn" onclick="settingsSave()" style="padding:9px 20px;background:var(--violet);color:var(--on-accent);font-weight:600"><svg class="ic"><use href="#i-save"/></svg><span data-i18n="setSave">保存并测试</span></button>
+      <button class="chip ic-btn" id="setTestBtn" onclick="settingsTest()" style="padding:9px 18px"><svg class="ic"><use href="#i-zap"/></svg><span data-i18n="setTest">仅测试连接</span></button>
+      <button class="chip ic-btn" id="setReloadBtn" onclick="settingsLoad(true)" style="padding:9px 18px"><svg class="ic"><use href="#i-rotate"/></svg><span data-i18n="setReload">重新读取</span></button>
     </div>
 
     <div class="err" id="setErr"></div>
@@ -1181,10 +1224,10 @@ select option{background:var(--surface);color:var(--text)}
     <div id="betaLlmBar" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px;padding:8px 10px;border:1px solid var(--border-2);border-radius:8px;background:var(--surface-2);font-size:12px">
       <span id="betaLlmDot" style="width:8px;height:8px;border-radius:50%;background:var(--disabled);display:inline-block;flex:0 0 auto"></span>
       <span id="betaLlmText" class="muted" style="flex:1;min-width:160px"></span>
-      <button class="chip" onclick="setMode('settings')" style="padding:4px 12px;font-size:12px" data-i18n="betaLlmGo">⚙️ 配置 Key</button>
+      <button class="chip ic-btn" onclick="setMode('settings')" style="padding:4px 12px;font-size:12px"><svg class="ic"><use href="#i-gear"/></svg><span data-i18n="betaLlmGo">配置 Key</span></button>
     </div>
     <div id="betaPlanOut" class="muted" style="display:none;font-size:12px;line-height:1.55;white-space:pre-wrap;max-height:200px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:12px;font-family:ui-monospace,Consolas,monospace"></div>
-    <button class="gen" id="betaBtn" onclick="betaGenerate()" data-i18n="betaGenerate">🎭 多人朗读生成</button>
+    <button class="gen" id="betaBtn" onclick="betaGenerate()"><svg class="ic"><use href="#i-emotion"/></svg> <span data-i18n="betaGenerate">多人朗读生成</span></button>
     <div class="status" id="betaStatus" style="display:none"><div class="spin"></div><div id="betaStatusText"></div></div>
     <div class="err" id="betaErr"></div>
     <div class="res" id="betaRes" style="display:none">
@@ -1197,18 +1240,18 @@ select option{background:var(--surface);color:var(--text)}
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
       <button class="chip" onclick="setMode(prevMode||'design')" data-i18n="backBtn" style="padding:6px 12px;border:1px solid var(--border-2);border-radius:8px;background:var(--surface);cursor:pointer;font-size:13px">← 返回</button>
       <span class="badge">LoRA</span>
-      <label data-i18n="trainTitle" style="margin:0">🎓 持续训练</label>
+      <label style="margin:0"><svg class="ic"><use href="#i-cap"/></svg> <span data-i18n="trainTitle">持续训练</span></label>
       <span id="trainStatsBadge" class="badge" style="margin-left:auto"></span>
     </div>
     <div class="muted" style="margin-bottom:12px" data-i18n="trainDesc">上传语音并填写对应台词，让模型持续学习音色与风格。建议每条 3~30 秒清晰人声，总计 5 条以上效果更好。训练采用 LoRA（不动原模型权重），完成后可在生成页的「LoRA」下拉中选用。</div>
 
     <div class="field">
-      <label data-i18n="trainAddLabel">➕ 添加训练样本</label>
+      <label><svg class="ic"><use href="#i-plus"/></svg> <span data-i18n="trainAddLabel">添加训练样本</span></label>
       <input type="file" id="trainFile" accept="audio/*">
       <textarea id="trainText" data-i18n-ph="trainTextPh" style="min-height:54px;margin-top:6px" placeholder="逐字填写这段语音说的内容（与音频完全一致）"></textarea>
       <div style="display:flex;gap:14px;margin-top:6px;flex-wrap:wrap;font-size:12px;color:var(--text-1)">
-        <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="tsDenoise"> <span data-i18n="enDenoise">🔊 导入前降噪（去除底噪/电流声）</span></label>
-        <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="tsVocal"> <span data-i18n="enVocalOnly">🎤 只保留纯净人声（去背景音乐）</span></label>
+        <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="tsDenoise"> <span><svg class="ic"><use href="#i-volume"/></svg> <span data-i18n="enDenoise">导入前降噪（去除底噪/电流声）</span></span></label>
+        <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="tsVocal"> <span><svg class="ic"><use href="#i-mic"/></svg> <span data-i18n="enVocalOnly">只保留纯净人声（去背景音乐）</span></span></label>
       </div>
       <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
         <input type="text" id="trainName" data-i18n-ph="trainNamePh" placeholder="备注名（可选）" style="flex:1;min-width:140px">
@@ -1218,28 +1261,28 @@ select option{background:var(--surface);color:var(--text)}
     </div>
 
     <details id="trWrap" style="border:1px solid var(--border-2);border-radius:10px;padding:10px 12px;margin-bottom:14px">
-      <summary style="cursor:pointer;font-weight:600;font-size:14px;outline:none" data-i18n="trSummary">🎧 长音频自动转写（whisper 离线切句，免手填台词）</summary>
+      <summary style="cursor:pointer;font-weight:600;font-size:14px;outline:none"><svg class="ic"><use href="#i-headphones"/></svg> <span data-i18n="trSummary">长音频自动转写（whisper 离线切句，免手填台词）</span></summary>
       <div style="margin-top:10px">
         <div class="muted" style="margin-bottom:8px;line-height:1.6" data-i18n="trDesc">上传 1~10 分钟的语音（清晰人声、无背景乐效果最佳），会自动按静音切句并逐句转写。核对/修改每段文本后勾选导入为训练样本。首次转写需下载约 460MB 模型（一次性）。</div>
         <input type="file" id="trFile" accept="audio/*">
         <div style="display:flex;gap:14px;margin-top:6px;flex-wrap:wrap;font-size:12px;color:var(--text-1)">
-          <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="trDenoise"> <span data-i18n="enDenoise">🔊 导入前降噪（去除底噪/电流声）</span></label>
-          <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="trVocal"> <span data-i18n="enVocalOnly">🎤 只保留纯净人声（去背景音乐）</span></label>
+          <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="trDenoise"> <span><svg class="ic"><use href="#i-volume"/></svg> <span data-i18n="enDenoise">导入前降噪（去除底噪/电流声）</span></span></label>
+          <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="trVocal"> <span><svg class="ic"><use href="#i-mic"/></svg> <span data-i18n="enVocalOnly">只保留纯净人声（去背景音乐）</span></span></label>
         </div>
         <div style="margin-top:8px">
-          <div style="font-size:12px;font-weight:600;color:var(--text-1)" data-i18n="trTranscriptLabel">📝 有完整台词？粘贴全文，自动逐句匹配到各分段（免手动逐条修改）</div>
+          <div style="font-size:12px;font-weight:600;color:var(--text-1)"><svg class="ic"><use href="#i-file-text"/></svg> <span data-i18n="trTranscriptLabel">有完整台词？粘贴全文，自动逐句匹配到各分段（免手动逐条修改）</span></div>
           <textarea id="trTranscript" rows="4" style="width:100%;margin-top:4px;font-size:13px;box-sizing:border-box" data-i18n-ph="trTranscriptPh" placeholder="把与音频完全一致的完整台词粘贴到这里（每行一句效果最佳）。可先转写后再粘贴点「按台词匹配」，也可上传前就粘贴、转写完成后自动匹配。"></textarea>
           <div style="display:flex;gap:8px;margin-top:6px;align-items:center;flex-wrap:wrap">
-            <button class="chip" id="trAlignBtn" style="display:none;padding:6px 14px;background:var(--violet);color:var(--on-accent)" data-i18n="trAlign">✨ 按台词匹配到各分段</button>
-            <label class="chip" style="padding:6px 14px;cursor:pointer;font-size:13px;display:inline-flex;align-items:center;gap:4px">📄 <span data-i18n="trTxtFile">载入 txt 台词</span>
+            <button class="chip" id="trAlignBtn" style="display:none;padding:6px 14px;background:var(--violet);color:var(--on-accent)"><svg class="ic"><use href="#i-sparkles"/></svg> <span data-i18n="trAlign">按台词匹配到各分段</span></button>
+            <label class="chip" style="padding:6px 14px;cursor:pointer;font-size:13px;display:inline-flex;align-items:center;gap:4px"><svg class="ic"><use href="#i-file"/></svg> <span data-i18n="trTxtFile">载入 txt 台词</span>
               <input type="file" id="trTxtFile" accept=".txt,text/plain" style="display:none">
             </label>
             <span class="muted" id="trAlignNote" style="font-size:12px"></span>
           </div>
         </div>
         <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
-          <button class="chip" id="trStartBtn" style="padding:8px 16px" data-i18n="trStart">🎧 开始转写</button>
-          <button class="chip" id="trImportBtn" style="display:none;padding:8px 16px;background:var(--green);color:var(--on-accent)" data-i18n="trImport">📥 导入勾选项</button>
+          <button class="chip" id="trStartBtn" style="padding:8px 16px"><svg class="ic"><use href="#i-headphones"/></svg> <span data-i18n="trStart">开始转写</span></button>
+          <button class="chip ic-btn" id="trImportBtn" style="display:none;padding:8px 16px;background:var(--green);color:var(--on-accent)"><svg class="ic"><use href="#i-inbox"/></svg><span id="trImportTxt" data-i18n="trImport">导入勾选项</span></button>
         </div>
         <div class="muted" id="trStatus" style="margin-top:8px"></div>
         <div class="err" id="trErr"></div>
@@ -1248,12 +1291,12 @@ select option{background:var(--surface);color:var(--text)}
     </details>
 
     <div class="field">
-      <label data-i18n="trainSamplesLabel">📚 训练样本</label>
+      <label><svg class="ic"><use href="#i-book"/></svg> <span data-i18n="trainSamplesLabel">训练样本</span></label>
       <div id="trainSamples"><div class="muted" data-i18n="trainNoSamples">还没有样本，先在上面添加几条。</div></div>
     </div>
 
     <div class="field">
-      <label data-i18n="trainParamsLabel">⚙️ 训练参数（默认即可）</label>
+      <label><svg class="ic"><use href="#i-sliders"/></svg> <span data-i18n="trainParamsLabel">训练参数（默认即可）</span></label>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px">
         <div><div class="muted" style="font-size:11px" data-i18n="trainPName">任务名</div><input type="text" id="tpName" placeholder="auto"></div>
         <div><div class="muted" style="font-size:11px" data-i18n="trainPRank">秩 r</div><input type="number" id="tpR" value="8" min="1" max="64"></div>
@@ -1265,8 +1308,8 @@ select option{background:var(--surface);color:var(--text)}
     </div>
 
     <div style="display:flex;gap:8px;margin-bottom:10px">
-      <button class="gen" id="trainStartBtn" style="flex:1" data-i18n="trainStart">🚀 开始训练</button>
-      <button class="gen" id="trainStopBtn" style="flex:0 0 auto;background:var(--danger);display:none" data-i18n="trainStop">⏹ 停止</button>
+      <button class="gen" id="trainStartBtn" style="flex:1"><svg class="ic" id="trainStartIc"><use href="#i-rocket"/></svg> <span id="trainStartTxt" data-i18n="trainStart">开始训练</span></button>
+      <button class="gen" id="trainStopBtn" style="flex:0 0 auto;background:var(--danger);display:none"><svg class="ic"><use href="#i-stop"/></svg> <span data-i18n="trainStop">停止</span></button>
     </div>
     <div class="muted" id="trainNeedHint" style="display:none;font-size:12px;margin:-6px 0 10px;color:var(--warn-ink)"></div>
 
@@ -1277,26 +1320,26 @@ select option{background:var(--surface);color:var(--text)}
     </div>
 
     <div class="field">
-      <label data-i18n="trainLorasLabel">🧩 已训练的 LoRA（生成页可选用）</label>
+      <label><svg class="ic"><use href="#i-puzzle"/></svg> <span data-i18n="trainLorasLabel">已训练的 LoRA（生成页可选用）</span></label>
       <div id="trainLoras"><div class="muted" data-i18n="trainNoLoras">还没有训练好的 LoRA。</div></div>
     </div>
   </div>
 
   <div class="card" id="packCard">
     <div class="tabs">
-      <button class="ptab active" data-pane="manage" onclick="showPackPane('manage')" data-i18n="packManage">🎭 音色包管理</button>
-      <button class="ptab" data-pane="save" onclick="showPackPane('save')" data-i18n="packMake">🎙️ 制作音色声线包</button>
+      <button class="ptab active ic-btn" data-pane="manage" onclick="showPackPane('manage')"><svg class="ic"><use href="#i-layers"/></svg><span data-i18n="packManage">音色包管理</span></button>
+      <button class="ptab ic-btn" data-pane="save" onclick="showPackPane('save')"><svg class="ic"><use href="#i-mic"/></svg><span data-i18n="packMake">制作音色声线包</span></button>
     </div>
 
       <div id="packManage">
-        <div class="muted" style="margin-bottom:12px" data-i18n="packDesc">已提取并保存在本地的音色声线包，后续克隆可直接选用，无需重复上传长音频。数据存于 <code>voice_packs/</code> 目录，重启服务后依然保留。也可用 API：<code>POST /api/voicepacks</code> 保存，生成时传 <code>voice_pack_id</code>。带 <span style="color:var(--warn-ink)">⚡加速</span> 标记的音色包在生成时自动提速。</div>
+        <div class="muted" style="margin-bottom:12px" data-i18n="packDesc">已提取并保存在本地的音色声线包，后续克隆可直接选用，无需重复上传长音频。数据存于 <code>voice_packs/</code> 目录，重启服务后依然保留。也可用 API：<code>POST /api/voicepacks</code> 保存，生成时传 <code>voice_pack_id</code>。带 <span style="color:var(--warn-ink)">加速</span> 标记的音色包在生成时自动提速。</div>
         <div id="packList"><div class="muted" data-i18n="packEmpty">还没有音色包，去“制作音色声线包”做一个吧。</div></div>
       </div>
 
     <div id="packSave" class="hide">
       <div class="field">
         <label data-i18n="recMethod">方式一：实时录制（直接用麦克风，无需上传文件）</label>
-        <button class="gen" id="recBtn" onclick="startRec()" style="background:var(--sky)" data-i18n="recStart">🎤 开始录制</button>
+        <button class="gen" id="recBtn" onclick="startRec()" style="background:var(--sky)"><svg class="ic" id="recBtnIc"><use href="#i-mic"/></svg> <span id="recBtnTxt" data-i18n="recStart">开始录制</span></button>
         <div class="muted" id="recStatus" style="margin-top:6px;color:var(--sky-ink)" data-i18n="recHint">点击下方按钮授权麦克风后开始朗读，建议 10–30 秒清晰语句；录制完可回放确认。</div>
         <div class="field hide" id="recWrap" style="margin-top:10px">
           <label data-i18n="recPlayback">录制回放（确认无误再保存）</label>
@@ -1315,9 +1358,9 @@ select option{background:var(--surface);color:var(--text)}
       <div class="checks">
         <label><input type="checkbox" id="vpDenoise" checked> <span data-i18n="vpDenoise">参考音频降噪</span></label>
         <label><input type="checkbox" id="vpRemoveBg"> <span data-i18n="vpRemoveBg">去除背景音/音乐</span></label>
-        <label title="开启后，使用该音色包克隆生成时会自动采用更少扩散步数，生成更快（音质略降）"><input type="checkbox" id="vpAccel"> <span data-i18n="vpAccel">🚀 加速模式（生成更快）</span></label>
+        <label title="开启后，使用该音色包克隆生成时会自动采用更少扩散步数，生成更快（音质略降）"><input type="checkbox" id="vpAccel"> <span><svg class="ic"><use href="#i-rocket"/></svg> <span data-i18n="vpAccel">加速模式（生成更快）</span></span></label>
       </div>
-      <button class="gen" id="vpSaveBtn" onclick="savePack()" data-i18n="vpSaveBtn">🔒 提取并保存音色包</button>
+      <button class="gen" id="vpSaveBtn" onclick="savePack()"><svg class="ic"><use href="#i-lock"/></svg> <span data-i18n="vpSaveBtn">提取并保存音色包</span></button>
       <div class="status" id="vpStatus"><div class="spin"></div><div id="vpStatusText" data-i18n="vpStatusIdle">提取中…（首次需加载模型，请稍候）</div></div>
       <div class="err" id="vpErr"></div>
     </div>
@@ -1343,13 +1386,13 @@ let lastOutputName=null;
 // ===== i18n 双语言 =====
 const I18N={
   zh:{localDeploy:'本地部署',detecting:'检测中…',modelNotLoaded:'模型未加载',modelReady:'模型就绪',
-      modeDesign:'🎨 语音设计',modeClone:'🎛️ 音色克隆',modeHifi:'🎙️ 极致克隆',modeBeta:'🧪 内测 Beta',modeTrain:'🎓 训练',
+      modeDesign:'语音设计',modeClone:'音色克隆',modeHifi:'极致克隆',modeBeta:'内测 Beta',modeTrain:'训练',
       history:'本次会话生成记录',noHistory:'还没有生成记录',
       betaTitle:'多人朗读与情绪控制',
       betaDesc:'用 (@音色包名) 切换角色，用 (情绪词) 控制语气。例：(@张三)你好，(开心)今天真不错！(@李四)是啊。',
       betaTextLabel:'朗读文本（输入 (@ 会弹出音色包，支持 情绪词）',
       emoHappy:'开心',emoSad:'悲伤',emoAngry:'生气',emoSerious:'严肃',emoGentle:'温柔',
-      betaGenerate:'🎭 多人朗读生成',betaLoading:'生成中…已用 ',betaSeconds:' 秒',betaFail:'请求失败',
+      betaGenerate:'多人朗读生成',betaLoading:'生成中…已用 ',betaSeconds:' 秒',betaFail:'请求失败',
       dialogueTitle:'对话面板（每次参与一个独立面板，可折叠，参数独立调节）',
       dialogueEmpty:'文本里用 (@音色包名) 指定角色后，这里会为每次参与生成独立面板。',
       turnLabel:'第{n}次参与',
@@ -1361,9 +1404,9 @@ const I18N={
       betaEngineRule:'规则版（本地·快）',
       betaEngineLlm:'AI 内核（LLM·需配 Key）',
       betaPlanBtn:'预览梳理结果',
-      betaLlmGo:'⚙️ 配置 Key',
-      modeSettings:'⚙️ 设置',
-      setTitle:'⚙️ 设置 · AI 内核配置',
+      betaLlmGo:'配置 Key',
+      modeSettings:'设置',
+      setTitle:'设置 · AI 内核配置',
       setReasonNotEnabled:'AI 内核未启用（把上面的开关打开即可）',
       setReasonNoKey:'缺少 API Key —— 填好下面的密钥后保存',
       setReasonNoBaseUrl:'缺少 base_url（接口地址）',
@@ -1374,21 +1417,21 @@ const I18N={
       setProviderLabel:'服务商预设',
       setKeyLabel:'API Key',
       setKeyPh:'粘贴你的 API Key（留空表示不修改已保存的密钥）',
-      setShow:'👁 显示',
+      setShow:'显示',
       setBaseLabel:'接口地址 base_url',
       setModelLabel:'模型名 model',
-      setFetchModels:'⬇ 拉取可用模型',
-      setAdvanced:'🔧 高级参数（默认即可）',
+      setFetchModels:'拉取可用模型',
+      setAdvanced:'高级参数（默认即可）',
       setTimeout:'超时（秒）',setTemp:'温度 temperature',setProxy:'代理（留空=直连）',
       setJsonMode:'使用 JSON 模式（兼容层不支持时自动回退）',
       setCache:'缓存梳理结果（同文本不重复调用）',
-      setSave:'💾 保存并测试',setTest:'🔌 仅测试连接',setReload:'↻ 重新读取',
+      setSave:'保存并测试',setTest:'仅测试连接',setReload:'重新读取',
       betaPlanLoading:'正在梳理文本…',
       betaPlanFail:'梳理失败',
       betaPlanTitle:'导演层梳理结果',
       backBtn:'← 返回',
-      synthText:'合成文本',genBtn:'🔊 生成语音',
-      packManage:'🎭 音色包管理',
+      synthText:'合成文本',genBtn:'生成语音',
+      packManage:'音色包管理',
       textDefault:'你好，这里是本地部署的 VoxCPM2 语音大模型，现在可以直接在浏览器里使用了。',
       chip1:'年轻女性·温柔',chip2:'中年男性·沉稳',chip3:'活力少年',chip4:'粤语',chip5:'四川话',chip6:'新闻播报',
       designHint:'语音设计模式：用「()」在文本开头描述想要的音色、情绪、语速，例如「(年轻女性，温柔甜美)你好」。',
@@ -1398,29 +1441,29 @@ const I18N={
       cfgLabel:'CFG 引导强度（1.0-3.0，默认 2.0）',stepsLabel:'扩散步数（4-30，越大越细腻越慢）',
       normalizeLabel:'文本规范化（数字/日期正确读出）',denoiseLabel:'参考音频降噪',removeBgLabel:'去除背景音/音乐',stableLabel:'长文本稳定合成',
       refTip:'提示：参考音频超过 30 秒时会自动分段，按说话人声纹融合为约 25 秒的代表音频，显著缓解长音频克隆的失真与音色漂移。',
-      emoLabel:'🎭 情绪语气（可选，套用一组音调/语速/停顿预设，可再手动微调）',emoNone:'— 不指定情绪 —',emoCalm:'平静',
+      emoLabel:'情绪语气（可选，套用一组音调/语速/停顿预设，可再手动微调）',emoNone:'— 不指定情绪 —',emoCalm:'平静',
       pitchLabel:'音调（半音，0=原音）',speedLabel:'语速（0.5x-2.0x）',volumeLabel:'音量（0.1x-2.0x）',pauseLabel:'句间停顿（秒，0=无）',breathLabel:'呼吸声轻重（0=无）',
-      ssmlLabel:'启用 SSML 标签',statusIdle:'生成中…',exportLabel:'⬇️ 导出',
+      ssmlLabel:'启用 SSML 标签',statusIdle:'生成中…',exportLabel:'导出',
       betaAtTag:'@音色',
       betaDefault:'(@磁性女声，我i的最爱)你好，欢迎使用多人朗读功能。(开心)今天真不错！',
-      packMake:'🎙️ 制作音色声线包',
-      packDesc:'已提取并保存在本地的音色声线包，后续克隆可直接选用，无需重复上传长音频。数据存于 voice_packs/ 目录，重启服务后依然保留。也可用 API：POST /api/voicepacks 保存，生成时传 voice_pack_id。带 ⚡加速 标记的音色包在生成时自动提速。',
+      packMake:'制作音色声线包',
+      packDesc:'已提取并保存在本地的音色声线包，后续克隆可直接选用，无需重复上传长音频。数据存于 voice_packs/ 目录，重启服务后依然保留。也可用 API：POST /api/voicepacks 保存，生成时传 voice_pack_id。带 加速 标记的音色包在生成时自动提速。',
       packEmpty:'还没有音色包，去“制作音色声线包”做一个吧。',
-      recMethod:'方式一：实时录制（直接用麦克风，无需上传文件）',recStart:'🎤 开始录制',
+      recMethod:'方式一：实时录制（直接用麦克风，无需上传文件）',recStart:'开始录制',
       recHint:'点击下方按钮授权麦克风后开始朗读，建议 10–30 秒清晰语句；录制完可回放确认。',recPlayback:'录制回放（确认无误再保存）',
       upMethod:'方式二：上传音频或拖拽视频（wav/mp3/flac/mp4/mov 等，视频自动提取人声）',
       vpDropHint:'建议 10–60 秒清晰人声；超过 30 秒会自动分段并融合为约 25 秒的代表参考。视频文件会自动提取音轨（需已安装 ffmpeg）。',
       vpNameLabel:'音色包名称（便于识别）',vpNamePh:'例如：客服小美 / 讲师老王',
-      vpDenoise:'参考音频降噪',vpRemoveBg:'去除背景音/音乐',vpAccel:'🚀 加速模式（生成更快）',
-      vpSaveBtn:'🔒 提取并保存音色包',vpStatusIdle:'提取中…（首次需加载模型，请稍候）',
+      vpDenoise:'参考音频降噪',vpRemoveBg:'去除背景音/音乐',vpAccel:'加速模式（生成更快）',
+      vpSaveBtn:'提取并保存音色包',vpStatusIdle:'提取中…（首次需加载模型，请稍候）',
       apiLabel:'API 调用示例（令牌放请求头）',apiToken:'你的访问令牌',
-      trainTitle:'🎓 持续训练',trainDesc:'上传语音并填写对应台词，让模型持续学习音色与风格。建议每条 3~30 秒清晰人声，总计 5 条以上效果更好。训练采用 LoRA（不动原模型权重），完成后可在生成页的「LoRA」下拉中选用。',
-      trainAddLabel:'➕ 添加训练样本',trainTextPh:'逐字填写这段语音说的内容（与音频完全一致）',trainNamePh:'备注名（可选）',trainAddBtn:'添加样本',
-      trainSamplesLabel:'📚 训练样本',trainNoSamples:'还没有样本，先在上面添加几条。',
-      trainParamsLabel:'⚙️ 训练参数（默认即可）',trainPName:'任务名',trainPRank:'秩 r',trainPAlpha:'Alpha',trainPLr:'学习率',trainPEpochs:'轮数',trainPAccum:'梯度累积',
-      trainStart:'🚀 开始训练',trainStop:'⏹ 停止',
-      trainLorasLabel:'🧩 已训练的 LoRA（生成页可选用）',trainNoLoras:'还没有训练好的 LoRA。',
-      loraLabel:'🧩 LoRA 微调音色（训练页产出，选用后整段生效）',loraNone:'— 不使用 —',
+      trainTitle:'持续训练',trainDesc:'上传语音并填写对应台词，让模型持续学习音色与风格。建议每条 3~30 秒清晰人声，总计 5 条以上效果更好。训练采用 LoRA（不动原模型权重），完成后可在生成页的「LoRA」下拉中选用。',
+      trainAddLabel:'添加训练样本',trainTextPh:'逐字填写这段语音说的内容（与音频完全一致）',trainNamePh:'备注名（可选）',trainAddBtn:'添加样本',
+      trainSamplesLabel:'训练样本',trainNoSamples:'还没有样本，先在上面添加几条。',
+      trainParamsLabel:'训练参数（默认即可）',trainPName:'任务名',trainPRank:'秩 r',trainPAlpha:'Alpha',trainPLr:'学习率',trainPEpochs:'轮数',trainPAccum:'梯度累积',
+      trainStart:'开始训练',trainStop:'停止',
+      trainLorasLabel:'已训练的 LoRA（生成页可选用）',trainNoLoras:'还没有训练好的 LoRA。',
+      loraLabel:'LoRA 微调音色（训练页产出，选用后整段生效）',loraNone:'— 不使用 —',
       trainUploading:'上传中…',trainAdded:'已添加',trainSamples:'条样本',trainAddFail:'添加失败',
       trainRunning:'训练进行中，请等待完成或点击停止',trainIdle:'空闲',trainStarting:'正在启动训练…',
       trainProgress:'进度',trainLoss:'损失',trainStep:'步',trainEpoch:'轮',
@@ -1430,23 +1473,23 @@ const I18N={
       trainNeedSamples:'样本不足（当前 {cur} 条）：至少需要 2 条「语音+台词」样本才能开始训练',
       trainNoFile:'请先选择音频文件',trainNoText:'请填写与音频对应的台词文本',
       trainFileTooShort:'音频过短（不足 1 秒）',trainFileTooLong:'音频过长（超过 30 秒）',trainTextTooLong:'台词过长（超过 400 字）',
-      enDenoise:'🔊 导入前降噪（去除底噪/电流声）',enVocalOnly:'🎤 只保留纯净人声（去背景音乐）',
-      trSummary:'🎧 长音频自动转写（whisper 离线切句，免手填台词）',
+      enDenoise:'导入前降噪（去除底噪/电流声）',enVocalOnly:'只保留纯净人声（去背景音乐）',
+      trSummary:'长音频自动转写（whisper 离线切句，免手填台词）',
       trDesc:'上传 1~10 分钟的语音（清晰人声、无背景乐效果最佳），会自动按静音切句并逐句转写。核对/修改每段文本后勾选导入为训练样本。首次转写需加载约 460MB 的 whisper 模型（一次性）。',
-      trStart:'🎧 开始转写',trImport:'📥 导入勾选项',trNoSeg:'未识别到可用的语音片段（音频过短或无人声）',
+      trStart:'开始转写',trImport:'导入勾选项',trNoSeg:'未识别到可用的语音片段（音频过短或无人声）',
       trPlay:'试听',trSelAll:'全选',trSegDur:'片段 {n}',trImportOk:'已导入 {n} 条样本',
       trModelLoading:'正在加载 whisper 模型（首次约需 1~2 分钟）…',
-      trTranscriptLabel:'📝 有完整台词？粘贴全文，自动逐句匹配到各分段（免手动逐条修改）',
+      trTranscriptLabel:'有完整台词？粘贴全文，自动逐句匹配到各分段（免手动逐条修改）',
       trTranscriptPh:'把与音频完全一致的完整台词粘贴到这里（每行一句效果最佳）。可先转写后再粘贴点「按台词匹配」，也可上传前就粘贴、转写完成后自动匹配。',
-      trAlign:'✨ 按台词匹配到各分段',trTxtFile:'载入 txt 台词',trNoTranscript:'请先粘贴完整台词',themeGoDark:'🌙 深色',themeGoLight:'☀️ 浅色'},
+      trAlign:'按台词匹配到各分段',trTxtFile:'载入 txt 台词',trNoTranscript:'请先粘贴完整台词',themeGoDark:'深色',themeGoLight:'浅色'},
   en:{localDeploy:'Local',detecting:'Detecting…',modelNotLoaded:'Model not loaded',modelReady:'Model ready',
-      modeDesign:'🎨 Voice Design',modeClone:'🎛️ Voice Clone',modeHifi:'🎙️ HiFi Clone',modeBeta:'🧪 Beta',modeTrain:'🎓 Train',
+      modeDesign:'Voice Design',modeClone:'Voice Clone',modeHifi:'HiFi Clone',modeBeta:'Beta',modeTrain:'Train',
       history:'Generation history',noHistory:'No history yet',
       betaTitle:'Multi-speaker & Emotion Control',
       betaDesc:'Use (@pack_name) to switch speaker, (emotion) for tone. e.g. (@John)Hello, (happy)Great day! (@Jane)Yeah.',
       betaTextLabel:'Text (type (@ to pick a voice pack, emotion tags supported)',
       emoHappy:'Happy',emoSad:'Sad',emoAngry:'Angry',emoSerious:'Serious',emoGentle:'Gentle',
-      betaGenerate:'🎭 Multi-speaker Generate',betaLoading:'Generating… ',betaSeconds:'s elapsed',betaFail:'Request failed',
+      betaGenerate:'Multi-speaker Generate',betaLoading:'Generating… ',betaSeconds:'s elapsed',betaFail:'Request failed',
       dialogueTitle:'Dialogue panels (one collapsible panel per turn, independent settings)',
       dialogueEmpty:'Add (@pack_name) tags in the text; each turn gets its own panel here.',
       turnLabel:'Turn {n}',
@@ -1458,9 +1501,9 @@ const I18N={
       betaEngineRule:'Rule (local, fast)',
       betaEngineLlm:'AI kernel (LLM, needs API key)',
       betaPlanBtn:'Preview plan',
-      betaLlmGo:'⚙️ Configure key',
-      modeSettings:'⚙️ Settings',
-      setTitle:'⚙️ Settings · AI Kernel',
+      betaLlmGo:'Configure key',
+      modeSettings:'Settings',
+      setTitle:'Settings · AI Kernel',
       setReasonNotEnabled:'AI kernel is off (flip the switch above to enable)',
       setReasonNoKey:'No API key yet — fill in the key below and save',
       setReasonNoBaseUrl:'Missing base_url (endpoint)',
@@ -1471,21 +1514,21 @@ const I18N={
       setProviderLabel:'Provider preset',
       setKeyLabel:'API Key',
       setKeyPh:'Paste your API key (leave blank to keep the saved one)',
-      setShow:'👁 Show',
+      setShow:'Show',
       setBaseLabel:'Endpoint base_url',
       setModelLabel:'Model name',
-      setFetchModels:'⬇ Fetch models',
-      setAdvanced:'🔧 Advanced (defaults are fine)',
+      setFetchModels:'Fetch models',
+      setAdvanced:'Advanced (defaults are fine)',
       setTimeout:'Timeout (s)',setTemp:'Temperature',setProxy:'Proxy (blank = direct)',
       setJsonMode:'Use JSON mode (auto-fallback if unsupported)',
       setCache:'Cache planning results (skip repeat calls)',
-      setSave:'💾 Save & test',setTest:'🔌 Test connection',setReload:'↻ Reload',
+      setSave:'Save & test',setTest:'Test connection',setReload:'Reload',
       betaPlanLoading:'Planning text…',
       betaPlanFail:'Planning failed',
       betaPlanTitle:'Director plan',
       backBtn:'← Back',
-      synthText:'Text to synthesize',genBtn:'🔊 Generate',
-      packManage:'🎭 Voice Packs',
+      synthText:'Text to synthesize',genBtn:'Generate',
+      packManage:'Voice Packs',
       textDefault:'Hi, this is the locally-deployed VoxCPM2 voice model. You can use it right in your browser.',
       chip1:'Young woman, gentle',chip2:'Mature man, deep voice',chip3:'Lively teenager',chip4:'Cantonese',chip5:'Sichuan dialect',chip6:'News anchor',
       designHint:'Design mode: describe the voice, emotion or speed in "()" at the start of the text, e.g. "(young woman, sweet)Hello".',
@@ -1495,29 +1538,29 @@ const I18N={
       cfgLabel:'CFG guidance (1.0-3.0, default 2.0)',stepsLabel:'Diffusion steps (4-30, higher = finer & slower)',
       normalizeLabel:'Text normalization (numbers/dates read correctly)',denoiseLabel:'Reference denoise',removeBgLabel:'Remove background/music',stableLabel:'Long-text stable synthesis',
       refTip:'Tip: audio over 30s is auto-segmented and fused by voiceprint into a ~25s representative clip, reducing distortion and timbre drift in long-audio cloning.',
-      emoLabel:'🎭 Emotion & tone (optional preset, fine-tune below)',emoNone:'— No emotion —',emoCalm:'Calm',
+      emoLabel:'Emotion & tone (optional preset, fine-tune below)',emoNone:'— No emotion —',emoCalm:'Calm',
       pitchLabel:'Pitch (semitones, 0=original)',speedLabel:'Speed (0.5x-2.0x)',volumeLabel:'Volume (0.1x-2.0x)',pauseLabel:'Pause between sentences (s, 0=none)',breathLabel:'Breath intensity (0=none)',
-      ssmlLabel:'Enable SSML tags',statusIdle:'Generating…',exportLabel:'⬇️ Export',
+      ssmlLabel:'Enable SSML tags',statusIdle:'Generating…',exportLabel:'Export',
       betaAtTag:'@Pack',
       betaDefault:'(@John)Hello! Welcome to multi-speaker reading. (happy)What a nice day!',
-      packMake:'🎙️ Create Voice Pack',
-      packDesc:'Voice packs are extracted and saved locally for reuse, so you never re-upload long audio. Stored under the voice_packs/ directory and persist across restarts. Save via POST /api/voicepacks and pass voice_pack_id when generating. Packs marked ⚡accelerated generate faster automatically.',
+      packMake:'Create Voice Pack',
+      packDesc:'Voice packs are extracted and saved locally for reuse, so you never re-upload long audio. Stored under the voice_packs/ directory and persist across restarts. Save via POST /api/voicepacks and pass voice_pack_id when generating. Packs marked accelerated generate faster automatically.',
       packEmpty:'No voice packs yet. Go to "Create Voice Pack" to make one.',
-      recMethod:'Method 1: record live (microphone, no file upload)',recStart:'🎤 Start Recording',
+      recMethod:'Method 1: record live (microphone, no file upload)',recStart:'Start Recording',
       recHint:'Click the button, allow microphone access, then read for 10–30s. Playback to confirm after recording.',recPlayback:'Playback (confirm before saving)',
       upMethod:'Method 2: upload audio or drag a video (wav/mp3/flac/mp4/mov; voice auto-extracted from video)',
       vpDropHint:'10–60s of clear voice is recommended; over 30s is auto-segmented and fused into a ~25s representative clip. Video audio is auto-extracted (ffmpeg required).',
       vpNameLabel:'Voice pack name (for identification)',vpNamePh:'e.g. Support-Xiaomei / Trainer-LaoWang',
-      vpDenoise:'Reference denoise',vpRemoveBg:'Remove background/music',vpAccel:'🚀 Accelerated mode (faster generation)',
-      vpSaveBtn:'🔒 Extract & Save Voice Pack',vpStatusIdle:'Extracting… (model loads on first run, please wait)',
+      vpDenoise:'Reference denoise',vpRemoveBg:'Remove background/music',vpAccel:'Accelerated mode (faster generation)',
+      vpSaveBtn:'Extract & Save Voice Pack',vpStatusIdle:'Extracting… (model loads on first run, please wait)',
       apiLabel:'API examples (token in header)',apiToken:'YOUR_TOKEN',
-      trainTitle:'🎓 Continuous Training',trainDesc:'Upload audio with verbatim transcripts and the model learns your voice/style via LoRA (original weights untouched). 3–30s per clip, 5+ clips recommended. Finished LoRAs appear in the LoRA dropdown on the generate page.',
-      trainAddLabel:'➕ Add Training Sample',trainTextPh:'Type exactly what this audio says (must match perfectly)',trainNamePh:'Note name (optional)',trainAddBtn:'Add Sample',
-      trainSamplesLabel:'📚 Training Samples',trainNoSamples:'No samples yet — add some above.',
-      trainParamsLabel:'⚙️ Training Params (defaults are fine)',trainPName:'Task name',trainPRank:'Rank r',trainPAlpha:'Alpha',trainPLr:'Learning rate',trainPEpochs:'Epochs',trainPAccum:'Grad accum',
-      trainStart:'🚀 Start Training',trainStop:'⏹ Stop',
-      trainLorasLabel:'🧩 Trained LoRAs (selectable on generate page)',trainNoLoras:'No trained LoRAs yet.',
-      loraLabel:'🧩 LoRA fine-tuned voice (from training page, applies to entire output)',loraNone:'— None —',
+      trainTitle:'Continuous Training',trainDesc:'Upload audio with verbatim transcripts and the model learns your voice/style via LoRA (original weights untouched). 3–30s per clip, 5+ clips recommended. Finished LoRAs appear in the LoRA dropdown on the generate page.',
+      trainAddLabel:'Add Training Sample',trainTextPh:'Type exactly what this audio says (must match perfectly)',trainNamePh:'Note name (optional)',trainAddBtn:'Add Sample',
+      trainSamplesLabel:'Training Samples',trainNoSamples:'No samples yet — add some above.',
+      trainParamsLabel:'Training Params (defaults are fine)',trainPName:'Task name',trainPRank:'Rank r',trainPAlpha:'Alpha',trainPLr:'Learning rate',trainPEpochs:'Epochs',trainPAccum:'Grad accum',
+      trainStart:'Start Training',trainStop:'Stop',
+      trainLorasLabel:'Trained LoRAs (selectable on generate page)',trainNoLoras:'No trained LoRAs yet.',
+      loraLabel:'LoRA fine-tuned voice (from training page, applies to entire output)',loraNone:'— None —',
       trainUploading:'Uploading…',trainAdded:'Added',trainSamples:'samples',trainAddFail:'Add failed',
       trainRunning:'Training in progress — wait or click Stop',trainIdle:'Idle',trainStarting:'Starting training…',
       trainProgress:'Progress',trainLoss:'Loss',trainStep:'step',trainEpoch:'epoch',
@@ -1527,16 +1570,16 @@ const I18N={
       trainNeedSamples:'Not enough samples (currently {cur}): at least 2 audio+text pairs required to start training',
       trainNoFile:'Please select an audio file first',trainNoText:'Please enter the transcript matching the audio',
       trainFileTooShort:'Audio too short (< 1s)',trainFileTooLong:'Audio too long (> 30s)',trainTextTooLong:'Transcript too long (> 400 chars)',
-      enDenoise:'🔊 Denoise before import (hiss / AC hum)',enVocalOnly:'🎤 Keep vocals only (remove BGM/music)',
-      trSummary:'🎧 Auto-transcribe long audio (offline whisper, no manual transcript)',
+      enDenoise:'Denoise before import (hiss / AC hum)',enVocalOnly:'Keep vocals only (remove BGM/music)',
+      trSummary:'Auto-transcribe long audio (offline whisper, no manual transcript)',
       trDesc:'Upload 1–10 min of speech (clear voice, no background music works best). It is auto-segmented by silence and transcribed sentence by sentence. Review/edit each line, tick the ones to keep, then import as training samples. The ~460MB whisper model loads on first use (one-time).',
-      trStart:'🎧 Start',trImport:'📥 Import selected',trNoSeg:'No usable speech segments found (audio too short or no voice)',
+      trStart:'Start',trImport:'Import selected',trNoSeg:'No usable speech segments found (audio too short or no voice)',
       trPlay:'Play',trSelAll:'Select all',trSegDur:'Seg {n}',trImportOk:'{n} samples imported',
       trModelLoading:'Loading whisper model (first run ~1–2 min)…',
-      trTranscriptLabel:'📝 Have the verbatim transcript? Paste it and auto-match into each segment (no manual line-by-line edits)',
+      trTranscriptLabel:'Have the verbatim transcript? Paste it and auto-match into each segment (no manual line-by-line edits)',
       trTranscriptPh:'Paste the full transcript that matches the audio exactly (one sentence per line works best). You can transcribe first and then click "Match transcript", or paste before uploading and it will be matched automatically when transcription finishes.',
-      trAlign:'✨ Match transcript into segments',trTxtFile:'Load txt',trNoTranscript:'Please paste the full transcript first',
-      themeGoDark:'🌙 Dark',themeGoLight:'☀️ Light'}
+      trAlign:'Match transcript into segments',trTxtFile:'Load txt',trNoTranscript:'Please paste the full transcript first',
+      themeGoDark:'Dark',themeGoLight:'Light'}
 };
 let curLang='zh';
 function setLang(l){
@@ -1558,9 +1601,16 @@ function tr(zh,en){return curLang==='zh'?zh:en;}
 // ===== 主题（深色/浅色） =====
 function curTheme(){return document.documentElement.getAttribute('data-theme')==='dark'?'dark':'light';}
 function updateThemeBtn(){var b=document.getElementById('themeBtn');if(!b)return;
+  /* ⚠️ 不能写 b.textContent —— 按钮里有 SVG 图标会被一起抹掉。
+     改成只换 <use> 的 href 与内层 #themeBtnTxt，切语言重放也不会丢图标。 */
   var d=I18N[curLang]||I18N.zh;
-  b.textContent=(curTheme()==='dark')?d.themeGoLight:d.themeGoDark;
-  b.title=b.textContent;}
+  var dark=curTheme()==='dark';
+  var ic=document.getElementById('themeBtnIc');
+  if(ic){var u=ic.querySelector('use');if(u)u.setAttribute('href',dark?'#i-sun':'#i-moon');}
+  var label=dark?d.themeGoLight:d.themeGoDark;
+  var tx=document.getElementById('themeBtnTxt');
+  if(tx)tx.textContent=label;
+  b.title=label;}
 function toggleTheme(){var t=curTheme()==='dark'?'light':'dark';
   document.documentElement.setAttribute('data-theme',t);
   try{localStorage.setItem('voxcpm_theme',t);}catch(_){}
@@ -1855,9 +1905,10 @@ function startTrain(){
     accum:parseInt(document.getElementById('tpAccum').value)||4
   };
   var btn=document.getElementById('trainStartBtn');
+  var tsb=document.getElementById('trainStartTxt');   // 图标按钮：文案只写内层 span
   var errEl=document.getElementById('trainErr');
   errEl.textContent='';
-  btn.disabled=true;btn.textContent=I18N[curLang].trainStarting;
+  btn.disabled=true;if(tsb)tsb.textContent=I18N[curLang].trainStarting;
   fetch('/api/train/start',{method:'POST',headers:Object.assign({'Content-Type':'application/json'},apiHeaders()),body:JSON.stringify(fd)})
     .then(function(r){return r.json().then(function(d){if(!r.ok)throw new Error(d.detail||'Error');return d;});})
     .then(function(d){
@@ -1866,7 +1917,7 @@ function startTrain(){
     })
     .catch(function(e){
       errEl.textContent=I18N[curLang].trainFailed+': '+e.message;
-      btn.disabled=false;btn.textContent=I18N[curLang].trainStart;
+      btn.disabled=false;if(tsb)tsb.textContent=I18N[curLang].trainStart;
     });
 }
 
@@ -1891,7 +1942,7 @@ function showTrainIdle(){
   document.getElementById('trainProgressWrap').style.display='none';
   document.getElementById('trainStartBtn').style.display='inline-block';
   document.getElementById('trainStartBtn').disabled=false;
-  document.getElementById('trainStartBtn').textContent=I18N[curLang].trainStart;
+  document.getElementById('trainStartTxt').textContent=I18N[curLang].trainStart;
   document.getElementById('trainStopBtn').style.display='none';
   updTrainStartBtn();
 }
@@ -1909,7 +1960,15 @@ function updTrainStartBtn(){
     }
   }
 }
-
+/* ⚠️ #trainStartTxt 既是 data-i18n="trainStart" 的元素、又会被 JS 改写成「训练中…」。
+   setLang() 会一刀切地把所有 [data-i18n] 刷 textContent —— 于是切一次语言就把
+   正在训练的状态打回静态的「开始训练」。这里按当前训练状态重放一次（幂等）。 */
+function repaintTrainStartTxt(){
+  var tx=document.getElementById('trainStartTxt');
+  if(!tx)return;
+  var running=!!(trainerStatusCache&&trainerStatusCache.running);
+  tx.textContent=I18N[curLang][running?'trainStarting':'trainStart'];
+}
 function pollTrain(){
   if(trainPollTimer)clearInterval(trainPollTimer);
   function tick(){
@@ -2162,7 +2221,9 @@ function trUpdImportBtn(){
   var btn=document.getElementById('trImportBtn');
   if(!btn)return;
   var n=document.querySelectorAll('#trResults input.tr-cb:checked').length;
-  btn.textContent=I18N[curLang].trImport+(n?' ('+n+')':'');
+  /* 图标按钮：只写内层 span，写 btn.textContent 会把 <svg> 一起抹掉 */
+  var tx=document.getElementById('trImportTxt');
+  if(tx)tx.textContent=I18N[curLang].trImport+(n?' ('+n+')':'');
 }
 function trImport(){
   var items=[];
@@ -2342,7 +2403,7 @@ async function settingsLoad(notify){
     sel.textContent='';
     LLM_PROVIDERS.forEach(p=>{
       const o=document.createElement('option');
-      o.value=p.id; o.textContent=(p.local?'🏠 ':'')+llmPName(p);
+      o.value=p.id; o.textContent=llmPName(p);
       sel.appendChild(o);
     });
   }
@@ -2419,15 +2480,17 @@ function setOnProviderChange(silent){
     (p.local?(llmIsZh()?'。本地服务无鉴权，可留空或随便填。':' Local server: any value works.'):'');
 }
 
-/* ⚠️ #setKeyToggle 带 data-i18n，切语言后会被打回「👁 显示」——但此时 Key 可能正
-   处于明文状态，标签就错反了。所以把"只按当前显示状态重画标签"拆出来单独调用，
-   不能靠 setToggleKeyView()（那个会真的切换 type）。 */
+/* ⚠️ #setKeyToggle 带 data-i18n（在 span 上），切语言后会被打回静态「显示」——但此时
+   Key 可能正处明文状态，标签就错反了。所以把"只按当前显示状态重画标签"拆出来单独调用，
+   不能靠 setToggleKeyView()（那个会真的切换 type）。图标也要跟着换：明文→眼睛带斜杠。 */
 function renderKeyToggleLabel(){
   const el=document.getElementById('setKey');
-  const btn=document.getElementById('setKeyToggle');
-  if(!el||!btn)return;
+  const txt=document.getElementById('setKeyToggleTxt');
+  const ic=document.getElementById('setKeyToggleIc');
+  if(!el)return;
   const shown=(el.type==='text');
-  btn.textContent=shown?(llmIsZh()?'🙈 隐藏':'🙈 Hide'):(llmIsZh()?'👁 显示':'👁 Show');
+  if(txt)txt.textContent=shown?(llmIsZh()?'隐藏':'Hide'):(llmIsZh()?'显示':'Show');
+  if(ic)ic.innerHTML=shown?'<use href="#i-eye-off"></use>':'<use href="#i-eye"></use>';
 }
 function setToggleKeyView(){
   const el=document.getElementById('setKey');
@@ -2436,6 +2499,34 @@ function setToggleKeyView(){
 }
 
 function setKeyWasTyped(){SET_KEY_DIRTY=true;}
+/* 轻量 toast：复制/保存等操作的即时反馈（底部居中，2.2s 自动消失）。 */
+let _toastTimer=null;
+function toast(msg){
+  let t=document.getElementById('toast');
+  if(!t){t=document.createElement('div');t.id='toast';t.className='toast';document.body.appendChild(t);}
+  t.textContent=msg;t.classList.add('show');
+  clearTimeout(_toastTimer);
+  _toastTimer=setTimeout(function(){t.classList.remove('show');},2200);
+}
+function copyKey(){
+  const el=document.getElementById('setKey');
+  const v=el?el.value:'';
+  if(!v){toast(tr('没有可复制的内容','Nothing to copy'));return;}
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(v).then(
+      function(){toast(tr('已复制到剪贴板','Copied to clipboard'));},
+      function(){fallbackCopyKey(v);});
+  }else{fallbackCopyKey(v);}
+}
+function fallbackCopyKey(v){
+  try{
+    const ta=document.createElement('textarea');ta.value=v;
+    ta.style.position='fixed';ta.style.opacity='0';
+    document.body.appendChild(ta);ta.select();
+    document.execCommand('copy');document.body.removeChild(ta);
+    toast(tr('已复制到剪贴板','Copied to clipboard'));
+  }catch(e){toast(tr('复制失败','Copy failed'));}
+}
 
 function settingsPayload(){
   const body={
@@ -2636,6 +2727,8 @@ function repaintDynamicText(){
      #setKeyToggle 的显/隐标签、#trImportBtn 的「已勾选 N 条」计数 */
   renderKeyToggleLabel();
   trUpdImportBtn();
+  updateThemeBtn();      // 主题按钮的图标+文案同样由 JS 维护，必须重放
+  repaintTrainStartTxt();// 训练按钮：data-i18n 与 JS 文案共存，必须按状态重放
   const sc=document.getElementById('settingsCard');
   if(sc&&!sc.classList.contains('hide')&&LLM_CUR){
     setOnProviderChange(true);
@@ -2859,7 +2952,7 @@ function renderPacks(){
   for(const p of voicePacks){
     const dur=p.processed_duration!=null?p.processed_duration+'s':'';
     const src=p.source_duration!=null?p.source_duration+'s':'';
-    const accel=p.accelerated?' <span style="color:var(--warn-ink)">⚡加速</span>':'';
+    const accel=p.accelerated?' <svg class="ic" style="width:14px;height:14px;vertical-align:-2px;color:var(--warn-ink)"><use href="#i-zap"/></svg><span style="color:var(--warn-ink)">加速</span>':'';
     const meta=[dur?(tr('代表参考 ','Ref ')+dur):'', src?(tr('原片 ','Src ')+src):'', p.created_at].filter(Boolean).join(' · ');
     const row=document.createElement('div');
     row.className='pack'; row.dataset.id=p.id;
@@ -2964,15 +3057,22 @@ async function savePack(){
    （用 var：避免 repaintDynamicText 早于本行执行时的 TDZ 风险。）
    注意 handler 也要一起重放：停止录制时 onclick 指向 stopRec，不能丢。 */
 var REC_BTN_LAST=null;
-function setRecBtn(zh,en,bg,handler){
-  REC_BTN_LAST=[zh,en,bg,handler];
+function setRecBtn(zh,en,bg,handler,icon){
+  REC_BTN_LAST=[zh,en,bg,handler,icon];
   const btn=document.getElementById('recBtn');
   if(!btn)return;
-  btn.textContent=tr(zh,en);btn.style.background=bg;btn.onclick=handler;
+  /* ⚠️ 不能写 btn.textContent —— 那会把按钮里的 SVG 图标一起抹掉。
+     改为只写内层 #recBtnTxt，并单独换图标 href（与 #setKeyToggle 同一套做法）。 */
+  const lbl=tr(zh,en);
+  const tx=document.getElementById('recBtnTxt');
+  if(tx)tx.textContent=lbl;
+  const ic=document.getElementById('recBtnIc');
+  if(ic&&icon){const u=ic.querySelector('use');if(u)u.setAttribute('href',icon);}
+  btn.style.background=bg;btn.onclick=handler;
 }
 function repaintRecBtn(){
   if(REC_BTN_LAST)setRecBtn(REC_BTN_LAST[0],REC_BTN_LAST[1],
-                            REC_BTN_LAST[2],REC_BTN_LAST[3]);
+                            REC_BTN_LAST[2],REC_BTN_LAST[3],REC_BTN_LAST[4]);
 }
 
 // ===== 拖拽上传（视频/音频 → 音色包）=====
@@ -3085,7 +3185,7 @@ async function startRec(){
     };
     mediaRec.start();
     recSecs=0;
-    setRecBtn('⏹ 停止录制','⏹ Stop Recording','var(--danger)',stopRec);
+    setRecBtn('停止录制','Stop Recording','var(--danger)',stopRec,'#i-stop');
     document.getElementById('recStatus').textContent=tr('录制中 ','Recording ')+'0.0s';
     recTimer=setInterval(()=>{recSecs+=0.1;document.getElementById('recStatus').textContent=tr('录制中 ','Recording ')+recSecs.toFixed(1)+'s';},100);
   }catch(e){showVpErr(tr('无法访问麦克风：','Microphone access failed: ')+(e.message||e.name)+tr('（请允许浏览器麦克风权限）','(please allow microphone permission)'));}
@@ -3093,12 +3193,12 @@ async function startRec(){
 function stopRec(){
   if(mediaRec&&mediaRec.state!=='inactive')mediaRec.stop();
   clearInterval(recTimer);
-  setRecBtn('🎤 重新录制','🎤 Re-record','var(--sky)',startRec);
+  setRecBtn('重新录制','Re-record','var(--sky)',startRec,'#i-rotate');
   document.getElementById('recStatus').textContent=tr('录制完成，可回放或重新录制','Recording done. Playback or re-record.');
 }
 function resetRec(){
   recBlob=null;recChunks=[];recSecs=0;
-  setRecBtn('🎤 开始录制','🎤 Start Recording','var(--sky)',startRec);
+  setRecBtn('开始录制','Start Recording','var(--sky)',startRec,'#i-mic');
   const w=document.getElementById('recWrap');if(w)w.classList.add('hide');
   const s=document.getElementById('recStatus');if(s)s.textContent=tr('点击下方按钮授权麦克风后开始朗读，建议 10–30 秒清晰语句；录制完可回放确认。','Click the button, allow microphone access, then read for 10–30s. Playback to confirm after recording.');
 }
