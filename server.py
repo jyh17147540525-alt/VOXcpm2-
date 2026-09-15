@@ -501,7 +501,7 @@ def _aggregate_segments(segs: list) -> dict:
 def director_turn_params(text: str, engine: str = "rule", hint: str = "") -> dict:
     """对**单个 turn**（同一说话人的一段台词）跑导演层，聚合出该 turn 的参数。
 
-    ⚠️ 为什么要逐 turn 独立规划，而不是整篇规划后再切：
+    注意：为什么要逐 turn 独立规划，而不是整篇规划后再切：
     规则版导演层带「情绪惯性」（承接上句情绪并衰减），这在连续旁白里是特性，
     但在多人对话里是缺陷 —— 说话人不同，A 的怒气不该传染给 B 的下一句。
     实测（整篇规划后对齐）：「…我等了多久！」的 question/exclamation 会衰减着
@@ -743,7 +743,7 @@ async function go(){
     body:JSON.stringify({token:tk})});
   if(r.ok){location.href='/';}else{show(LGI[lg].loginBad);}
 }
-function show(m){const e=document.getElementById('err');e.textContent='❌ '+m;e.style.display='block';}
+function show(m){const e=document.getElementById('err');e.textContent=m;e.style.display='block';}
 document.getElementById('tk').addEventListener('keydown',e=>{if(e.key==='Enter')go();});
 </script></body></html>"""
 
@@ -1601,7 +1601,7 @@ function tr(zh,en){return curLang==='zh'?zh:en;}
 // ===== 主题（深色/浅色） =====
 function curTheme(){return document.documentElement.getAttribute('data-theme')==='dark'?'dark':'light';}
 function updateThemeBtn(){var b=document.getElementById('themeBtn');if(!b)return;
-  /* ⚠️ 不能写 b.textContent —— 按钮里有 SVG 图标会被一起抹掉。
+  /* 注意：不能写 b.textContent —— 按钮里有 SVG 图标会被一起抹掉。
      改成只换 <use> 的 href 与内层 #themeBtnTxt，切语言重放也不会丢图标。 */
   var d=I18N[curLang]||I18N.zh;
   var dark=curTheme()==='dark';
@@ -1760,7 +1760,7 @@ async function betaPreviewPlan(){
   const out=document.getElementById('betaPlanOut');
   const text=(document.getElementById('betaText').value||'');
   out.style.display='block';
-  if(!text.trim()){ out.textContent='❌ '+I18N[curLang].betaPlanFail; return; }
+  if(!text.trim()){ out.textContent=I18N[curLang].betaPlanFail; return; }
   out.textContent=I18N[curLang].betaPlanLoading;
   try{
     const r=await fetch('/api/plan',{method:'POST',
@@ -1770,13 +1770,13 @@ async function betaPreviewPlan(){
     const d=await r.json();
     const head=(curLang==='zh'?'通路':'source')+'='+(d.source||'')+' · '
       +(curLang==='zh'?'段数':'segments')+'='+(d.n_segments||0)+' · '
-      +(curLang==='zh'?'原文未改动':'text intact')+'='+(d.text_intact===null?'?':(d.text_intact?'✓':'✗'));
-    out.textContent=I18N[curLang].betaPlanTitle+'  ['+head+']\\n'+(d.error?('⚠️ '+d.error+'\\n'):'')+'\\n'+(d.summary||'');
-  }catch(e){ out.textContent='❌ '+e.message; }
+      +(curLang==='zh'?'原文未改动':'text intact')+'='+(d.text_intact===null?'?':(d.text_intact?'OK':'FAIL'));
+    out.textContent=I18N[curLang].betaPlanTitle+'  ['+head+']\\n'+(d.error?('! '+d.error+'\\n'):'')+'\\n'+(d.summary||'');
+  }catch(e){ out.textContent=e.message; }
 }
 async function betaGenerate(){
   renderDialoguePanels();   // 确保 dialogues 与最新文本同步
-  if(!dialogues.length){const e=document.getElementById('betaErr');e.textContent='❌ '+(curLang==='zh'?'请先在文本里用 (@音色包名) 指定角色':'Add (@pack_name) tags first');e.classList.add('show');return;}
+  if(!dialogues.length){const e=document.getElementById('betaErr');e.textContent=(curLang==='zh'?'请先在文本里用 (@音色包名) 指定角色':'Add (@pack_name) tags first');e.classList.add('show');return;}
   const btn=document.getElementById('betaBtn'),st=document.getElementById('betaStatus'),errEl=document.getElementById('betaErr');
   btn.disabled=true;st.style.display='flex';errEl.textContent='';errEl.classList.remove('show');
   document.getElementById('betaRes').style.display='none';
@@ -1794,11 +1794,11 @@ async function betaGenerate(){
   try{
     const r=await fetch('/api/dialogue',{method:'POST',headers:Object.assign({'Content-Type':'application/json'},apiHeaders()),body:JSON.stringify(body)});
     clearInterval(timer);
-    if(!r.ok){let m='Failed';try{const j=await r.json();m=j.detail||m;}catch(e){}errEl.textContent='❌ '+m;errEl.classList.add('show');st.style.display='none';return;}
+    if(!r.ok){let m='Failed';try{const j=await r.json();m=j.detail||m;}catch(e){}errEl.textContent=m;errEl.classList.add('show');st.style.display='none';return;}
     const blob=await r.blob();
     const segInfo=r.headers.get('X-Segments'),dur=r.headers.get('X-Duration'),name=r.headers.get('X-Output-Name');
     document.getElementById('betaPlayer').src=URL.createObjectURL(blob);
-    let meta='✅ '+(curLang==='zh'?'多人朗读完成':'Done')+' · '+(curLang==='zh'?'时长':'duration')+' '+dur+'s · '+name;
+    let meta=(curLang==='zh'?'多人朗读完成':'Done')+' · '+(curLang==='zh'?'时长':'duration')+' '+dur+'s · '+name;
     if(segInfo){try{const si=JSON.parse(segInfo);meta+=' · '+si.n+(curLang==='zh'?' 段':' segments');
       const dz=si.director;
       if(dz){ meta+=' · '+(curLang==='zh'?'导演层':'director')+':'+dz.engine
@@ -1806,10 +1806,10 @@ async function betaGenerate(){
       const emos=(si.segments||[]).map(function(s){return s.emotion;}).filter(function(x,i,a){
         return x&&x!=='neutral'&&a.indexOf(x)===i;});
       if(emos.length)meta+=' · '+(curLang==='zh'?'情绪':'emotions')+': '+emos.join('/');
-      if(si.warnings&&si.warnings.length)meta+=' · ⚠️ '+si.warnings.join('; ');}catch(e){}}
+      if(si.warnings&&si.warnings.length)meta+=' · '+si.warnings.join('; ');}catch(e){}}
     document.getElementById('betaMeta').textContent=meta;
     document.getElementById('betaRes').style.display='block';st.style.display='none';
-  }catch(e){clearInterval(timer);errEl.textContent='❌ '+I18N[curLang].betaFail+': '+e.message;errEl.classList.add('show');st.style.display='none';}
+  }catch(e){clearInterval(timer);errEl.textContent=I18N[curLang].betaFail+': '+e.message;errEl.classList.add('show');st.style.display='none';}
   finally{btn.disabled=false;}
 }
 
@@ -1960,7 +1960,7 @@ function updTrainStartBtn(){
     }
   }
 }
-/* ⚠️ #trainStartTxt 既是 data-i18n="trainStart" 的元素、又会被 JS 改写成「训练中…」。
+/* 注意：#trainStartTxt 既是 data-i18n="trainStart" 的元素、又会被 JS 改写成「训练中…」。
    setLang() 会一刀切地把所有 [data-i18n] 刷 textContent —— 于是切一次语言就把
    正在训练的状态打回静态的「开始训练」。这里按当前训练状态重放一次（幂等）。 */
 function repaintTrainStartTxt(){
@@ -2078,7 +2078,7 @@ function onLoraSel(){
 
 // ===== 长音频自动转写（whisper）=====
 var trJobId=null, trTimer=null;
-function trShowErr(m){var e=document.getElementById('trErr');if(e)e.textContent=m?('❌ '+m):'';}
+function trShowErr(m){var e=document.getElementById('trErr');if(e)e.textContent=m||'';}
 function trStart(){
   var f=document.getElementById('trFile');
   if(!f||!f.files||!f.files.length){trShowErr(I18N[curLang].trainNoFile);return;}
@@ -2183,7 +2183,7 @@ function trRender(j){
   var an=document.getElementById('trAlignNote');
   if(an){
     if(j.aligned){
-      an.textContent='✅ '+(j.align_note||'');
+      an.textContent=(j.align_note||'');
       an.style.color='var(--green-ink)';
     }else{
       an.textContent='';
@@ -2242,7 +2242,7 @@ function trImport(){
       btn.disabled=false;
       document.getElementById('trResults').innerHTML='';
       document.getElementById('trImportBtn').style.display='none';
-      document.getElementById('trStatus').textContent='✅ '+(I18N[curLang].trImportOk||'').replace('{n}',String(d.imported||0))+(d.skipped?(' · ⚠️ '+(tr('跳过 ','skipped '))+d.skipped):'');
+      document.getElementById('trStatus').textContent=(I18N[curLang].trImportOk||'').replace('{n}',String(d.imported||0))+(d.skipped?(' · '+(tr('跳过 ','skipped '))+d.skipped):'');
       trJobId=null;
       refreshTrainSamples();
     })
@@ -2480,7 +2480,7 @@ function setOnProviderChange(silent){
     (p.local?(llmIsZh()?'。本地服务无鉴权，可留空或随便填。':' Local server: any value works.'):'');
 }
 
-/* ⚠️ #setKeyToggle 带 data-i18n（在 span 上），切语言后会被打回静态「显示」——但此时
+/* 注意：#setKeyToggle 带 data-i18n（在 span 上），切语言后会被打回静态「显示」——但此时
    Key 可能正处明文状态，标签就错反了。所以把"只按当前显示状态重画标签"拆出来单独调用，
    不能靠 setToggleKeyView()（那个会真的切换 type）。图标也要跟着换：明文→眼睛带斜杠。 */
 function renderKeyToggleLabel(){
@@ -2575,8 +2575,8 @@ function refreshStatusUI(c){
       (llmIsZh()?' 位。':' chars.');
     if(c.key_source==='env'){
       s+=(llmIsZh()
-        ?' ⚠️ 环境变量优先级在文件之上，改本页面可能不生效。'
-        :' ⚠️ Env vars take precedence; edits here may not apply.');
+        ?' 环境变量优先级在文件之上，改本页面可能不生效。'
+        :' Env vars take precedence; edits here may not apply.');
     }
   }else{
     s=llmIsZh()?'还没有配置密钥，填好下面三项并保存即可启用。':'No key configured yet. Fill the fields below and save.';
@@ -2584,6 +2584,11 @@ function refreshStatusUI(c){
   note.textContent=s;
 }
 
+/* 状态提示统一用 sprite 图标 + 语义色，替代原先的 emoji。
+   setResult 走 innerHTML，所以这里注入真实图标；其余走 textContent 的位置只留纯文本。
+   转义复用已有的 escHtml()（定义在本块更靠前的位置；函数声明会提升）。
+   改动这里请同步跑 scripts/check_ui_icons.py 第七组检查。 */
+function icTag(id,color){return '<svg class="ic" style="width:13px;height:13px;vertical-align:-2px;margin-right:5px;color:'+color+'"><use href="#'+id+'"/></svg>';}
 function setResult(ok,msg,extra){
   const box=document.getElementById('setResult');
   box.style.display='block';
@@ -2591,8 +2596,8 @@ function setResult(ok,msg,extra){
   box.style.background=ok?'var(--res-bg)':'rgba(239,68,68,.08)';
   box.style.color=ok?'var(--ok-ink)':'#ef4444';
   let html='';
-  if(msg)html+='<div>'+String(msg).replace(/</g,'&lt;')+'</div>';
-  if(extra)html+='<div style="margin-top:6px;font-size:12px;color:var(--text-2);line-height:1.6">'+String(extra).replace(/</g,'&lt;')+'</div>';
+  if(msg)html+='<div>'+icTag(ok?'i-check':'i-alert',ok?'var(--ok-ink)':'#ef4444')+escHtml(msg)+'</div>';
+  if(extra)html+='<div style="margin-top:6px;font-size:12px;color:var(--text-2);line-height:1.6">'+escHtml(extra)+'</div>';
   box.innerHTML=html;
 }
 
@@ -2611,14 +2616,14 @@ function renderTestResult(d){
         (d.models.length>25?(llmIsZh()?' …等':' …'):'');
     }
     if(d.reply)extra=(extra?extra+'\\n':'')+(llmIsZh()?'模型回复：':'Reply: ')+d.reply;
-    if(d.warnings&&d.warnings.length)extra+=(extra?'\\n':'')+'⚠ '+d.warnings.join('；');
-    setResult(true,'✅ '+d.message,extra);
+    if(d.warnings&&d.warnings.length)extra+=(extra?'\\n':'')+d.warnings.join('；');
+    setResult(true,d.message,extra);
   }else{
     let extra='';
     if(d.detail)extra=d.detail;
     if(d.models&&d.models.length)extra+=(extra?'\\n':'')+(llmIsZh()?'该 Key 可见 ':'Key can see ')+d.models.length+(llmIsZh()?' 个模型':' models');
     if(d.stage)extra+=(extra?'\\n':'')+(llmIsZh()?'失败阶段：':'Failed at stage: ')+d.stage;
-    setResult(false,'❌ '+d.message,extra);
+    setResult(false,d.message,extra);
   }
 }
 
@@ -2637,8 +2642,8 @@ async function settingsSave(){
     // 400 校验失败也带着可读原因，统一走结果框展示（比红字错误框更醒目）
     const b=e&&e.body;
     if(b&&b.reason){
-      setResult(false,'❌ '+b.reason,
-        b.warnings&&b.warnings.length?('⚠ '+b.warnings.join('；')):'');
+      setResult(false,b.reason,
+        b.warnings&&b.warnings.length?(b.warnings.join('；')):'');
     }else{
       err.textContent=(e&&e.message)||String(e);
       err.style.display='block';
@@ -2765,7 +2770,7 @@ function applyEmotion(name){
 
 function apiHeaders(){return {'x-api-key':API_TOKEN};}
 
-/* ⚠️ #modelBadge 在 HTML 上带 data-i18n=modelNotLoaded，而 setLang() 会一刀切地给
+/* 注意：#modelBadge 在 HTML 上带 data-i18n=modelNotLoaded，而 setLang() 会一刀切地给
    所有 [data-i18n] 元素刷 textContent —— 于是切一次语言就把 JS 写进去的
    「模型已加载 · 48kHz」打回静态的「模型未加载」，看起来像模型掉了。
    所以这里记住最后一次状态，切语言后由 repaintModelBadge() 重放。
@@ -2880,7 +2885,7 @@ async function generate(){
       const oldUrl=player.src;
       if(oldUrl&&oldUrl.indexOf('blob:')===0){try{URL.revokeObjectURL(oldUrl);}catch(_){}}
       player.src=URL.createObjectURL(blob);
-      document.getElementById('resMeta').textContent=tr('✅ 生成成功 · 耗时 ','✅ Done · ')+secs+tr(' 秒 · 文件 ','s · file ')+name+tr('（已保存到 F:\\\\VoxCPM2\\\\outputs）',' (saved to F:\\\\VoxCPM2\\\\outputs)');
+      document.getElementById('resMeta').textContent=tr('生成成功 · 耗时 ','Done · ')+secs+tr(' 秒 · 文件 ','s · file ')+name+tr('（已保存到 F:\\\\VoxCPM2\\\\outputs）',' (saved to F:\\\\VoxCPM2\\\\outputs)');
       res.classList.add('show');addHist(name,text);refreshStatus();
       clearInterval(timer);btn.disabled=false;st.classList.remove('show');
       return;
@@ -2902,7 +2907,7 @@ async function generate(){
     }
   }
 }
-function showErr(m){const e=document.getElementById('err');e.textContent='❌ '+m;e.classList.add('show');
+function showErr(m){const e=document.getElementById('err');e.textContent=m;e.classList.add('show');
   document.getElementById('btn').disabled=false;document.getElementById('status').classList.remove('show');}
 function addHist(name,text){
   const h=document.getElementById('hist');
@@ -3015,7 +3020,7 @@ function showPackPane(which){
   document.querySelectorAll('.ptab').forEach(t=>t.classList.toggle('active',t.dataset.pane===which));
 }
 
-function showVpErr(m){const e=document.getElementById('vpErr');e.textContent=m?('❌ '+m):'';e.classList.toggle('show',!!m);}
+function showVpErr(m){const e=document.getElementById('vpErr');e.textContent=m||'';e.classList.toggle('show',!!m);}
 
 let __droppedVpFile=null;  // 拖拽进来的视频/音频文件（savePack 优先使用）
 
@@ -3046,13 +3051,13 @@ async function savePack(){
     st.classList.remove('show');
     await loadVoicePacks();
     showPackPane('manage');
-    alert(tr('已保存音色包：','Voice pack saved: ')+d.pack.name+(d.pack.accelerated?tr('（⚡已开启加速模式）',' (⚡accelerated mode)') :''));
+    alert(tr('已保存音色包：','Voice pack saved: ')+d.pack.name+(d.pack.accelerated?tr('（已开启加速模式）',' (accelerated mode)') :''));
   }catch(e){clearInterval(timer);st.classList.remove('show');showVpErr(tr('请求失败：','Request failed: ')+e.message);}
   finally{btn.disabled=false;}
 }
 
-/* ⚠️ #recBtn 在 HTML 上带 data-i18n=recStart，setLang 的静态重刷会在切语言时把
-   「⏹ 停止录制」/「🎤 重新录制」打回「🎤 开始录制」。而它只在 startRec/stopRec/
+/* 注意：#recBtn 在 HTML 上带 data-i18n=recStart，setLang 的静态重刷会在切语言时把
+   「停止录制」/「重新录制」打回「开始录制」。而它只在 startRec/stopRec/
    resetRec 里被改，**没有定时器兜底** —— 所以必须记住最后一次状态并重放。
    （用 var：避免 repaintDynamicText 早于本行执行时的 TDZ 风险。）
    注意 handler 也要一起重放：停止录制时 onclick 指向 stopRec，不能丢。 */
@@ -3061,7 +3066,7 @@ function setRecBtn(zh,en,bg,handler,icon){
   REC_BTN_LAST=[zh,en,bg,handler,icon];
   const btn=document.getElementById('recBtn');
   if(!btn)return;
-  /* ⚠️ 不能写 btn.textContent —— 那会把按钮里的 SVG 图标一起抹掉。
+  /* 注意：不能写 btn.textContent —— 那会把按钮里的 SVG 图标一起抹掉。
      改为只写内层 #recBtnTxt，并单独换图标 href（与 #setKeyToggle 同一套做法）。 */
   const lbl=tr(zh,en);
   const tx=document.getElementById('recBtnTxt');
@@ -3108,7 +3113,7 @@ function setVpDropHint(t){
       dt.items.add(f);
       document.getElementById('vpFile').files=dt.files;
     }catch(_){}
-    setVpDropHint(tr('✅ 已拖入：','✅ Dropped: ')+f.name+tr('（',' (')+(f.size/1024/1024).toFixed(1)+tr(' MB）—— 正在提取音色，请稍候…',' MB) — extracting voice, please wait…'));
+    setVpDropHint(tr('已拖入：','Dropped: ')+f.name+tr('（',' (')+(f.size/1024/1024).toFixed(1)+tr(' MB）—— 正在提取音色，请稍候…',' MB) — extracting voice, please wait…'));
     showVpErr('');
     savePack();   // 拖入即自动提取保存
   });
@@ -3120,8 +3125,8 @@ function onPackSel(){
   selectedPackId=v||null;
   const hint=document.getElementById('packSelHint');
   if(v){const p=voicePacks.find(x=>x.id===v);
-    let t=tr('✅ 已选用：','✅ Selected: ')+(p?p.name:v)+tr('（无需再上传音频，直接点生成即可）',' (no re-upload needed, just generate)');
-    if(p&&p.accelerated)t+=tr('  ⚡加速模式已启用，生成更快','  ⚡Accelerated mode on, faster generation');
+    let t=tr('已选用：','Selected: ')+(p?p.name:v)+tr('（无需再上传音频，直接点生成即可）',' (no re-upload needed, just generate)');
+    if(p&&p.accelerated)t+=tr('  加速模式已启用，生成更快','  Accelerated mode on, faster generation');
     hint.textContent=t;
     document.getElementById('refField').classList.add('hide');
     document.getElementById('refFile').value='';   // 二选一互斥：清空参考音频
@@ -3136,8 +3141,8 @@ function usePack(id){
   setMode('clone');
   document.getElementById('packSel').value=id;
   const hint=document.getElementById('packSelHint');
-  let t=tr('✅ 已选用音色包：','✅ Voice pack selected: ')+(p?p.name:id)+tr('（无需再上传音频，直接点生成即可）',' (no re-upload needed, just generate)');
-  if(p&&p.accelerated)t+=tr('  ⚡加速模式已启用，生成更快','  ⚡Accelerated mode on, faster generation');
+  let t=tr('已选用音色包：','Voice pack selected: ')+(p?p.name:id)+tr('（无需再上传音频，直接点生成即可）',' (no re-upload needed, just generate)');
+  if(p&&p.accelerated)t+=tr('  加速模式已启用，生成更快','  Accelerated mode on, faster generation');
   hint.textContent=t;
   document.getElementById('refField').classList.add('hide');
   document.getElementById('refFile').value='';

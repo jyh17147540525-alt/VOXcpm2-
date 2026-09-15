@@ -15,6 +15,12 @@
   5. LOGIN_HTML **没有令牌块**（--ease/--t-fast/--t-base 未定义）→ 过渡是无效 CSS，静默失效。
   6. 硬编码的 `.16s ease` 残留，绕过令牌体系。
 
+第 7 类（第 1~6 类都修完之后才暴露，因为它被前两类"检查盲区"同时漏掉）：
+  JS **动态拼出来**的状态消息里还留着 ❌✅⚠️⚡✓✗ —— 生成结果、保存/测试反馈、
+  训练报错、音色包提示、alert()。它们 **既不在标记区**（所以第 6 组的"标记区=0"放过），
+  **也不在 i18n 字典里**（所以第 4b 组放过），但会真的渲染进界面，跟线性图标语言打架。
+  → 因此第 6 组从"信息性"升格为**硬断言：渲染产物任何位置的 emoji 都必须为 0**。
+
 这些检查**必须看渲染后的产物**（用 ast 取 `*_HTML` 常量的运行时取值），
 并且要能**按页面分别**核对——因为 4、5 两类只有分页面才暴露。
 
@@ -202,17 +208,22 @@ def main() -> int:
         bad.append("有 %d 处 JS 写 textContent 会抹掉容器内的 svg：%s"
                    % (len(js_hits), [h[1] for h in js_hits]))
 
-    # ---- 6. 信息性：标记区 emoji 应为 0；脚本/消息区允许保留纯文本符号 ----
-    print("6. emoji 分布（信息）")
+    # ---- 6. 渲染产物 emoji 必须为 0（硬断言）----
+    # 2026-09-15 升格：原先只断言"标记区为 0"，脚本区当信息看。
+    # 但 JS 动态拼出来的状态消息（生成结果 / 保存测试 / 训练报错 / alert）里的
+    # ❌✅⚠️⚡ 会渲染进界面，而它们既不在标记区、也不在 i18n 字典里 —— 两道检查同时漏。
+    # 全站 emoji 已归零，所以这里改成任何位置出现 emoji 都算失败。
+    print("6. 渲染产物 emoji 必须为 0（含 JS 动态消息与注释）")
     for name, html in consts.items():
-        markup = re.sub(r"<script>.*?</script>", lambda m: " " * len(m.group(0)), html, flags=re.S)
-        mk = EMOJI.findall(markup)
-        allc = Counter(EMOJI.findall(html))
-        print("   [%s] 标记区 %d 个%s / 脚本与 i18n 区 %d 个"
-              % (name, len(mk), (" " + str(Counter(mk).most_common(5))) if mk else "",
-                 sum(allc.values()) - len(mk)))
-        if mk:
-            bad.append("%s 标记区仍有 %d 个 emoji 未换成图标：%s" % (name, len(mk), Counter(mk).most_common(5)))
+        ms = list(EMOJI.finditer(html))
+        print("   [%s] emoji %d 个%s" % (
+            name, len(ms), (" " + str(Counter(m.group(0) for m in ms).most_common(6))) if ms else ""))
+        if ms:
+            for m in ms[:3]:
+                around = html[max(0, m.start() - 45):m.end() + 45].replace("\n", " ").replace("\r", "")
+                print("      ... %s" % around)
+            bad.append("%s 渲染产物还有 %d 个 emoji（含 JS 动态消息与注释），应换成 sprite 图标：%s"
+                       % (name, len(ms), Counter(m.group(0) for m in ms).most_common(6)))
 
     print("-" * 56)
     if bad:
