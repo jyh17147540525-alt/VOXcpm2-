@@ -25,6 +25,15 @@ from __future__ import annotations
 import re
 import numpy as np
 
+try:                                   # 包内正常导入
+    from . import plugins as _plugins
+except ImportError:                    # pragma: no cover - 无包上下文的直接加载（部分测试这么做）
+    import os as _os
+    import sys as _sys
+
+    _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+    import plugins as _plugins  # type: ignore
+
 _SENT_END = "。！？!?；;…"
 _CLAUSE = "，、：,:"
 # 硬切时的「可断字」：纯中文连续串超长时，切点优先落在这些虚词/语气词之后，
@@ -563,6 +572,30 @@ def _apply_emotion_uniform(pieces: list[np.ndarray], emotion: str,
     return out, [(i, key, 1.0, 1.0) for i in range(len(out))]
 
 
+def _finalize_synthesis(wav: np.ndarray, report: dict, sr: int,
+                        params: dict) -> tuple[np.ndarray, dict]:
+    """收尾钩子：``synth.post``（成品音频/报告）-> ``report.enrich``（追加报告字段）。
+
+    两条合成路径（单块整段 / 多块分块）共用，保证钩子语义一致。
+    无插件时 ``emit`` 原样返回传入对象，因此行为与改造前逐字节一致。
+    """
+    out = _plugins.emit("synth.post", audio=wav, report=report, sr=sr, params=params)
+    if isinstance(out, np.ndarray) and out.size:
+        wav = out
+    elif isinstance(out, dict):
+        _a = out.get("audio")
+        if isinstance(_a, np.ndarray) and _a.size:
+            wav = _a
+        _r = out.get("report")
+        if isinstance(_r, dict):
+            report = _r
+    enriched = _plugins.emit("report.enrich", report=report,
+                             context={"sr": sr, "params": params})
+    if isinstance(enriched, dict):
+        report = enriched
+    return wav, report
+
+
 def synthesize_stable(model, text: str, reference_wav_path: str | None,
                       sr_tts: int, prompt_wav_path: str | None = None,
                       prompt_text: str | None = None, max_chars: int = 60,
@@ -579,9 +612,24 @@ def synthesize_stable(model, text: str, reference_wav_path: str | None,
       4. 逐块软限幅+RMS 对齐；按停顿类型分级拼接（句末长停顿、逗号短停顿）；
       5. 返回 (audio_np, report含稳定性指标)。
     """
+    if _plugins.in_hook():
+        # 快速失败优于静默损坏：钩子在推理临界区内运行，同步重入会复用同一个模型，
+        # 轻则 CUDA 状态错乱，重则（插件内自请求 /api/generate）在非可重入锁上永久挂死。
+        raise RuntimeError(
+            "插件钩子内不得调用合成接口（synthesize_stable）：会重入正在进行的推理。"
+            "请把合成放在钩子之外发起，钩子内只做数据变换。")
     normalize = bool(gen_kwargs.get("normalize", False))
     text = _maybe_normalize_text(text, normalize)
+    params = {"max_chars": max_chars, "pause": pause, "breath": breath,
+              "emotion": emotion, "normalize": normalize}
+    # 钩子 text.pre：文本改写（在分块之前，故可安全改变后续分块结果）
+    _t = _plugins.emit("text.pre", text=text, params=params)
+    if isinstance(_t, str) and _t:
+        text = _t
     chunks_with_pause = split_with_pauses(text, max_chars=max_chars)
+    # 钩子 text.chunks：调整停顿类型 / 合并拆分（元素形状与停顿类型由 plugins 层校验）
+    chunks_with_pause = _plugins.emit(
+        "text.chunks", text=text, chunks=chunks_with_pause, max_chars=max_chars)
     chunks_text = [t for t, _ in chunks_with_pause]
     report: dict = {"n_chunks": len(chunks_text),
                     "chunk_lengths": [len(c) for c in chunks_text]}
@@ -615,8 +663,10 @@ def synthesize_stable(model, text: str, reference_wav_path: str | None,
         if user_emotion:
             wav_list, _ = _apply_emotion_uniform([wav], user_emotion, sr_tts)
             wav = wav_list[0]
+        # 整段视为单块，同样走 chunk.post —— 保持两条路径的钩子语义一致
+        wav = _plugins.emit("chunk.post", audio=wav, sr=sr_tts, index=0, text=text)
         report.update(compute_stability_metrics([wav], wav, sr_tts))
-        return wav, report
+        return _finalize_synthesis(wav, report, sr_tts, params)
 
     # 参考缓存：仅当底层模型支持 prompt-cache 独立生成时构建（私有 API 能力检测），
     # 否则直接走公开 model.generate 回退，避免对 voxcpm 内部结构的隐式耦合。
@@ -654,7 +704,11 @@ def synthesize_stable(model, text: str, reference_wav_path: str | None,
         else:
             audio_np = _to_numpy(model.generate(text=ct, **full_kwargs))
             report.setdefault("independent_ok", []).append(False)
-        pieces.append(postprocess_output(audio_np))
+        piece = postprocess_output(audio_np)
+        # 钩子 chunk.post：单块音频后处理（可改长度/增益/重采样，长度变化不影响拼接）
+        piece = _plugins.emit("chunk.post", audio=piece, sr=sr_tts,
+                              index=len(pieces), text=ct)
+        pieces.append(piece)
         # 每块生成后释放 GPU 缓存，避免连续多次推理累积碎片化导致 CUDA native crash
         try:
             import torch
@@ -677,7 +731,12 @@ def synthesize_stable(model, text: str, reference_wav_path: str | None,
         control = dict(EMOTION_CONTROL)
         if emotion_control:
             control.update(emotion_control)
-        emotions = [detect_emotion(ct) for ct in chunks_text]
+        emotions = []
+        for ct in chunks_text:
+            _e = detect_emotion(ct)
+            # 钩子 emotion.detect：插件可细化/覆盖单块情绪判定（第一个非空结果生效）
+            _eo = _plugins.emit("emotion.detect", text=ct, emotion=_e)
+            emotions.append(_eo if isinstance(_eo, str) and _eo.strip() else _e)
         pieces, emotion_transitions = _apply_emotion(pieces, emotions, sr_tts, control)
         if emotion_transitions:
             report["emotion_transitions"] = emotion_transitions
@@ -690,7 +749,7 @@ def synthesize_stable(model, text: str, reference_wav_path: str | None,
 
     final = _join_pieces(pieces, chunks_with_pause, sr_tts, pause, breath)
     report.update(compute_stability_metrics(pieces, final, sr_tts))
-    return final, report
+    return _finalize_synthesis(final, report, sr_tts, params)
 
 
 def _smooth_edges(y: np.ndarray, sr: int, fade_ms: float = 5.0) -> np.ndarray:

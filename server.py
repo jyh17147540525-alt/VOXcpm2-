@@ -131,6 +131,34 @@ except Exception as _e:
     _director = None
     print(f"[warn] director (rule) unavailable: {_e}")
 
+# ============================== 插件子系统 ==============================
+# 外部模块的注册 / 加载 / 调用（见 voice_clone/plugins.py 的契约说明）。
+# 默认无插件时所有钩子都是常数时间 no-op，行为与未引入插件机制时逐字节一致。
+# init() 内部已吞掉全部异常：插件出问题绝不影响服务启动。
+import voice_clone.plugins as _plugins
+
+
+def _plugin_log_impl(msg: str):
+    """插件日志：同时落 stdout 与 server_error.log，便于事后定位。"""
+    print(msg, flush=True)
+    try:
+        with open(ERROR_LOG, "a", encoding="utf-8") as f:
+            f.write(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}\n")
+    except Exception:
+        pass
+
+
+_plugins.set_logger(_plugin_log_impl)
+_PLUGINS = _plugins.init(BASE_DIR)
+try:
+    _psnap = _PLUGINS.snapshot()
+    print(f"[VoxCPM2] 插件子系统就绪：生效 {_psnap['n_active']} / 发现 {_psnap['n_plugins']}"
+          f"（API v{_psnap['plugin_api_version']}）", flush=True)
+    for _d in _psnap["discovery_errors"]:
+        print(f"[VoxCPM2][plugin] 发现失败：{_d}", flush=True)
+except Exception as _e:
+    print(f"[VoxCPM2][plugin] 状态输出失败（忽略）: {_e}", flush=True)
+
 
 def log_error(where: str, exc: BaseException):
     """把完整 traceback 追加写入 server_error.log，方便事后定位。
@@ -636,6 +664,10 @@ def require_auth(request: Request):
 
 
 app = FastAPI(title="VoxCPM2 本地推理服务", version="2.1.0", docs_url=None, redoc_url=None)
+
+# 插件注册额外 HTTP 路由（返回值忽略；插件直接对 app 调用 app.get/app.post）。
+# 位置在核心路由声明之前不影响结果 —— Starlette 只按最终的路由表匹配。
+_plugins.emit("api.routes", app=app)
 
 
 # ---------- 全局异常处理器：保证永远返回 JSON，并把 traceback 落盘 ----------
@@ -3593,6 +3625,11 @@ def _do_generate(kwargs: dict):
         # 音量（归一化后独立生效）+ 最终限幅防爆音
         if _ae is not None:
             wav = _ae.apply_volume(wav, volume)
+        # 插件后处理（成品音频）。放在最终限幅**之前**：插件不必自己夹紧幅度，
+        # 越界会被下面的 declip 兜住，避免插件写坏文件。
+        wav = _plugins.emit("output.post", audio=wav, sr=sr,
+                            params={"pitch": pitch, "speed": speed, "volume": volume,
+                                    "emotion": emotion, "text": str(kwargs.get("text", ""))})
         wav = _vc_stab.declip(wav)
         # 清晰度增强：温和 pre-emphasis（辅音/齿音提升），改善个别词语咬字不清。
         # 对全部成品启用（不止 30s 以上），amount 取温和值避免音色变尖。
@@ -3733,6 +3770,10 @@ def multi_speaker(request: Request,
     final = pieces[0]
     for p in pieces[1:]:
         final = np.concatenate([final, pause, p])
+    # 插件后处理：真正的成品（全部段落拼接完成后），随后兜一道最终限幅
+    final = _plugins.emit("output.post", audio=final, sr=sr,
+                          params={"mode": "multi_speaker", "n_segments": len(pieces)})
+    final = _vc_stab.declip(final)
     name = f"multi_{time.strftime('%m%d_%H%M%S')}_{secrets.token_hex(2)}.wav"
     sf.write(str(OUTPUT_DIR / name), final, sr, format="WAV")
     buf = io.BytesIO(); sf.write(buf, final, sr, format="WAV"); buf.seek(0)
@@ -3875,6 +3916,10 @@ async def dialogue(request: Request):
     final = pieces[0]
     for p in pieces[1:]:
         final = np.concatenate([final, pause, p])
+    # 插件后处理：真正的成品（全部 turn 拼接完成后），随后兜一道最终限幅
+    final = _plugins.emit("output.post", audio=final, sr=sr,
+                          params={"mode": "dialogue", "n_segments": len(pieces)})
+    final = _vc_stab.declip(final)
     name = f"dialogue_{time.strftime('%m%d_%H%M%S')}_{secrets.token_hex(2)}.wav"
     sf.write(str(OUTPUT_DIR / name), final, sr, format="WAV")
     buf = io.BytesIO(); sf.write(buf, final, sr, format="WAV"); buf.seek(0)
@@ -4759,6 +4804,50 @@ def delete_voice_pack(pack_id: str, request: Request):
     return {"ok": True}
 
 
+# ============================== 插件管理 ==============================
+@app.get("/api/plugins")
+def list_plugins(request: Request):
+    """插件总览：清单 / 状态 / 钩子挂载 / 设置 / 错误计数（供排查与自动化）。"""
+    require_auth(request)
+    try:
+        return JSONResponse(_plugins.snapshot())
+    except Exception as e:
+        log_error("读取插件状态失败", e)
+        raise HTTPException(status_code=500,
+                            detail=f"读取插件状态失败: {type(e).__name__}: {e}")
+
+
+@app.post("/api/plugins/{plugin_id}/enabled")
+def set_plugin_enabled(plugin_id: str, request: Request, enabled: str = Form("true")):
+    """运行期启用/停用插件，并落盘到 plugins_config.json。"""
+    require_auth(request)
+    reg = _plugins.get_registry()
+    if reg is None:
+        raise HTTPException(status_code=503, detail="插件子系统未初始化")
+    if plugin_id not in reg.plugins:
+        raise HTTPException(status_code=404, detail=f"插件「{plugin_id}」不存在")
+    want = str(enabled).lower() == "true"
+    if not reg.set_enabled(plugin_id, want):
+        raise HTTPException(status_code=500, detail="写入插件配置失败")
+    return JSONResponse({"ok": True, "id": plugin_id, "enabled": want})
+
+
+@app.post("/api/plugins/{plugin_id}/reload")
+def reload_plugin(plugin_id: str, request: Request):
+    """热重载单个插件（改完插件代码无需重启服务）。"""
+    require_auth(request)
+    reg = _plugins.get_registry()
+    if reg is None:
+        raise HTTPException(status_code=503, detail="插件子系统未初始化")
+    if plugin_id not in reg.plugins:
+        raise HTTPException(status_code=404, detail=f"插件「{plugin_id}」不存在")
+    ok = reg.reload(plugin_id)
+    lp = reg.plugins.get(plugin_id)
+    return JSONResponse({"ok": bool(ok), "id": plugin_id,
+                         "state": lp.state if lp else "unknown",
+                         "error": lp.error if lp else ""})
+
+
 # ============================== 启动 ==============================
 if __name__ == "__main__":
     line = "=" * 66
@@ -4779,6 +4868,11 @@ if __name__ == "__main__":
     print(line, flush=True)
     # 注：本机 uvicorn 0.52.2 不对请求体大小做限制（仅 header 有 16KB 缓冲），
     # 故 10 分钟参考音频可直接以 multipart 流式上传，无需额外放宽上传上限。
+    # 插件生命周期：本服务固定以 `python server.py` 启动（见 start.bat），故此处即启动锚点；
+    # notify_lifecycle 幂等，重复调用不会让插件收到两次启动/退出通知。
+    _plugins.attach_atexit_shutdown()
+    _plugins.notify_lifecycle("startup", app=app, host=HOST, port=PORT,
+                              version=app.version, base_dir=str(BASE_DIR))
     try:
         uvicorn.run(app, host=HOST, port=PORT, log_level="info")
     except OSError as e:

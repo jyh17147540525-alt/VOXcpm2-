@@ -25,6 +25,15 @@ from __future__ import annotations
 
 import re
 
+try:                                   # 包内正常导入
+    from . import plugins as _plugins
+except ImportError:                    # pragma: no cover - 无包上下文的直接加载
+    import os as _os
+    import sys as _sys
+
+    _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+    import plugins as _plugins  # type: ignore
+
 # --------------------------------------------------------------------- 预设表
 # 字段说明：
 #   id        稳定标识（写进配置文件，不要随意改）
@@ -187,10 +196,102 @@ PROVIDERS: list[dict] = [
 
 PROVIDER_BY_ID: dict[str, dict] = {p["id"]: p for p in PROVIDERS}
 
+# --------------------------------------------------------------------------- 插件追加的服务商
+#: 内置预设 id —— 插件只能**追加**，不得覆盖或删除这些条目。
+BUILTIN_PROVIDER_IDS: frozenset[str] = frozenset(p["id"] for p in PROVIDERS)
+
+_extra_providers: dict[str, dict] = {}
+_providers_sig: tuple[str, ...] | None = None
+
+
+def _provider_signature() -> tuple[str, ...]:
+    """缓存签名 = 处理该钩子的**插件 id 序列**（启停/熔断/换插件都会变）。
+
+    刻意不用"处理器数量"：两套不同插件各挂 1 个处理器时数量相同，
+    会让缓存张冠李戴，把上一个插件追加的服务商继续报给用户。
+    """
+    reg = _plugins.get_registry()
+    if reg is None:
+        return ()
+    return tuple(lp.manifest.id for lp in reg.handlers_for("llm.providers"))
+
+
+def _normalize_extra(p: dict) -> dict:
+    """把插件条目补齐成与内置同构的结构。
+
+    界面/describe 按固定键取值（``p["name_zh"]`` / ``p["models"]`` …），缺键会直接
+    抛 KeyError 变 500，所以这里把所有键兜成安全默认值 —— 插件只需给 id/base_url/models。
+    """
+    pid = str(p.get("id", "")).strip()
+    models = p.get("models") or []
+    if isinstance(models, str):
+        models = [models]
+    return {
+        "id": pid,
+        "name_zh": str(p.get("name_zh") or p.get("name") or pid),
+        "name_en": str(p.get("name_en") or p.get("name") or pid),
+        "base_url": str(p.get("base_url") or ""),
+        "models": [str(m) for m in models],
+        "key_hint": str(p.get("key_hint") or ""),
+        "key_hint_en": str(p.get("key_hint_en") or ""),
+        "key_url": str(p.get("key_url") or ""),
+        "local": bool(p.get("local")),
+        "note": str(p.get("note") or ""),
+        "note_en": str(p.get("note_en") or ""),
+        "from_plugin": True,
+    }
+
+
+def refresh_plugin_providers(force: bool = False) -> None:
+    """触发 ``llm.providers`` 钩子，缓存插件追加的服务商预设。
+
+    **内置不可覆盖**：插件返回同 id 条目会被丢弃并记录日志；插件"删除"内置项同样无效
+    —— 结果始终以内置列表为基座重建，故内置项无法被改写或移除。
+    """
+    global _providers_sig
+    sig = _provider_signature()
+    if not force and _providers_sig == sig:
+        return
+    _extra_providers.clear()
+    _providers_sig = sig
+    if sig:
+        out = _plugins.emit("llm.providers",
+                            providers=[dict(p) for p in PROVIDERS], params={})
+        if isinstance(out, list):
+            for item in out:
+                if not isinstance(item, dict):
+                    continue
+                pid = str(item.get("id", "")).strip()
+                if not pid:
+                    continue
+                if pid in BUILTIN_PROVIDER_IDS:
+                    # 插件把内置项原样回传是正常写法（providers + [新增]），静默忽略；
+                    # 只有真的改写了内置项内容才算"试图覆盖"，此时才告警。
+                    if item != PROVIDER_BY_ID[pid]:
+                        print(f"[VoxCPM2][plugin] 拒绝覆盖内置服务商预设「{pid}」"
+                              f"（插件只能追加，不能改动/删除内置项）", flush=True)
+                    continue
+                if pid not in _extra_providers:      # 先到先得，保证结果稳定可复现
+                    _extra_providers[pid] = _normalize_extra(item)
+
+
+def merged_providers() -> list[dict]:
+    """内置预设 + 插件追加预设（插件项排在其后，内置优先）。"""
+    refresh_plugin_providers()
+    return PROVIDERS + [_extra_providers[k] for k in sorted(_extra_providers)]
+
 
 def get_provider(pid: str | None) -> dict:
-    """按 id 取预设；未知 id 返回 custom 预设（不抛异常）。"""
-    return PROVIDER_BY_ID.get(str(pid or "").strip(), PROVIDER_BY_ID["custom"])
+    """按 id 取预设；未知 id 返回 custom 预设（不抛异常）。
+
+    插件追加的 id 同样可解析 —— 否则用户能在界面选中它，却无法保存/调用。
+    """
+    key = str(pid or "").strip()
+    p = PROVIDER_BY_ID.get(key)
+    if p is not None:
+        return p
+    refresh_plugin_providers()
+    return _extra_providers.get(key) or PROVIDER_BY_ID["custom"]
 
 
 def detect_provider(base_url: str | None) -> str:

@@ -23,6 +23,14 @@ import soundfile as sf
 
 from . import preprocess, length_adapter, synthesis_stab
 
+try:                                   # 包内正常导入
+    from . import plugins as _plugins
+except ImportError:                    # pragma: no cover - 无包上下文的直接加载
+    import sys as _sys
+
+    _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import plugins as _plugins  # type: ignore
+
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PREPARED_DIR = os.path.join(BASE_DIR, "prepared")
 os.makedirs(PREPARED_DIR, exist_ok=True)
@@ -39,6 +47,20 @@ def _file_hash(path: str) -> str:
     return h.hexdigest()[:12]
 
 
+def _emit_reference_post(path: str, report: dict, params: dict) -> str:
+    """钩子 ``reference.post``：允许插件改写最终参考音频路径。
+
+    例如插件自行做更强的降噪/去混响，把结果写到自己的目录再交回来。
+    路径被改写时同步修正 report["output_path"]，避免报告与实际使用文件不一致。
+    """
+    new = _plugins.emit("reference.post", path=path, report=report, params=params)
+    if isinstance(new, str) and new and new != path:
+        report["output_path"] = new
+        report["reference_overridden_by_plugin"] = True
+        return new
+    return path
+
+
 def prepare_reference(input_path: str, denoise: bool = True, remove_bg: bool = False,
                       target_dur: float = 25.0, max_ref_seconds: float = 600.0,
                       use_cache: bool = True, cache_key: str | None = None) -> tuple[str, dict]:
@@ -52,11 +74,13 @@ def prepare_reference(input_path: str, denoise: bool = True, remove_bg: bool = F
     opt_tag = f"d{int(denoise)}b{int(remove_bg)}t{int(target_dur)}"
     cache_name = f"{ck}_{opt_tag}.wav"
     cache_path = os.path.join(PREPARED_DIR, cache_name)
+    pparams = {"denoise": denoise, "remove_bg": remove_bg, "target_dur": target_dur,
+               "max_ref_seconds": max_ref_seconds, "input_path": input_path}
     if use_cache and os.path.exists(cache_path):
         report = {"cached": True, "output_path": cache_path}
         y, sr = preprocess.load_audio(cache_path, sr=None)
         report["output_duration"] = round(len(y) / sr, 2)
-        return cache_path, report
+        return _emit_reference_post(cache_path, report, pparams), report
 
     t0 = time.time()
     y, sr, pre = preprocess.preprocess_file(
@@ -80,7 +104,7 @@ def prepare_reference(input_path: str, denoise: bool = True, remove_bg: bool = F
         "adaptation": adaptation,
         "elapsed_sec": round(time.time() - t0, 2),
     }
-    return cache_path, report
+    return _emit_reference_post(cache_path, report, pparams), report
 
 
 # 直接复用 synthesis_stab 的编排

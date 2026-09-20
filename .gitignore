@@ -30,6 +30,15 @@ prepared/
 .tmp/
 # AI 导演层的磁盘缓存（按文本哈希存放，非源码）
 _llm_cache/
+
+# ===== 插件 =====
+# 运行期插件配置（含用户私有设置，勿提交；模板见 plugins_config.json.example）
+plugins_config.json
+# 插件私有数据目录（由 PluginContext.data_dir 提供）
+plugins_data/
+# 自家插件放这里（示例插件 plugins/example_gain/ 是有意提交的模板，故不整目录忽略）
+plugins/*/
+!plugins/example_gain/
 *.wav
 *.mp3
 *.m4a

@@ -1,0 +1,37 @@
+{
+  "id": "example_gain",
+  "name": "示例插件：输出增益",
+  "name_en": "Example: Output Gain",
+  "version": "1.0.0",
+  "api_version": "1.0",
+  "requires_app": ">=2.0,<3",
+  "author": "VoxCPM2",
+  "description": "插件接口的最小可用示例：读取插件设置、改写成品音频、向合成报告追加字段。默认停用。",
+  "description_en": "Minimal working example of the plugin API: read settings, transform the final audio, enrich the report. Disabled by default.",
+  "entry": "plugin.py",
+  "enabled": false,
+  "priority": 100,
+  "isolation": "inprocess",
+  "hooks": {
+    "output.post": "on_output_post",
+    "report.enrich": "on_report_enrich",
+    "lifecycle.startup": "on_startup",
+    "lifecycle.shutdown": "on_shutdown"
+  },
+  "settings_schema": {
+    "properties": {
+      "gain_db": {
+        "type": "number",
+        "default": 0.0,
+        "title": "增益 (dB)",
+        "minimum": -24,
+        "maximum": 24
+      },
+      "report_tag": {
+        "type": "string",
+        "default": "example_gain",
+        "title": "报告字段名"
+      }
+    }
+  }
+}

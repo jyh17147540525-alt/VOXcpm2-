@@ -1,0 +1,11 @@
+{
+  "search_paths": ["plugins"],
+  "autoload": true,
+  "disabled": [],
+  "settings": {
+    "example_gain": {
+      "gain_db": 0.0,
+      "report_tag": "example_gain"
+    }
+  }
+}
