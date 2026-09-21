@@ -1,0 +1,53 @@
+{
+  "id": "clear_vocal",
+  "name": "清唱生成",
+  "name_en": "Clear Vocal (A Cappella) Generator",
+  "version": "1.0.0",
+  "api_version": "1.0",
+  "requires_app": ">=2.0,<3",
+  "author": "VoxCPM2",
+  "description": "由原曲生成「节奏与旋律同原曲一致」的清唱人声：分析节拍/音高/调式 → 规划乐谱 → 逐音符合成 → 零漂移对齐拼接。只在钩子外调用，绝不重入推理临界区。",
+  "description_en": "Generate an a cappella vocal that follows the original track's rhythm and melody: tempo/pitch/key analysis, note planning, per-note synthesis, and zero-drift alignment. Never re-enters the inference critical section.",
+  "entry": "plugin.py",
+  "enabled": false,
+  "priority": 50,
+  "isolation": "inprocess",
+  "hooks": {
+    "report.enrich": "on_report_enrich",
+    "api.routes": "on_api_routes"
+  },
+  "requires_packages": [],
+  "settings_schema": {
+    "properties": {
+      "reference_wav": {
+        "type": "string",
+        "default": "",
+        "title": "目标音色参考音频"
+      },
+      "cfg_value": {
+        "type": "number",
+        "default": 2.0,
+        "title": "CFG 强度",
+        "minimum": 1.0,
+        "maximum": 4.0
+      },
+      "inference_timesteps": {
+        "type": "integer",
+        "default": 10,
+        "title": "推理步数",
+        "minimum": 4,
+        "maximum": 50
+      },
+      "snap_to_beat": {
+        "type": "boolean",
+        "default": true,
+        "title": "吸附到节拍网格（散板素材请关闭）"
+      },
+      "keep_clips": {
+        "type": "boolean",
+        "default": true,
+        "title": "保留每个音符的合成片段（便于调试）"
+      }
+    }
+  }
+}

@@ -66,7 +66,10 @@ def _make_plugin(root: Path, pid: str, body: str, manifest: dict | None = None) 
 def _init(tmp_path: Path, settings: dict | None = None, search: list[str] | None = None):
     cfg = tmp_path / P.CONFIG_NAME
     cfg.write_text(json.dumps({
-        "search_paths": search or ["plugins"],
+        # 默认搜索目录必须跟随运行时常量，不能写死字面量 —— 目录一旦改名
+        # （plugins -> vox_plugins），写死的那份会静默失效，导致一批插件测试
+        # 连同它们要保护的行为一起消失，而测试报告仍然全绿。
+        "search_paths": search or [P.PLUGIN_DIR_NAME],
         "autoload": True,
         "disabled": [],
         "settings": settings or {},
@@ -157,7 +160,7 @@ def test_noop_plugins_do_not_change_synthesis_output(tmp_path):
     text = "这是一个用于回归测试的短句。"
     base_audio, base_rep = SS.synthesize_stable(_FakeModel(), text, None, 24000)
 
-    _make_plugin(tmp_path / "plugins", "noop",
+    _make_plugin(tmp_path / P.PLUGIN_DIR_NAME, "noop",
                  "def on_text_pre(p):\n    return None\n"
                  "def on_text_chunks(p):\n    return None\n"
                  "def on_chunk_post(p):\n    return None\n"
@@ -256,7 +259,7 @@ def test_return_value_validators():
 
 # --------------------------------------------------------------------------- 5. 执行顺序
 def test_priority_runs_highest_first_then_id_ascending(tmp_path):
-    root = tmp_path / "plugins"
+    root = tmp_path / P.PLUGIN_DIR_NAME
     for pid, prio, tag in [("b_low", 10, "L"), ("a_high", 90, "H"), ("c_mid", 50, "M")]:
         _make_plugin(root, pid,
                      f"def on_text_pre(p):\n    return p['text'] + '{tag}'\n",
@@ -266,7 +269,7 @@ def test_priority_runs_highest_first_then_id_ascending(tmp_path):
 
 
 def test_same_priority_is_stable_by_plugin_id(tmp_path):
-    root = tmp_path / "plugins"
+    root = tmp_path / P.PLUGIN_DIR_NAME
     for pid in ("zz", "aa"):
         _make_plugin(root, pid,
                      f"def on_text_pre(p):\n    return p['text'] + '{pid}'\n",
@@ -277,7 +280,7 @@ def test_same_priority_is_stable_by_plugin_id(tmp_path):
 
 # --------------------------------------------------------------------------- 6. 错误隔离与熔断
 def test_exceptions_are_isolated_and_breaker_stops_plugin(tmp_path):
-    _make_plugin(tmp_path / "plugins", "boom",
+    _make_plugin(tmp_path / P.PLUGIN_DIR_NAME, "boom",
                  "calls = []\n"
                  "def setup(ctx):\n    calls.append('setup')\n"
                  "def teardown(ctx):\n    calls.append('teardown')\n"
@@ -301,7 +304,7 @@ def test_exceptions_are_isolated_and_breaker_stops_plugin(tmp_path):
 
 
 def test_one_broken_plugin_does_not_affect_others(tmp_path):
-    root = tmp_path / "plugins"
+    root = tmp_path / P.PLUGIN_DIR_NAME
     _make_plugin(root, "broken",
                  "def on_text_pre(p):\n    raise RuntimeError('x')\n",
                  {"priority": 90, "hooks": {"text.pre": "on_text_pre"}})
@@ -314,7 +317,7 @@ def test_one_broken_plugin_does_not_affect_others(tmp_path):
 
 
 def test_invalid_return_type_keeps_original_and_counts_error(tmp_path):
-    _make_plugin(tmp_path / "plugins", "badtype",
+    _make_plugin(tmp_path / P.PLUGIN_DIR_NAME, "badtype",
                  "def on_output_post(p):\n    return 'not an array'\n",
                  {"hooks": {"output.post": "on_output_post"}})
     reg = _init(tmp_path)
@@ -325,12 +328,12 @@ def test_invalid_return_type_keeps_original_and_counts_error(tmp_path):
 
 def test_load_failure_is_recorded_not_raised(tmp_path):
     """缺少依赖 / 入口文件缺失 / 处理器签名不符 → 记 failed，不影响服务启动。"""
-    _make_plugin(tmp_path / "plugins", "nofile", "", {"entry": "missing.py",
+    _make_plugin(tmp_path / P.PLUGIN_DIR_NAME, "nofile", "", {"entry": "missing.py",
                                                      "hooks": {"text.pre": "on_text_pre"}})
-    _make_plugin(tmp_path / "plugins", "badfn",
+    _make_plugin(tmp_path / P.PLUGIN_DIR_NAME, "badfn",
                  "def on_text_pre(): \n    return None\n",   # 0 个参数
                  {"hooks": {"text.pre": "on_text_pre"}})
-    _make_plugin(tmp_path / "plugins", "nohandler",
+    _make_plugin(tmp_path / P.PLUGIN_DIR_NAME, "nohandler",
                  "pass\n", {"hooks": {"text.pre": "on_text_pre"}})
     reg = _init(tmp_path)
     for pid in ("nofile", "badfn", "nohandler"):
@@ -342,7 +345,7 @@ def test_load_failure_is_recorded_not_raised(tmp_path):
 
 # --------------------------------------------------------------------------- 7. 重入防护
 def test_nested_emit_is_refused_and_returns_none(tmp_path):
-    _make_plugin(tmp_path / "plugins", "nest",
+    _make_plugin(tmp_path / P.PLUGIN_DIR_NAME, "nest",
                  "import voice_clone.plugins as PL\n"
                  "def on_text_pre(p):\n"
                  "    return PL.emit('text.pre', text='inner')\n",
@@ -353,7 +356,7 @@ def test_nested_emit_is_refused_and_returns_none(tmp_path):
 
 
 def test_hook_context_helpers(tmp_path):
-    _make_plugin(tmp_path / "plugins", "ctx",
+    _make_plugin(tmp_path / P.PLUGIN_DIR_NAME, "ctx",
                  "import voice_clone.plugins as PL\n"
                  "def on_text_pre(p):\n"
                  "    return PL.current_hook() + '|' + str(PL.in_hook())\n",
@@ -368,7 +371,7 @@ def test_hook_context_helpers(tmp_path):
 
 def test_synthesize_stable_refuses_to_run_inside_a_hook(tmp_path):
     """钩子内同步重入生成路径 → 快速失败（否则是非可重入锁上的静默挂死）。"""
-    _make_plugin(tmp_path / "plugins", "guard",
+    _make_plugin(tmp_path / P.PLUGIN_DIR_NAME, "guard",
                  "import voice_clone.synthesis_stab as SS\n"
                  "outcome = []\n"
                  "def on_output_post(p):\n"
@@ -393,7 +396,7 @@ def test_synthesize_stable_runs_normally_outside_hooks():
 
 # --------------------------------------------------------------------------- 8. 生命周期
 def test_lifecycle_notifications_are_idempotent(tmp_path):
-    _make_plugin(tmp_path / "plugins", "life",
+    _make_plugin(tmp_path / P.PLUGIN_DIR_NAME, "life",
                  "calls = []\n"
                  "def setup(ctx):\n    calls.append('setup')\n"
                  "def teardown(ctx):\n    calls.append('teardown')\n"
@@ -415,7 +418,7 @@ def test_lifecycle_notifications_are_idempotent(tmp_path):
 
 
 def test_settings_defaults_merge_with_config_overrides(tmp_path):
-    _make_plugin(tmp_path / "plugins", "cfg",
+    _make_plugin(tmp_path / P.PLUGIN_DIR_NAME, "cfg",
                  "def on_output_post(p):\n    return None\n",
                  {"hooks": {"output.post": "on_output_post"},
                   "settings_schema": {"properties": {
@@ -425,7 +428,7 @@ def test_settings_defaults_merge_with_config_overrides(tmp_path):
 
 
 def test_disable_and_enable_at_runtime(tmp_path):
-    _make_plugin(tmp_path / "plugins", "toggle",
+    _make_plugin(tmp_path / P.PLUGIN_DIR_NAME, "toggle",
                  "def on_text_pre(p):\n    return p['text'] + '*'\n",
                  {"hooks": {"text.pre": "on_text_pre"}})
     reg = _init(tmp_path)
@@ -441,7 +444,7 @@ def test_disable_and_enable_at_runtime(tmp_path):
 
 
 def test_hot_reload_picks_up_new_code(tmp_path):
-    d = _make_plugin(tmp_path / "plugins", "hot",
+    d = _make_plugin(tmp_path / P.PLUGIN_DIR_NAME, "hot",
                      "def on_text_pre(p):\n    return p['text'] + '-v1'\n",
                      {"hooks": {"text.pre": "on_text_pre"}})
     reg = _init(tmp_path)
@@ -454,7 +457,7 @@ def test_hot_reload_picks_up_new_code(tmp_path):
 
 # --------------------------------------------------------------------------- 9. LLM 服务商
 def test_plugin_can_add_provider_but_not_override_builtin(tmp_path):
-    _make_plugin(tmp_path / "plugins", "prov",
+    _make_plugin(tmp_path / P.PLUGIN_DIR_NAME, "prov",
                  "def on_llm_providers(p):\n"
                  "    return p['providers'] + [\n"
                  "        {'id': 'deepseek', 'base_url': 'http://evil.invalid/v1'},\n"
@@ -477,7 +480,7 @@ def test_plugin_can_add_provider_but_not_override_builtin(tmp_path):
 
 def test_provider_cache_invalidates_when_plugin_set_changes(tmp_path):
     """缓存签名若只按"处理器数量"计，两套不同插件会张冠李戴。"""
-    _make_plugin(tmp_path / "plugins", "pa",
+    _make_plugin(tmp_path / P.PLUGIN_DIR_NAME, "pa",
                  "def on_llm_providers(p):\n"
                  "    return p['providers'] + [{'id': 'alpha', 'base_url': 'http://a/v1'}]\n",
                  {"hooks": {"llm.providers": "on_llm_providers"}})
@@ -485,8 +488,8 @@ def test_provider_cache_invalidates_when_plugin_set_changes(tmp_path):
     assert "alpha" in [p["id"] for p in LP.merged_providers()]
 
     P.reset_for_tests()
-    shutil.rmtree(tmp_path / "plugins" / "pa")
-    _make_plugin(tmp_path / "plugins", "pb",
+    shutil.rmtree(tmp_path / P.PLUGIN_DIR_NAME / "pa")
+    _make_plugin(tmp_path / P.PLUGIN_DIR_NAME, "pb",
                  "def on_llm_providers(p):\n"
                  "    return p['providers'] + [{'id': 'beta', 'base_url': 'http://b/v1'}]\n",
                  {"hooks": {"llm.providers": "on_llm_providers"}})
@@ -499,9 +502,12 @@ def test_provider_cache_invalidates_when_plugin_set_changes(tmp_path):
 # --------------------------------------------------------------------------- 10. 随仓库发布的示例插件
 def test_shipped_example_plugin_is_disabled_by_default():
     """示例插件必须默认停用 —— 否则"零插件 = 行为不变"这条保证立刻破功。"""
-    src = REPO / "plugins" / "example_gain"
+    src = REPO / P.PLUGIN_DIR_NAME / "example_gain"
     if not src.is_dir():
-        pytest.skip("示例插件不存在")
+        pytest.fail(
+            f"随仓库发布的示例插件缺失：{src}\n"
+            "这两个用例是「零插件 = 行为不变」的回归护栏，"
+            "一旦找不到素材就会 skip —— skip 会让护栏静默失效，故此处必须 fail。")
     reg = P.PluginRegistry(str(REPO))
     manifests = {m.id: m for m in reg.discover()}
     assert "example_gain" in manifests, "示例插件未被发现"
@@ -513,10 +519,13 @@ def test_shipped_example_plugin_is_disabled_by_default():
 
 
 def test_shipped_example_plugin_works_when_enabled(tmp_path):
-    src = REPO / "plugins" / "example_gain"
+    src = REPO / P.PLUGIN_DIR_NAME / "example_gain"
     if not src.is_dir():
-        pytest.skip("示例插件不存在")
-    dst = tmp_path / "plugins"
+        pytest.fail(
+            f"随仓库发布的示例插件缺失：{src}\n"
+            "这两个用例是「零插件 = 行为不变」的回归护栏，"
+            "一旦找不到素材就会 skip —— skip 会让护栏静默失效，故此处必须 fail。")
+    dst = tmp_path / P.PLUGIN_DIR_NAME
     dst.mkdir(parents=True, exist_ok=True)
     shutil.copytree(src, dst / "example_gain")
     mf = dst / "example_gain" / "plugin.json"
@@ -542,7 +551,7 @@ def test_shipped_example_plugin_works_when_enabled(tmp_path):
 
 
 def test_report_enrich_cannot_overwrite_core_fields(tmp_path):
-    _make_plugin(tmp_path / "plugins", "liar",
+    _make_plugin(tmp_path / P.PLUGIN_DIR_NAME, "liar",
                  "def on_report_enrich(p):\n"
                  "    return {'n_chunks': 999, 'mine': 1}\n",
                  {"hooks": {"report.enrich": "on_report_enrich"}})
@@ -554,7 +563,7 @@ def test_report_enrich_cannot_overwrite_core_fields(tmp_path):
 
 # --------------------------------------------------------------------------- 11. 内省
 def test_snapshot_is_json_serializable_and_informative(tmp_path):
-    _make_plugin(tmp_path / "plugins", "snap",
+    _make_plugin(tmp_path / P.PLUGIN_DIR_NAME, "snap",
                  "def on_text_pre(p):\n    return p['text'] + '.'\n",
                  {"hooks": {"text.pre": "on_text_pre"}})
     _init(tmp_path)

@@ -53,7 +53,15 @@ PLUGIN_API_VERSION = "1.0"
 PLUGIN_API_MAJOR = 1
 #: 插件契约所面向的应用版本（与 server.py 的 FastAPI(version=...) 保持一致）
 APP_VERSION = "2.1.0"
-PLUGIN_DIR_NAME = "plugins"
+#: 插件搜索目录名。
+#: ⚠️ 必须是 ``vox_plugins`` 而不是 ``plugins``：仓库里已有本模块
+#:    ``voice_clone/plugins.py``。由于 pytest 会把每个测试文件所在目录
+#:    （包括 ``voice_clone/``）插到 sys.path 首位，顶层名 ``plugins``
+#:    会被本模块截胡，导致 ``import plugins.<某插件>`` 报
+#:    "ModuleNotFoundError: 'plugins' is not a package"（实测，
+#:    且只在特定收集顺序下出现 —— 最难查的一类 bug）。
+#:    目录改名后，两个概念各占一个名字，互不干扰。
+PLUGIN_DIR_NAME = "vox_plugins"
 PLUGIN_DATA_DIR_NAME = "plugins_data"
 CONFIG_NAME = "plugins_config.json"
 CONFIG_EXAMPLE_NAME = "plugins_config.json.example"
