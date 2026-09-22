@@ -35,26 +35,27 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
 
-      # ⚠️ 这里必须装齐「收集期」就会 import 的依赖，否则不是测试失败而是
+      # ⚠️ 必须装齐「收集期」就会 import 的依赖，否则不是测试失败而是
       #    **收集失败**（pytest exit 2 + "Interrupted: N error during collection"），
-      #    六个 job 一起红。这条链在模块顶层，`--collect-only` 都过不去：
-      #      tests/test_bracket_tags.py -> server.py:30   -> soundfile
-      #      core/tests/* -> voice_clone/__init__.py      -> preprocess -> librosa
-      #      server.py:119 -> voice_clone.trainer         -> torch
-      #      server.py:31  -> uvicorn / fastapi
+      #    六个 job 一起红，一个测试都没跑。
       #
-      # torch 用 **CPU 轮子**（--index-url .../whl/cpu，约 200MB，不是 CUDA 版的 2.5GB）。
-      # 这些用例只用 torch 的类型/张量算术，不需要 GPU，也不需要模型权重。
+      # 以 core/requirements.txt 为单一事实来源，不要在 workflow 里另维护手写清单 ——
+      # 我试过手写，连补三轮都还在漏（soundfile → librosa → torch → transformers），
+      # 每轮都得等一次 CI 才知道下一个缺什么，纯浪费。
       #
-      # voxcpm / onnxruntime / demucs / faster_whisper 仍然不装：它们是**惰性**
-      # import（在函数体内），相关用例自己会 skip，不影响收集。
+      # 只排除 4 个「测试用不到、且体积/网络代价大」的包：
+      #   voxcpm                     —— 需要模型权重，相关用例自己 skip
+      #   onnxruntime                —— 惰性 import（在函数体内），缺了不影响收集
+      #   faster-whisper/ctranslate2 —— 同上
+      # torch 单独走 CPU 轮子（约 124MB；默认 PyPI 是 CUDA 版，CI 上纯浪费，
+      # 且这些用例只用到张量算术，不需要 GPU）。
       - name: Install test dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install numpy scipy soundfile librosa pypinyin
-          python -m pip install fastapi uvicorn starlette safetensors imageio_ffmpeg lameenc
-          python -m pip install pytest pytest-timeout
           python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install numpy scipy librosa soundfile fastapi uvicorn
+          python -m pip install python-multipart pypinyin lameenc imageio-ffmpeg
+          python -m pip install transformers pytest pytest-timeout
 
       - name: Run tests
         run: python -m pytest tests -v
