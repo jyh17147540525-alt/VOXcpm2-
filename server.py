@@ -356,6 +356,13 @@ def normalize_design_brackets(text: str) -> str:
 
 # ============================== Beta：多人朗读 + 情绪控制 ==============================
 # 已知情绪词（中英双语别名），命中即识别为情绪标记
+#
+# ⚠️ 这张表**故意保持精简**，只放引擎 `synthesis_stab._EMOTION_UNIFORM` 真正支持的
+#    10 个规范情绪键（高兴/悲伤/严肃/温柔/愤怒/平静/惊讶/恐惧/疑问/感叹）。
+#    **不要**把「大笑」「耳语」「愤怒嘶吼」这类细分语气往里塞 —— 引擎没有对应的
+#    韵律预设，塞进来只会让 `_EMOTION_UNIFORM.get()` 落空、情绪静默不生效。
+#    这类**细分语气标签**由 `_BETA_TONE_LIB`（语气库）识别，走"剥离 + 归一到最近
+#    的规范情绪"这条路，见 `_tone_to_engine_emotion()`。
 _BETA_EMOTION_WORDS = {
     "高兴": "高兴", "开心": "高兴", "快乐": "高兴", "happy": "高兴",
     "悲伤": "悲伤", "难过": "悲伤", "伤心": "悲伤", "sad": "悲伤",
@@ -363,11 +370,336 @@ _BETA_EMOTION_WORDS = {
     "温柔": "温柔", "gentle": "温柔", "soft": "温柔",
     "愤怒": "愤怒", "生气": "愤怒", "angry": "愤怒",
     "平静": "平静", "calm": "平静", "neutral": "平静", "中性": "平静",
+    "惊讶": "惊讶", "吃惊": "惊讶", "surprised": "惊讶",
+    "恐惧": "恐惧", "害怕": "恐惧", "fear": "恐惧", "scared": "恐惧",
+    "疑问": "疑问", "疑问": "疑问",
+    "感叹": "感叹", "感慨": "感叹", "excited": "感叹",
+}
+
+#: 引擎真正支持的规范情绪键（`voice_clone.synthesis_stab._EMOTION_UNIFORM` 的键）。
+_BETA_ENGINE_EMOTIONS = {
+    "高兴", "悲伤", "严肃", "温柔", "愤怒", "平静",
+    "惊讶", "恐惧", "疑问", "感叹",
+}
+
+#: 细分语气类别 → 最近的规范情绪。
+#:
+#: 语气库有 11 个大类（笑/哭/怒/惧/惊喜/疼痛/耳语/讽刺/咳嗽/呼吸/语气词），
+#: 但引擎只有 10 个韵律预设。映射原则是**按听觉气质就近**：
+#:   · 笑/惊喜 → 高兴（都往上走）
+#:   · 哭/疼痛/疲惫 → 悲伤（都往下走、气弱）
+#:   · 怒/讽刺 → 愤怒（都往上顶、咬字紧）
+#:   · 惧/耳语/咳嗽/呼吸/语气词 → 恐惧/温柔/平静（都轻、都收）
+#: 映射**只影响韵律预设**，不改变文本 —— 细分语气本身仍会被剥离不朗读。
+_BETA_TONE_CATEGORY_TO_EMOTION = {
+    "laugh": "高兴",
+    "surprise": "惊讶",
+    "cry": "悲伤",
+    "pain": "悲伤",
+    "anger": "愤怒",
+    "sarcasm": "愤怒",
+    "fear": "恐惧",
+    "whisper": "温柔",
+    "breath": "平静",
+    "cough": "平静",
+    "filler": "平静",
 }
 
 
+def _load_tone_lib():
+    """加载「自然语气/情感语音」语气库，用于识别细分语气标签。
+
+    为什么复用 Skill 的语气库而不是自己维护第二份（这是本次 bug 的根因）
+    ------------------------------------------------------------------
+    原先 `parse_multi_speaker_text` 只认 6 个情绪词，其余括号内容一律
+    "当普通文本保留" → 「（压抑的愤怒）」被回填进朗读文本 → **模型把标签念出来**。
+    根因不是那套"未知内容不剥"的保守策略错了（那条策略对
+    「（年轻女性，温柔甜美）」这类音色描述是对的），而是**情绪词的覆盖面太窄**。
+
+    语气库有 111 个可识别标签、覆盖 11 个大类，正好补上这个缺口。
+    单一事实来源：语气库改了，这里自动跟上，不会再出现"两处词表不一致"。
+
+    加载失败**不抛异常**（Skill 可能没装）—— 退化成旧的 6 词行为，
+    绝不因为一个可选增强把主流程搞挂。
+    """
+    try:
+        import json as _json
+        p = (Path.home() / ".workbuddy" / "skills" / "natural-emotional-speech"
+             / "assets" / "语气库.json")
+        if not p.exists():
+            return None
+        data = _json.loads(p.read_text(encoding="utf-8"))
+        cats = data.get("categories") or {}
+        #: 标签 → 类别
+        idx: dict[str, str] = {}
+        #: 类别 → 该类别的条目/别名（用于子串匹配时排序）
+        for cat, blob in cats.items():
+            for key in (blob.get("entries") or {}):
+                idx.setdefault(key, cat)
+            for alias in (blob.get("aliases") or {}):
+                idx.setdefault(alias, cat)
+            zh = blob.get("zh")
+            if zh:
+                idx.setdefault(zh, cat)
+        return {"tags": idx, "categories": cats, "raw": data}
+    except Exception as e:  # noqa: BLE001 — 可选增强，失败即降级
+        print(f"[VoxCPM2] 语气库加载失败（细分语气将不被识别）：{e}", flush=True)
+        return None
+
+
+#: 语气库（模块级单例，惰性加载一次）
+_BETA_TONE_LIB = None
+_BETA_TONE_LIB_TRIED = False
+
+#: 强度修饰词 → 是否只做修饰（剥离后剩余部分才是语气词）
+_BETA_INTENSITY_MODIFIERS = (
+    "轻微", "轻轻", "淡淡", "微微", "小声", "浅浅", "稍",
+    "正常", "普通", "一般",
+    "强烈", "用力", "大声", "激动", "拼命", "狠狠",
+    "失控", "崩溃", "歇斯底里", "极端", "疯狂", "狂暴",
+    "压抑", "强忍", "隐忍", "憋着", "克制",
+)
+
+
+def _get_tone_lib():
+    global _BETA_TONE_LIB, _BETA_TONE_LIB_TRIED
+    if not _BETA_TONE_LIB_TRIED:
+        _BETA_TONE_LIB = _load_tone_lib()
+        _BETA_TONE_LIB_TRIED = True
+    return _BETA_TONE_LIB
+
+
+def _lookup_tone(tag: str) -> str | None:
+    """查语气库，返回**类别名**（如 'anger'）；查不到返回 None。
+
+    匹配顺序（从严到宽），与 Skill 的 `TagLib.lookup` 保持一致：
+      ① 精确匹配
+      ② 去连接词（"疯狂的大笑" → 试 "大笑"）
+      ③ **强度修饰剥离**（"压抑的愤怒" → "愤怒"）← 本次 bug 的关键
+      ④ 子串匹配，同长取**靠尾**者（中文复合词"修饰语+中心语"）
+    """
+    lib = _get_tone_lib()
+    if not lib:
+        return None
+    tags = lib["tags"]
+    t = (tag or "").strip()
+    if not t:
+        return None
+
+    # ① 精确
+    if t in tags:
+        return tags[t]
+
+    # ② 去连接词
+    for c in ("的", "地", "得"):
+        if c in t:
+            head, _, tail = t.partition(c)
+            for part in (tail.strip(), head.strip()):
+                if part in tags:
+                    return tags[part]
+
+    # ③ 强度修饰剥离（前缀 / 后缀 / 分隔符形式）
+    cand = None
+    for sep in ("，", ",", "、", " "):
+        if sep in t:
+            head, _, tail = t.rpartition(sep)
+            if tail.strip() in _BETA_INTENSITY_MODIFIERS:
+                cand = head.strip()
+                break
+            if head.strip() in _BETA_INTENSITY_MODIFIERS:
+                cand = tail.strip()
+                break
+    if cand is None:
+        for mod in sorted(_BETA_INTENSITY_MODIFIERS, key=lambda x: -len(x)):
+            if t.startswith(mod):
+                rest = t[len(mod):]
+                for c in ("的", "地", "得"):
+                    if rest.startswith(c):
+                        rest = rest[len(c):]
+                        break
+                if rest:
+                    cand = rest.strip()
+                break
+    if cand is None:
+        for mod in sorted(_BETA_INTENSITY_MODIFIERS, key=lambda x: -len(x)):
+            if t.endswith(mod) and len(t) > len(mod):
+                cand = t[:-len(mod)].strip()
+                break
+    if cand:
+        if cand in tags:
+            return tags[cand]
+        t = cand      # 剥离后仍可能是复合短语，继续走子串匹配
+
+    # ④ 子串匹配：同长取靠尾者（中心语）
+    best_key = None
+    best_rank = None
+    for key in tags:
+        if len(key) < 2 or key not in t:
+            continue
+        rank = (len(key), 1 if t.endswith(key) else 0)
+        if best_rank is None or rank > best_rank:
+            best_key, best_rank = key, rank
+    return tags[best_key] if best_key is not None else None
+
+
+def _tone_to_engine_emotion(tag: str) -> str | None:
+    """细分语气标签 → 引擎支持的规范情绪键（映射不上返回 None）。
+
+    ⚠️ 注意：**映射不上不等于该标签是文本**。
+    例如「咳嗽」「倒吸一口气」属于非语言发声，引擎根本发不出来，
+    但它们仍然是**标记**，必须从朗读文本里剥掉（否则模型会念"咳嗽"两个字）。
+    所以调用方要先判"是不是标记"，再判"能不能给出情绪"。
+    """
+    cat = _lookup_tone(tag)
+    if cat is None:
+        return None
+    return _BETA_TONE_CATEGORY_TO_EMOTION.get(cat)
+
+
+#: 语气库漏收的常见语气词 → 类别。
+#: 语气库（natural-emotional-speech）覆盖 11 类约 118 条，但**不是全集** ——
+#: 实测「喃喃自语」这类常用写法不在库内，会一路落到 `else` 被回填进朗读文本
+#: → 模型把"喃喃自语"念出来（与本次 bug 同型）。
+#: 这里是**补充层**，只放语气库里确实没有的；命中后仍走同一套"剥离 + 归一"流程。
+_BETA_EXTRA_TONE_WORDS = {
+    "喃喃自语": "whisper", "喃喃": "whisper", "自言自语": "whisper",
+    "嘟囔": "whisper", "嘀咕": "whisper", "咕哝": "whisper",
+    "默念": "whisper", "念叨": "whisper",
+    "低喃": "whisper", "呢喃": "whisper", "轻语": "whisper",
+    "颤抖": "fear", "发颤": "fear", "哆嗦": "fear", "战栗": "fear",
+    "哽咽": "cry", "呜咽": "cry", "抽泣": "cry", "啜泣": "cry",
+    "悲鸣": "cry", "哭腔": "cry",
+    "咆哮": "anger", "怒吼": "anger", "低吼": "anger", "咬牙": "anger",
+    "冷笑": "sarcasm", "嗤笑": "sarcasm", "讥笑": "sarcasm",
+    "嘲弄": "sarcasm", "阴阳怪气": "sarcasm",
+    "惊呼": "surprise", "惊叹": "surprise", "愕然": "surprise",
+    "愣住": "surprise", "怔住": "surprise",
+    "干笑": "laugh", "苦笑": "laugh", "嗤笑一声": "laugh",
+    "深吸一口气": "breath", "吸气": "breath", "呼气": "breath",
+    "叹气": "breath", "喘息": "breath", "松了口气": "breath",
+    "清嗓子": "cough", "咳": "cough",
+    "呻吟": "pain", "痛呼": "pain", "闷哼": "pain",
+}
+
+
+def _is_tone_marker(content: str) -> tuple[bool, str | None]:
+    """判断括号内容是否为**语气标记**。返回 (是否标记, 引擎情绪键或 None)。
+
+    与 `_lookup_tone` 的区别：这里额外处理
+      · "裸强度修饰"（如「（轻微）」）—— 修饰不是独立语气，但**也绝不能朗读**
+      · 语气库漏收的常见语气词（`_BETA_EXTRA_TONE_WORDS`）
+      · **结构性兜底**（见下）
+    """
+    c = (content or "").strip()
+    if not c:
+        return False, None
+    if _lookup_tone(c) is not None:
+        return True, _tone_to_engine_emotion(c)
+    # 裸强度修饰：无情绪词，但是标记（剥离，不朗读）。交由下一个标签承接强度。
+    if c in _BETA_INTENSITY_MODIFIERS:
+        return True, None
+    for mod in _BETA_INTENSITY_MODIFIERS:
+        if c.startswith(mod) and len(c) > len(mod):
+            rest = c[len(mod):].lstrip("的地得")
+            if rest and _lookup_tone(rest) is not None:
+                return True, _tone_to_engine_emotion(rest)
+    # 补充层：语气库漏收的词
+    cat = _BETA_EXTRA_TONE_WORDS.get(c)
+    if cat is not None:
+        return True, _BETA_TONE_CATEGORY_TO_EMOTION.get(cat)
+    for sep in ("的", "地", "得"):
+        if sep in c:
+            head, _, tail = c.partition(sep)
+            for part in (tail.strip(), head.strip()):
+                cat = _BETA_EXTRA_TONE_WORDS.get(part)
+                if cat is not None:
+                    return True, _BETA_TONE_CATEGORY_TO_EMOTION.get(cat)
+    # ③ 结构性兜底 —— 最后一道防线
+    # 词表永远不可能穷举（中文语气写法是开放的），所以不能只靠查表。
+    # 观察：**音色/风格描述**（Voice Design）有几个稳定特征 ——
+    #   · 通常含顿号/逗号，是"属性列表"（「年轻女性，温柔甜美」）
+    #   · 常以风格词结尾（口音/语气/声音/嗓音/风格/腔调）
+    # 而**语气标签**是短促的动宾/形容词短语，无标点。
+    # 满足"短 + 无标点 + 非风格特征"时，按语气标签剥离。
+    # 为什么宁可偏严也剥：两种错误代价不对称 ——
+    #   · 误剥音色描述 → 用户少一点控制力（可接受）
+    #   · 漏剥语气标签 → **模型把标签念出来**（用户明确报告的事故，不可接受）
+    if _looks_like_tone_tag(c):
+        return True, None
+    return False, None
+
+
+#: 音色/风格描述的特征词尾（命中即**不**按语气标签剥离）。
+_BETA_DESIGN_HINT_TAILS = (
+    # 口音 / 语气 / 音色类后缀
+    "口音", "语气", "声音", "嗓音", "风格", "腔调", "感觉", "质感",
+    "腔", "嗓", "音", "声",            # 播音腔 / 烟嗓 / 少年音 / 男声
+    "感",                              # 少女感 / 少年感
+    # 人称 / 身份类后缀
+    "女性", "男性", "女生", "男生", "少年", "少女", "老人", "大叔",
+    "奶奶", "爷爷", "姐姐", "哥哥", "妹妹", "弟弟", "御姐", "萝莉",
+    "成年", "中年", "幼童", "儿童", "孩童",
+)
+
+#: 音色/风格描述的特征分隔符（出现即视为属性列表，不剥）。
+_BETA_DESIGN_HINT_SEPS = ("，", ",", "、", "；", ";", "和", "且", "又")
+
+#: 语气标签的特征词尾（命中即**按语气标签剥离**，优先于结构性兜底）。
+#: 这些是"发声方式/生理反应"，与音色无关 —— 出现就说明在描述怎么说，而非什么声音。
+_BETA_TONE_HINT_TAILS = (
+    "嘶吼", "怒吼", "咆哮", "吼叫", "尖叫", "低吼", "呐喊",
+    "耳语", "低语", "低声", "喃喃", "自语", "嘟囔", "嘀咕", "咕哝", "呢喃",
+    "叹息", "叹气", "喘息", "喘气", "屏息", "吸气", "呼气",
+    "大笑", "冷笑", "苦笑", "干笑", "嗤笑", "讥笑", "狂笑", "傻笑",
+    "大哭", "痛哭", "啜泣", "抽泣", "呜咽", "哽咽", "悲鸣",
+    "咳嗽", "清嗓", "哼", "呻吟", "痛呼", "闷哼",
+    "颤抖", "发颤", "哆嗦", "战栗", "咬牙",
+    "讽刺", "嘲弄", "阴阳怪气",
+    "惊呼", "惊叹", "倒吸", "倒抽",
+)
+
+
+def _looks_like_tone_tag(c: str) -> bool:
+    """结构性判断：这个括号内容"长得像语气标签"吗？
+
+    用于词表兜底。顺序很重要：
+      ① 命中**语气特征词尾** → 直接判定为语气标签（最高优先级）
+      ② 命中**音色特征词尾** → 不是语气标签（Voice Design，必须保留）
+      ③ 其余按结构特征保守判断
+
+    ⚠️ 教训：早期版本只看结构（长度/标点/纯中文），结果把
+      「低沉男声」「烟嗓」「少年音」「御姐音」「少女感」「播音腔」这类
+      **音色描述**误判成语气标签剥掉了 —— 那是在修一个 bug 时引入另一个 bug。
+      所以必须**先按词尾语义判**，不能只按形状判。
+    """
+    if not c:
+        return False
+
+    # ① 语气特征词尾优先（「愤怒嘶吼」「喃喃自语」「疲惫叹息」…）
+    for tail in _BETA_TONE_HINT_TAILS:
+        if c.endswith(tail):
+            return True
+
+    # ② 音色/风格特征词尾 → 明确不是语气标签
+    for tail in _BETA_DESIGN_HINT_TAILS:
+        if c.endswith(tail):
+            return False
+
+    # ③ 结构兜底（保守）
+    if len(c) > 10:
+        return False
+    for sep in _BETA_DESIGN_HINT_SEPS:
+        if sep in c:
+            return False
+    if any(ch.isascii() and (ch.isalnum() or ch in "_-.") for ch in c):
+        return False
+    if not all("\u4e00" <= ch <= "\u9fff" for ch in c):
+        return False
+    return True
+
+
 def parse_multi_speaker_text(text: str) -> list[dict]:
-    """解析多人朗读文本，把 (@音色包名) 音色切换标记和 (情绪词) 情绪标记拆出来。
+    """解析多人朗读文本，把 (@音色包名) 音色切换标记和 (情绪/语气词) 标记拆出来。
 
     规则：
       - (@xxx)        → 后续文本切换到名为 xxx 的音色包（持续到下一个 @ 标记）
@@ -377,11 +709,26 @@ def parse_multi_speaker_text(text: str) -> list[dict]:
       - 未知括号内容  → 当普通文本保留，不当标记处理
       - 括号标记本身不参与朗读
     返回 [{"text", "voice"(音色包名或 None), "emotion"(情绪键或 "neutral"), "voice_missing"(bool)}]
+
+    ⚠️ 已知情绪词分两级（这是修掉"模型把标签念出来"的关键）
+    ------------------------------------------------------
+      **① 规范情绪** —— `_BETA_EMOTION_WORDS`（10 个键），引擎有对应韵律预设，
+         直接作为 `emotion` 下发。
+      **② 细分语气** —— 由语气库识别（「大笑」「愤怒嘶吼」「压抑的愤怒」
+         「轻声耳语」「疲惫叹息」…）。引擎没有对应预设，但**它们仍然是标记**：
+         必须从朗读文本里剥掉，再把语气**就近归一到**一个规范情绪下发。
+
+    历史 bug（已修）：早期只认 6 个情绪词，其余一律"当普通文本保留"，
+    导致「（压抑的愤怒）」被回填进朗读文本 → **模型把"压抑的愤怒"念出来**。
+    那条"未知内容不剥"的保守策略对「（年轻女性，温柔甜美）」这类**音色描述**
+    是对的（剥了用户内容就丢），但对**语气标签**是错的 —— 语气标签的作用
+    恰恰是"不该被朗读"。两级词表把这两类内容区分开了。
     """
     t = normalize_design_brackets(text or "")
     segments: list[dict] = []
     cur_voice: str | None = None
     cur_emotion = "neutral"
+    pending_intensity: str | None = None
     pos = 0
     for m in re.finditer(r"\(([^()]*)\)", t):
         before = t[pos:m.start()]
@@ -389,6 +736,7 @@ def parse_multi_speaker_text(text: str) -> list[dict]:
             segments.append({"text": before.strip(), "voice": cur_voice,
                              "emotion": cur_emotion, "voice_missing": False})
         content = m.group(1).strip()
+        pos = m.end()
         if content.startswith("@"):
             # 音色切换标记：@名 或 @名,情绪
             body = content[1:]
@@ -397,29 +745,63 @@ def parse_multi_speaker_text(text: str) -> list[dict]:
             if name:
                 cur_voice = name
             if len(parts) > 1 and parts[1].strip():
-                emo = _BETA_EMOTION_WORDS.get(parts[1].strip().lower(), parts[1].strip())
-                cur_emotion = emo if emo in {"高兴", "悲伤", "严肃", "温柔", "愤怒", "平静"} else "neutral"
+                cur_emotion = _resolve_emotion(parts[1].strip())
             else:
                 cur_emotion = "neutral"  # 切换音色时重置情绪
+            pending_intensity = None
+            continue
+
+        # —— 情绪 / 语气标记 ——
+        emo = _BETA_EMOTION_WORDS.get(content.lower())
+        if emo in _BETA_ENGINE_EMOTIONS:
+            cur_emotion = emo
+            pending_intensity = None
+            continue
+
+        is_marker, eng_emo = _is_tone_marker(content)
+        if is_marker:
+            # 裸强度修饰（如「（轻微）」）：不产生情绪，但必须剥离；
+            # 强度作用于**紧随其后的**标签（与 Skill 的 `pending_intensity` 一致）。
+            if eng_emo is None and content in _BETA_INTENSITY_MODIFIERS:
+                pending_intensity = content
+                continue
+            if eng_emo is not None:
+                cur_emotion = eng_emo
+            pending_intensity = None
+            continue
+
+        # 未知括号内容：当普通文本，不剥离（回填到前一段或新建）
+        # ⚠️ 走到这里说明**语气库和规范情绪表都没命中** ——
+        #    典型是音色/风格描述（「年轻女性，温柔甜美」）。
+        #    这类内容必须留给模型（Voice Design 用法），绝不能剥掉。
+        if segments:
+            segments[-1]["text"] += "(" + content + ")"
         else:
-            # 情绪标记
-            emo = _BETA_EMOTION_WORDS.get(content.lower(), content)
-            if emo in {"高兴", "悲伤", "严肃", "温柔", "愤怒", "平静"}:
-                cur_emotion = emo
-            else:
-                # 未知括号内容：当普通文本，不剥离（回填到前一段或新建）
-                if segments:
-                    segments[-1]["text"] += "(" + content + ")"
-                else:
-                    segments.append({"text": "(" + content + ")", "voice": cur_voice,
-                                     "emotion": cur_emotion, "voice_missing": False})
-        pos = m.end()
+            segments.append({"text": "(" + content + ")", "voice": cur_voice,
+                             "emotion": cur_emotion, "voice_missing": False})
     tail = t[pos:]
     if tail.strip():
         segments.append({"text": tail.strip(), "voice": cur_voice,
                          "emotion": cur_emotion, "voice_missing": False})
     # 标记未知音色包（合成时再校验名字是否存在）
     return segments
+
+
+def _resolve_emotion(raw: str) -> str:
+    """把一路情绪写法解析成引擎规范情绪键（解析不出返回 "neutral"）。
+
+    用于 `(@音色,情绪)` 这种内联写法。
+    """
+    s = (raw or "").strip()
+    if not s:
+        return "neutral"
+    hit = _BETA_EMOTION_WORDS.get(s.lower())
+    if hit in _BETA_ENGINE_EMOTIONS:
+        return hit
+    eng = _tone_to_engine_emotion(s)
+    if eng in _BETA_ENGINE_EMOTIONS:
+        return eng
+    return "neutral"
 
 
 def parse_dialogue(text: str) -> list[dict]:

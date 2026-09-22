@@ -732,15 +732,37 @@ class _FakeTranscriber:
 def _install_fake_transcriber(monkeypatch, fake):
     """把假 transcriber 注入 ``voice_clone.transcriber`` 的查找路径。
 
-    ``plugin.transcribe_lyric`` 内部是 ``from voice_clone import transcriber as _tr``，
-    所以替换模块对象本身即可 —— 不必真的初始化 transcriber 的全局状态。
+    ``plugin.transcribe_lyric`` 内部是 ``from voice_clone import transcriber as _tr``。
+
+    ⚠️ 只改 ``sys.modules`` 是不够的（这里踩过坑）
+    --------------------------------------------------
+    ``from <包> import <子模块>`` 的解析顺序是：**先查包对象上的属性**，
+    包属性不存在时才回落到 ``sys.modules``。
+
+    所以只要**任何先前的测试**导入过真 transcriber，``voice_clone.transcriber``
+    就会变成包对象上的一个真实属性；此后仅替换 ``sys.modules`` 会被包属性遮住，
+    替身**静默失效**，真模块被调用（报 "音频文件不存在" 之类的环境错误）。
+
+    这类 bug 特别阴 —— 单跑本文件时全绿（没有先序导入），
+    只有和"导入过 server 的测试文件"一起跑才红，很容易被当成随机抖动。
+    （实测：``tests/test_bracket_tags.py`` 导入 server 就足以触发。）
+
+    因此这里**同时**替换包属性与 ``sys.modules``，两条路径都指向替身。
     """
     import sys as _sys
     import types as _types
     mod = _types.ModuleType("voice_clone.transcriber")
     mod.start_transcribe = fake.start_transcribe
     mod.get_job = fake.get_job
-    monkeypatch.setitem(_sys.modules, "voice_clone.transcriber", mod)
+    _sys.modules["voice_clone.transcriber"] = mod
+
+    # 关键补丁：把包属性也换掉，否则 from-import 会绕过 sys.modules。
+    # monkeypatch.setattr 保证用例结束后自动还原。
+    try:
+        import voice_clone
+        monkeypatch.setattr(voice_clone, "transcriber", mod, raising=False)
+    except Exception:                            # pragma: no cover - 包不可导入
+        pass
 
 
 def test_transcribe_lyric_joins_segments_in_time_order(monkeypatch):
@@ -791,9 +813,25 @@ def test_transcribe_lyric_times_out_instead_of_hanging_forever(monkeypatch):
 
 
 def test_transcribe_lyric_missing_module_degrades(monkeypatch):
-    """transcriber 整个不可用（缺依赖）时也必须优雅降级，而不是 ImportError。"""
+    """transcriber 整个不可用（缺依赖）时也必须优雅降级，而不是 ImportError。
+
+    ⚠️ 只拦 ``__import__`` 是不够的：一旦 ``voice_clone.transcriber`` 已绑在包对象上，
+    ``from voice_clone import transcriber`` 会走**包属性**而完全不调 ``__import__``，
+    于是拦不住、真模块被执行。（与 ``_install_fake_transcriber`` 同一个坑。）
+
+    所以这里同时**摘掉包属性 + 清掉 sys.modules**，才能真正模拟"模块不可用"。
+    """
     import builtins
+    import sys as _sys
     real_import = builtins.__import__
+
+    # 确保解析真的会失败：清 sys.modules 且去掉包属性
+    _sys.modules.pop("voice_clone.transcriber", None)
+    try:
+        import voice_clone
+        monkeypatch.delattr(voice_clone, "transcriber", raising=False)
+    except Exception:                            # pragma: no cover
+        pass
 
     def _boom(name, *a, **kw):
         if name.startswith("voice_clone") and name.endswith("transcriber"):
