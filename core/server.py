@@ -1422,6 +1422,7 @@ select option{background:var(--surface);color:var(--text)}
     <button class="tab ic-btn" data-mode="beta" onclick="setMode('beta')"><svg class="ic"><use href="#i-flask"/></svg><span data-i18n="modeBeta">内测 Beta</span></button>
     <button class="tab ic-btn" data-mode="train" onclick="setMode('train')"><svg class="ic"><use href="#i-cpu"/></svg><span data-i18n="modeTrain">训练</span></button>
     <button class="tab ic-btn" data-mode="settings" onclick="setMode('settings')"><svg class="ic"><use href="#i-gear"/></svg><span data-i18n="modeSettings">设置</span></button>
+    <button class="tab ic-btn" data-mode="plugins" id="navPlugins"><svg class="ic"><use href="#i-puzzle"/></svg><span data-i18n="modePlugins">插件</span></button>
   </div>
 
   <div class="card" id="mainCard">
@@ -1644,6 +1645,35 @@ select option{background:var(--surface);color:var(--text)}
     <div class="err" id="setErr"></div>
     <div id="setResult" style="display:none;border:1px solid var(--border-2);border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:13px;line-height:1.7"></div>
     <div class="muted" id="setConfigPath" style="font-size:11px;word-break:break-all"></div>
+  </div>
+
+  <div class="card hide" id="pluginCard">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+      <button class="chip" onclick="setMode(prevMode||'design')" data-i18n="backBtn" style="padding:6px 12px;border:1px solid var(--border-2);border-radius:8px;background:var(--surface);cursor:pointer;font-size:13px">← 返回</button>
+      <span class="badge">API v1.0</span>
+      <label style="margin:0"><svg class="ic"><use href="#i-puzzle"/></svg> <span data-i18n="plugTitle">插件 · 扩展能力</span></label>
+    </div>
+
+    <div class="muted" style="margin-bottom:14px;line-height:1.7" data-i18n="plugDesc">插件可挂载到合成链路的各个钩子（改写文本、处理音频、追加报告字段、注册额外 HTTP 路由）。停用状态的插件不会参与合成。改动插件代码后点「热重载」即可生效，不必重启服务。</div>
+
+    <div style="border:1px solid var(--border-2);border-radius:10px;padding:12px 14px;margin-bottom:14px;background:var(--surface-2)">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <span class="badge" id="plugCountBadge">— </span>
+        <span class="muted" id="plugSearchPaths" style="font-size:12px;word-break:break-all"></span>
+      </div>
+      <div class="muted" id="plugConfigNote" style="font-size:12px;margin-top:8px;line-height:1.6"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+        <button class="chip ic-btn" id="plugRefreshBtn" style="padding:9px 16px"><svg class="ic"><use href="#i-rotate"/></svg><span data-i18n="plugRefresh">刷新列表</span></button>
+        <button class="chip ic-btn" id="plugRescanBtn" style="padding:9px 16px"><svg class="ic"><use href="#i-layers"/></svg><span data-i18n="plugRescan">重新扫描目录</span></button>
+        <button class="chip ic-btn" id="plugEnableAllBtn" style="padding:9px 16px"><svg class="ic"><use href="#i-check"/></svg><span data-i18n="plugEnableAll">全部启用</span></button>
+        <button class="chip ic-btn" id="plugDisableAllBtn" style="padding:9px 16px"><svg class="ic"><use href="#i-x"/></svg><span data-i18n="plugDisableAll">全部停用</span></button>
+      </div>
+    </div>
+
+    <div class="err" id="plugErr"></div>
+    <div id="plugList" style="display:flex;flex-direction:column;gap:12px"></div>
+    <div class="muted" id="plugEmpty" style="display:none;line-height:1.7" data-i18n="plugEmpty">插件目录里还没有任何插件。把插件文件夹放进下方任一搜索路径，每个文件夹需含 plugin.json，然后点「重新扫描目录」。</div>
+    <div class="muted" id="plugPathHint" style="font-size:11px;word-break:break-all;margin-top:14px"></div>
   </div>
 
   <div class="card hide" id="betaCard">
@@ -1883,6 +1913,14 @@ const I18N={
       betaPlanBtn:'预览梳理结果',
       betaLlmGo:'配置 Key',
       modeSettings:'设置',
+      modePlugins:'插件',
+      plugTitle:'插件 · 扩展能力',
+      plugDesc:'插件可挂载到合成链路的各个钩子（改写文本、处理音频、追加报告字段、注册额外 HTTP 路由）。停用状态的插件不会参与合成。改动插件代码后点「热重载」即可生效，不必重启服务。',
+      plugRefresh:'刷新列表',
+      plugRescan:'重新扫描目录',
+      plugEnableAll:'全部启用',
+      plugDisableAll:'全部停用',
+      plugEmpty:'插件目录里还没有任何插件。把插件文件夹放进下方任一搜索路径，每个文件夹需含 plugin.json，然后点「重新扫描目录」。',
       setTitle:'设置 · AI 内核配置',
       setReasonNotEnabled:'AI 内核未启用（把上面的开关打开即可）',
       setReasonNoKey:'缺少 API Key —— 填好下面的密钥后保存',
@@ -1980,6 +2018,14 @@ const I18N={
       betaPlanBtn:'Preview plan',
       betaLlmGo:'Configure key',
       modeSettings:'Settings',
+      modePlugins:'Plugins',
+      plugTitle:'Plugins · extensions',
+      plugDesc:'Plugins can hook into various points of the synthesis pipeline (rewrite text, process audio, enrich the report, register extra HTTP routes). Disabled plugins never take part in synthesis. After editing plugin code, hit "Reload" — no service restart needed.',
+      plugRefresh:'Refresh list',
+      plugRescan:'Rescan directories',
+      plugEnableAll:'Enable all',
+      plugDisableAll:'Disable all',
+      plugEmpty:'No plugins found. Drop a plugin folder (each must contain plugin.json) into one of the search paths shown below, then hit "Rescan directories".',
       setTitle:'Settings · AI Kernel',
       setReasonNotEnabled:'AI kernel is off (flip the switch above to enable)',
       setReasonNoKey:'No API key yet — fill in the key below and save',
@@ -2797,16 +2843,19 @@ document.getElementById('trainStopBtn').addEventListener('click',stopTrain);
 
 function setMode(m){
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.mode===m));
-  const beta=(m==='beta'), tr=(m==='train'), st=(m==='settings'), off=beta||tr||st;
+  const beta=(m==='beta'), tr=(m==='train'), st=(m==='settings'), pg=(m==='plugins');
+  const off=beta||tr||st||pg;
   document.getElementById('mainCard').classList.toggle('hide',off);
   document.getElementById('histCard').classList.toggle('hide',off);
   document.getElementById('packCard').classList.toggle('hide',off);
   document.getElementById('betaCard').classList.toggle('hide',!beta);
   document.getElementById('trainCard').classList.toggle('hide',!tr);
   document.getElementById('settingsCard').classList.toggle('hide',!st);
+  document.getElementById('pluginCard').classList.toggle('hide',!pg);
   if(beta){prevMode=mode||'design';renderDialoguePanels();refreshBetaLlmBar();return;}
   if(tr){prevMode=(mode&&mode!=='train')?mode:'design';refreshTrainUI();return;}
   if(st){prevMode=(mode&&mode!=='settings')?mode:'design';settingsLoad();return;}
+  if(pg){prevMode=(mode&&mode!=='plugins')?mode:'design';pluginsLoad();return;}
   mode=m;
   document.getElementById('refField').classList.toggle('hide',m==='design');
   document.getElementById('packSelField').classList.toggle('hide',m==='design');
@@ -2870,6 +2919,248 @@ function llmReasonText(c){
   }
   return (c&&c.reason)||(llmIsZh()?'配置不完整':'Configuration incomplete');
 }
+
+/* ============================== 插件管理面板 ==============================
+   约定：图标 SVG 绝不放进带 data-i18n 的容器（切语言会被 textContent 抹掉）；
+   所有按钮用 createElement + dataset + 事件委托，不拼 inline onclick。 */
+var PLUG_LAST=null;
+function plugEl(tag,cls,txt){var e=document.createElement(tag);if(cls)e.className=cls;if(txt!==undefined)e.textContent=txt;return e;}
+function plugIcon(id){var s=document.createElementNS('http://www.w3.org/2000/svg','svg');s.setAttribute('class','ic');var u=document.createElementNS('http://www.w3.org/2000/svg','use');u.setAttribute('href','#'+id);s.appendChild(u);return s;}
+function plugErr(msg){var e=document.getElementById('plugErr');if(e)e.textContent=msg||'';}
+
+async function pluginsLoad(){
+  plugErr('');
+  var list=document.getElementById('plugList');
+  if(!list)return;
+  list.textContent='';
+  list.appendChild(plugEl('div','muted',tr('正在读取插件状态…','Loading plugin state…')));
+  try{
+    var r=await fetch('/api/plugins',{headers:apiHeaders()});
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    var d=await r.json();
+    PLUG_LAST=d;
+    renderPlugins(d);
+  }catch(e){
+    list.textContent='';
+    plugErr(tr('读取插件状态失败：','Failed to read plugin state: ')+e.message);
+  }
+}
+
+function plugStateText(st){
+  if(st==='active')return tr('已生效','active');
+  if(st==='disabled')return tr('已停用','disabled');
+  if(st==='error')return tr('出错','error');
+  return st;
+}
+
+function renderPlugins(d){
+  var list=document.getElementById('plugList');
+  if(!list||!d)return;
+  list.textContent='';
+  var nAct=d.n_active||0, nAll=d.n_plugins||0;
+  var b=document.getElementById('plugCountBadge');
+  if(b){
+    b.textContent=tr('生效 '+nAct+' / 发现 '+nAll, nAct+' active / '+nAll+' found');
+    b.className='badge '+(nAct>0?'ok':'');
+  }
+  var sp=document.getElementById('plugSearchPaths');
+  if(sp)sp.textContent=(d.search_paths||[]).join('  ·  ');
+  var note=document.getElementById('plugConfigNote');
+  if(note){
+    var txt=tr('配置：','Config: ')+(d.config_path||'')+
+            (d.autoload?tr('　自动装载已开启','　autoload on'):tr('　自动装载已关闭','　autoload off'));
+    if(d.fatal)txt+='　⚠ '+d.fatal;
+    var de=d.discovery_errors||[];
+    for(var i=0;i<de.length;i++)txt+='　⚠ '+de[i];
+    note.textContent=txt;
+  }
+  var ph=document.getElementById('plugPathHint');
+  if(ph)ph.textContent=tr('插件目录：把含 plugin.json 的文件夹放进上述搜索路径即可。',
+                          'Plugin dirs: drop a folder containing plugin.json into one of the search paths above.');
+
+  var items=d.plugins||[];
+  var empty=document.getElementById('plugEmpty');
+  if(empty)empty.style.display=items.length?'none':'block';
+  if(!items.length)return;
+
+  items.forEach(function(p){
+    var card=plugEl('div','');
+    card.style.cssText='border:1px solid var(--border-2);border-radius:10px;padding:12px 14px;background:var(--surface-2)';
+
+    var head=plugEl('div','');
+    head.style.cssText='display:flex;align-items:center;gap:10px;flex-wrap:wrap';
+    var title=plugEl('strong','',p.name||p.id);
+    title.style.fontSize='14px';
+    head.appendChild(title);
+    head.appendChild(plugEl('span','badge',p.id));
+    var st=p.state||'unknown';
+    head.appendChild(plugEl('span','badge '+(st==='active'?'ok':(st==='error'?'warn':'')),plugStateText(st)));
+    var vv=plugEl('span','muted','v'+(p.version||'?')+' · api '+(p.api_version||'?'));
+    vv.style.fontSize='12px';
+    head.appendChild(vv);
+    card.appendChild(head);
+
+    if(p.description){
+      var dd=plugEl('div','muted',p.description);
+      dd.style.cssText='font-size:12px;line-height:1.7;margin-top:8px';
+      card.appendChild(dd);
+    }
+
+    var hooks=(p.declared_hooks&&p.declared_hooks.length)?p.declared_hooks:(p.hooks||[]);
+    var hd=plugEl('div','muted',tr('挂载钩子：','Hooks: ')+(hooks.length?hooks.join('  ·  '):tr('（无）','(none)')));
+    hd.style.cssText='font-size:12px;margin-top:8px;word-break:break-all';
+    card.appendChild(hd);
+
+    var stats=p.stats||{};
+    var sd=plugEl('div','muted',tr('调用 '+(stats.hook_calls||0)+' 次 · 错误 '+(stats.total_errors||0),
+                                   'Calls '+(stats.hook_calls||0)+' · errors '+(stats.total_errors||0))
+                  +(stats.last_duration_ms?('  ·  '+(Math.round(stats.last_duration_ms*10)/10)+'ms'):''));
+    sd.style.cssText='font-size:12px;margin-top:6px';
+    card.appendChild(sd);
+
+    var emsg=p.error||stats.last_error||'';
+    if(emsg){
+      var er=plugEl('div','err',emsg);
+      er.style.marginTop='8px';
+      card.appendChild(er);
+    }
+
+    var acts=plugEl('div','');
+    acts.style.cssText='display:flex;gap:8px;flex-wrap:wrap;margin-top:12px';
+
+    var btnT=plugEl('button','chip ic-btn');
+    btnT.style.padding='8px 14px';
+    btnT.appendChild(plugIcon(p.enabled?'i-x':'i-check'));
+    btnT.appendChild(plugEl('span','',p.enabled?tr('停用','Disable'):tr('启用','Enable')));
+    btnT.dataset.plugAct='toggle';
+    btnT.dataset.plugId=p.id;
+    btnT.dataset.plugWant=p.enabled?'false':'true';
+    acts.appendChild(btnT);
+
+    var btnR=plugEl('button','chip ic-btn');
+    btnR.style.padding='8px 14px';
+    btnR.appendChild(plugIcon('i-rotate'));
+    btnR.appendChild(plugEl('span','',tr('热重载','Reload')));
+    btnR.dataset.plugAct='reload';
+    btnR.dataset.plugId=p.id;
+    acts.appendChild(btnR);
+
+    card.appendChild(acts);
+
+    var dpath=plugEl('div','muted',p.dir||'');
+    dpath.style.cssText='font-size:11px;word-break:break-all;margin-top:8px';
+    card.appendChild(dpath);
+
+    list.appendChild(card);
+  });
+}
+
+async function plugSetEnabled(id,want){
+  plugErr('');
+  try{
+    var fd=new FormData();
+    fd.append('enabled',want?'true':'false');
+    var r=await fetch('/api/plugins/'+encodeURIComponent(id)+'/enabled',
+                      {method:'POST',headers:apiHeaders(),body:fd});
+    var d=await r.json().catch(function(){return {};});
+    if(!r.ok)throw new Error(d.detail||('HTTP '+r.status));
+    toast(tr('插件「'+id+'」已'+(want?'启用':'停用'),'Plugin "'+id+'" '+(want?'enabled':'disabled')));
+    await pluginsLoad();
+  }catch(e){
+    plugErr(tr('切换插件状态失败：','Failed to toggle plugin: ')+e.message);
+  }
+}
+
+async function plugReload(id){
+  plugErr('');
+  try{
+    var r=await fetch('/api/plugins/'+encodeURIComponent(id)+'/reload',
+                      {method:'POST',headers:apiHeaders()});
+    var d=await r.json().catch(function(){return {};});
+    if(!r.ok)throw new Error(d.detail||('HTTP '+r.status));
+    if(d.error)plugErr(tr('插件「'+id+'」重载报错：','Reload error for "'+id+'": ')+d.error);
+    else toast(tr('插件「'+id+'」已热重载','Plugin "'+id+'" reloaded'));
+    await pluginsLoad();
+  }catch(e){
+    plugErr(tr('热重载失败：','Reload failed: ')+e.message);
+  }
+}
+
+async function plugRescan(){
+  plugErr('');
+  var btn=document.getElementById('plugRescanBtn');
+  if(btn)btn.disabled=true;
+  try{
+    var r=await fetch('/api/plugins/discover',{method:'POST',headers:apiHeaders()});
+    var d=await r.json().catch(function(){return {};});
+    if(!r.ok)throw new Error(d.detail||('HTTP '+r.status));
+    toast(tr('重新扫描完成，发现 '+(d.n_found||0)+' 个插件','Rescan done, '+(d.n_found||0)+' plugins found'));
+    if(d.snapshot){PLUG_LAST=d.snapshot;renderPlugins(d.snapshot);}
+    else await pluginsLoad();
+  }catch(e){
+    plugErr(tr('重新扫描失败：','Rescan failed: ')+e.message);
+  }finally{
+    if(btn)btn.disabled=false;
+  }
+}
+
+async function plugSetAll(want){
+  if(!PLUG_LAST||!PLUG_LAST.plugins)return;
+  var ids=[];
+  PLUG_LAST.plugins.forEach(function(p){if(!!p.enabled!==!!want)ids.push(p.id);});
+  if(!ids.length){toast(tr('没有需要变更的插件','Nothing to change'));return;}
+  plugErr('');
+  var failed=[];
+  for(var i=0;i<ids.length;i++){
+    try{
+      var fd=new FormData();
+      fd.append('enabled',want?'true':'false');
+      var r=await fetch('/api/plugins/'+encodeURIComponent(ids[i])+'/enabled',
+                        {method:'POST',headers:apiHeaders(),body:fd});
+      if(!r.ok)failed.push(ids[i]);
+    }catch(e){failed.push(ids[i]);}
+  }
+  if(failed.length)plugErr(tr('以下插件未能变更：','Failed to change: ')+failed.join(', '));
+  else toast(tr('已'+(want?'全部启用':'全部停用')+'（'+ids.length+' 个）',
+                (want?'Enabled':'Disabled')+' '+ids.length+' plugin(s)'));
+  await pluginsLoad();
+}
+
+/* 事件委托：插件列表 + 工具栏。全部走 dataset，不拼 inline onclick。 */
+(function plugWire(){
+  var list=document.getElementById('plugList');
+  if(list){
+    list.addEventListener('click',function(e){
+      var b=e.target.closest('[data-plug-act]');
+      if(!b)return;
+      if(b.dataset.plugAct==='toggle')plugSetEnabled(b.dataset.plugId,b.dataset.plugWant==='true');
+      else if(b.dataset.plugAct==='reload')plugReload(b.dataset.plugId);
+    });
+  }
+  var map={plugRefreshBtn:function(){pluginsLoad();},
+           plugRescanBtn:plugRescan,
+           plugEnableAllBtn:function(){plugSetAll(true);},
+           plugDisableAllBtn:function(){plugSetAll(false);}};
+  Object.keys(map).forEach(function(k){
+    var el=document.getElementById(k);
+    if(el)el.addEventListener('click',map[k]);
+  });
+})();
+
+/* 顶栏 tab 事件委托：新 tab 不带 inline onclick（遵守「图标不拼字符串」约定），
+   所以在这里统一接管 —— 未显式绑 onclick 的 .tab 由 setMode 处理。
+   ⚠️ 曾经漏掉这一步 → 「插件」tab 点了没反应。 */
+(function navWire(){
+  var nav=document.getElementById('mainNav');
+  if(!nav)return;
+  nav.addEventListener('click',function(e){
+    var t=e.target.closest('.tab');
+    if(!t)return;
+    if(t.onclick)return;            // 已有 inline 的不重复处理
+    var m=t.dataset.mode;
+    if(m&&typeof setMode==='function')setMode(m);
+  });
+})();
 
 async function settingsLoad(notify){
   const err=document.getElementById('setErr');
@@ -5291,6 +5582,35 @@ def reload_plugin(plugin_id: str, request: Request):
     return JSONResponse({"ok": bool(ok), "id": plugin_id,
                          "state": lp.state if lp else "unknown",
                          "error": lp.error if lp else ""})
+
+
+@app.post("/api/plugins/discover")
+def rediscover_plugins(request: Request):
+    """重新扫描插件目录（新增/删除插件后免重启刷新列表）。
+
+    注意：这里**只做发现+装载**，不改动 plugins_config.json 里的启用位；
+    已经加载过的插件若目录还在就保留其运行状态，不会因为刷新而被停用。
+    """
+    require_auth(request)
+    reg = _plugins.get_registry()
+    if reg is None:
+        raise HTTPException(status_code=503, detail="插件子系统未初始化")
+    try:
+        found = reg.discover()
+        # 新出现的插件补装载；已装载的不动。
+        for mf in found:
+            if mf.id not in reg.plugins:
+                try:
+                    reg.load(mf)
+                except Exception as e:  # 单个插件坏掉不影响其余
+                    log_error(f"插件「{mf.id}」装载失败", e)
+        return JSONResponse({"ok": True, "n_found": len(found),
+                             "ids": [m.id for m in found],
+                             "snapshot": reg.snapshot()})
+    except Exception as e:
+        log_error("重新扫描插件失败", e)
+        raise HTTPException(status_code=500,
+                            detail=f"重新扫描插件失败: {type(e).__name__}: {e}")
 
 
 # ============================== 启动 ==============================
