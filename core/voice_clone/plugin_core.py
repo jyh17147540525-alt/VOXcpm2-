@@ -923,9 +923,41 @@ def _import_plugin_module(manifest: PluginManifest, path: str) -> Any:
     if spec is None or spec.loader is None:
         raise PluginLoadError(f"无法为 {path} 建立导入规格")
     module = importlib.util.module_from_spec(spec)
+    # 让模块拿到正确的 __name__ / __file__，插件里常见的
+    # `if __name__ == "__main__"` 与基于 __file__ 的取路径都能正常工作。
+    module.__file__ = path
     sys.modules[mod_name] = module
     try:
-        spec.loader.exec_module(module)
+        # ⚠️ 必须**绕开字节码缓存** —— 否则"热重载成功，跑的却还是旧代码"。
+        #
+        # 机制：Python 用 (源文件 mtime 秒, 源文件大小) 判断
+        # __pycache__/*.pyc 是否过期，而不是比对内容。插件热重载的典型场景
+        # 恰好会同时踩中这两个条件：
+        #   · mtime 同秒   —— 改完立刻 reload；编辑器保存、脚本快速重写同理
+        #   · 大小不变     —— 改的是同长度字面量（'-v1' → '-v2'），
+        #                     或替换成一个等长的标识符
+        # 此时 CPython 判定旧 pyc **仍然有效**，直接执行旧字节码：
+        # reload() 返回 True（自认成功），emit() 却仍是旧行为 ——
+        # **静默地"热重载"回了旧代码**，比直接报错危险得多。
+        #
+        # 实测（强制写 pyc + 保持 mtime/大小不变，改 '-v1'→'-v2'）：
+        #   spec_from_file_location → STALE（仍旧 v1）
+        #   SourceFileLoader        → STALE（仍旧 v1）  ← 光换 loader 没用
+        #   本函数当前的写法         → v2（正确）
+        # 注意 `SourceFileLoader.exec_module()` 内部依旧走 `get_code()`
+        # → `cache_from_source()`，所以它**并不能**绕过缓存；
+        # `spec_from_file_location()` 返回的就是同一个 loader。
+        # 这就是"换了加载器却仍失效"的原因。
+        #
+        # 真正有效：自己读源码 + `compile()` + `exec`，全程不查 pyc。
+        # 代价是每次加载多一次源码编译（插件只有几十行，可忽略）。
+        #
+        # 也不是罕见路径：插件只要被加载过一次就会留下 pyc，
+        # 第一次改同长度字面量就会中招。
+        with open(path, "rb") as _fh:
+            _source = _fh.read()
+        _code = compile(_source, path, "exec", dont_inherit=True)
+        exec(_code, module.__dict__)
     except Exception:
         sys.modules.pop(mod_name, None)
         raise

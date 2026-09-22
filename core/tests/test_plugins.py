@@ -22,6 +22,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import sys
@@ -449,15 +450,45 @@ def test_disable_and_enable_at_runtime(tmp_path):
 
 
 def test_hot_reload_picks_up_new_code(tmp_path):
+    """热重载必须真的换掉代码。
+
+    ⚠️ 这里**故意**把源文件的 mtime 和大小都保持不变 —— 因为那正是
+    Python 字节码缓存 (``__pycache__/*.pyc``) 判定"没过期"的条件，
+    也正是真实热重载最容易踩的组合：
+
+      · ``'-v1'`` → ``'-v2'`` 长度相同 → **文件大小不变**；
+      · 保存后立刻 reload（或 CI/编辑器快速重写）→ **mtime 同秒**。
+
+    两者同时成立时，CPython 会直接执行旧 pyc，于是
+    ``reload()`` 返回 True（自认成功）但 ``emit()`` 仍是旧行为 ——
+    **静默热重载到旧代码**。
+
+    原先的写法只改内容、不锁定 mtime，在"随手保存"的机器上恰好会跨过
+    秒边界而侥幸通过；在有 pyc 且写得快的 CI 上就会红。
+    现在显式锁定 mtime + 等长内容，把这个 bug 变成**必现**，不再靠运气。
+    """
     d = _make_plugin(tmp_path / P.PLUGIN_DIR_NAME, "hot",
                      "def on_text_pre(p):\n    return p['text'] + '-v1'\n",
                      {"hooks": {"text.pre": "on_text_pre"}})
     reg = _init(tmp_path)
     assert P.emit("text.pre", text="a") == "a-v1"
-    (d / "plugin.py").write_text("def on_text_pre(p):\n    return p['text'] + '-v2'\n",
-                                 encoding="utf-8")
+
+    # 记录原始 mtime/size，重写后原样恢复 —— 模拟"同秒保存 + 等长改动"
+    py = d / "plugin.py"
+    st = py.stat()
+    py.write_text("def on_text_pre(p):\n    return p['text'] + '-v2'\n",
+                  encoding="utf-8")
+    os.utime(py, (st.st_atime, st.st_mtime))
+    st2 = py.stat()
+    assert (st2.st_mtime, st2.st_size) == (st.st_mtime, st.st_size), (
+        "前置条件没构造出来：mtime 与 size 必须都不变，否则测不到 pyc 缓存那条路径"
+    )
+
     assert reg.reload("hot") is True
-    assert P.emit("text.pre", text="a") == "a-v2"
+    assert P.emit("text.pre", text="a") == "a-v2", (
+        "热重载返回成功，但生效的仍是旧代码 —— "
+        "多半是 __pycache__ 里的旧 .pyc 被复用了（见 _import_plugin_module 的注释）"
+    )
 
 
 # --------------------------------------------------------------------------- 9. LLM 服务商

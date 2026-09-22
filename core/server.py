@@ -383,7 +383,22 @@ _BETA_EMOTION_WORDS = {
 }
 
 #: 引擎真正支持的规范情绪键（`voice_clone.synthesis_stab._EMOTION_UNIFORM` 的键）。
+#:
+#: ⚠️ 必须**同时**含 `"neutral"` —— 它不是"缺失值"，而是引擎的一等公民：
+#:    `synthesis_stab._EMOTION_ACOUSTIC` 里就有 `neutral` 预设（pitch 0 / speed 1.0），
+#:    且 `director.py` / `synthesis_stab.py` 全线用 `"neutral"` 表示"不施加情绪"。
+#:    中文侧叫「平静」，`neutral` 是它的引擎侧名字。
+#:
+#:    漏掉 `neutral` 会制造一个**自相矛盾**：`_resolve_emotion()` 与
+#:    `parse_multi_speaker_text()` 解析不出情绪时都返回 `"neutral"`（它们自己的
+#:    哨兵值），而这份"支持集合"却否认 `neutral` —— 于是任何"断言情绪键必须在
+#:    支持集合内"的检查，都会在**归一失败**的路径上假报错。
+#:    实测踩到：CI 上没有 `~/.workbuddy/skills/.../语气库.json`（那是 Skill 侧文件、
+#:    不在仓库里），`（大笑）` 归一不出来 → 落到 `neutral` → 断言失败。
+#:    本机装了 Skill 所以语气库能命中、归一成功，测试一直是绿的 ——
+#:    典型的"本机能过、CI 红"，根因是这份集合写得不完整。
 _BETA_ENGINE_EMOTIONS = {
+    "neutral",
     "高兴", "悲伤", "严肃", "温柔", "愤怒", "平静",
     "惊讶", "恐惧", "疑问", "感叹",
 }
