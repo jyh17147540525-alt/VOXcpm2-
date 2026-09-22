@@ -60,6 +60,30 @@ import tempfile
 import warnings
 from pathlib import Path
 
+
+def _force_utf8_stdout() -> None:
+    """把 stdout/stderr 切到 UTF-8。
+
+    ⚠️ 不加这段，Windows（含 GitHub Actions 的 windows-latest）会**崩在 print 上**：
+    控制台默认 cp1252，而本脚本要打印中文，于是
+
+        UnicodeEncodeError: 'charmap' codec can't encode characters in position 0-1
+
+    后果比"输出乱码"严重得多 —— 进程以**非零码退出**，而调用它的
+    test_inline_js.py 把「非零退出」解读成「JS 有语法错误」，
+    于是报出一个**完全不存在**的前端故障，真因被彻底掩盖。
+    （2026-09-22 实测：CI windows 三个 job 全红，Ubuntu 全绿，
+    报错信息还指向前端转义，实际脚本连第一个断言都没走到。）
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass  # 非 TextIOWrapper（被重定向/包装过）时静默跳过
+
+
+_force_utf8_stdout()
+
 REPO = Path(__file__).resolve().parent.parent
 TARGET = REPO / "server.py"
 

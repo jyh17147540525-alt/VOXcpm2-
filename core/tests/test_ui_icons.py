@@ -43,8 +43,14 @@ def test_ui_icons_and_tokens_are_consistent():
     if not CHECKER.exists():
         pytest.skip("scripts/check_ui_icons.py 不存在")
 
+    # ⚠️ 必须显式 `encoding="utf-8"`：检查器打印的是中文，子进程按 UTF-8 写出，
+    #    而 `text=True` 不给 encoding 时按**本机 locale** 解码 —— 在 Windows
+    #    （含 CI 的 windows-latest）locale 是 cp1252，解码失败会让 `out` 变成**空串**，
+    #    于是下面的 `"[ok]" in out` 报"检查器未正常完成"，把一次**成功**的检查判成失败。
+    #    （2026-09-22 实测：CI windows 三个 job 全红、Ubuntu 全绿。）
     r = subprocess.run([sys.executable, str(CHECKER)], capture_output=True,
-                       text=True, timeout=180)
+                       text=True, timeout=180,
+                       encoding="utf-8", errors="replace")
     out = (r.stdout or "") + (r.stderr or "")
     assert r.returncode == 0, (
         "前端图标 / 令牌 / i18n 一致性检查未通过 —— 页面上会出现图标空白、"
