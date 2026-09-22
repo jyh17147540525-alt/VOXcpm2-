@@ -34,8 +34,13 @@ REPO = Path(__file__).resolve().parent.parent
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
+#: 仓库根（REPO 是 core/，插件目录在其上一层：<repo>/plugins/）
+REPO_ROOT = REPO.parent
+if str(REPO.parent) not in sys.path:
+    sys.path.insert(0, str(REPO.parent))
+
 from voice_clone import llm_providers as LP      # noqa: E402
-from voice_clone import plugins as P             # noqa: E402
+from voice_clone import plugin_core as P             # noqa: E402
 from voice_clone import synthesis_stab as SS     # noqa: E402
 
 
@@ -346,7 +351,7 @@ def test_load_failure_is_recorded_not_raised(tmp_path):
 # --------------------------------------------------------------------------- 7. 重入防护
 def test_nested_emit_is_refused_and_returns_none(tmp_path):
     _make_plugin(tmp_path / P.PLUGIN_DIR_NAME, "nest",
-                 "import voice_clone.plugins as PL\n"
+                 "import voice_clone.plugin_core as PL\n"
                  "def on_text_pre(p):\n"
                  "    return PL.emit('text.pre', text='inner')\n",
                  {"hooks": {"text.pre": "on_text_pre"}})
@@ -357,7 +362,7 @@ def test_nested_emit_is_refused_and_returns_none(tmp_path):
 
 def test_hook_context_helpers(tmp_path):
     _make_plugin(tmp_path / P.PLUGIN_DIR_NAME, "ctx",
-                 "import voice_clone.plugins as PL\n"
+                 "import voice_clone.plugin_core as PL\n"
                  "def on_text_pre(p):\n"
                  "    return PL.current_hook() + '|' + str(PL.in_hook())\n",
                  {"hooks": {"text.pre": "on_text_pre"}})
@@ -500,15 +505,20 @@ def test_provider_cache_invalidates_when_plugin_set_changes(tmp_path):
 
 
 # --------------------------------------------------------------------------- 10. 随仓库发布的示例插件
+def _shipped_example_dir() -> Path:
+    """仓库自带示例插件的位置（插件子区：plugins/技能插件/example_gain）。"""
+    return REPO_ROOT / P.PLUGIN_DIR_NAME / "技能插件" / "example_gain"
+
+
 def test_shipped_example_plugin_is_disabled_by_default():
     """示例插件必须默认停用 —— 否则"零插件 = 行为不变"这条保证立刻破功。"""
-    src = REPO / P.PLUGIN_DIR_NAME / "example_gain"
+    src = _shipped_example_dir()
     if not src.is_dir():
         pytest.fail(
             f"随仓库发布的示例插件缺失：{src}\n"
             "这两个用例是「零插件 = 行为不变」的回归护栏，"
             "一旦找不到素材就会 skip —— skip 会让护栏静默失效，故此处必须 fail。")
-    reg = P.PluginRegistry(str(REPO))
+    reg = P.PluginRegistry(str(REPO_ROOT))
     manifests = {m.id: m for m in reg.discover()}
     assert "example_gain" in manifests, "示例插件未被发现"
     reg.load_all()
@@ -519,13 +529,14 @@ def test_shipped_example_plugin_is_disabled_by_default():
 
 
 def test_shipped_example_plugin_works_when_enabled(tmp_path):
-    src = REPO / P.PLUGIN_DIR_NAME / "example_gain"
+    src = _shipped_example_dir()
     if not src.is_dir():
         pytest.fail(
             f"随仓库发布的示例插件缺失：{src}\n"
             "这两个用例是「零插件 = 行为不变」的回归护栏，"
             "一旦找不到素材就会 skip —— skip 会让护栏静默失效，故此处必须 fail。")
-    dst = tmp_path / P.PLUGIN_DIR_NAME
+    # tmp 布局复刻真实结构：<tmp>/plugins/技能插件/example_gain/
+    dst = tmp_path / P.PLUGIN_DIR_NAME / "技能插件"
     dst.mkdir(parents=True, exist_ok=True)
     shutil.copytree(src, dst / "example_gain")
     mf = dst / "example_gain" / "plugin.json"
@@ -577,3 +588,64 @@ def test_snapshot_is_json_serializable_and_informative(tmp_path):
     hook_names = [h["name"] for h in snap["hooks"]]
     assert "output.post" in hook_names
     assert any(h["n_handlers"] == 1 for h in snap["hooks"])
+
+
+# --------------------------------------------------------------------------- 11. 插件子区发现
+# 结构约定：插件统一放在 <root>/plugins/ 下，再分「技能插件」「拓展插件」两个子区。
+# 若发现逻辑只扫 plugins/ 的**直接子目录**，子区里的插件会一个都找不到，
+# 而且**不会报错**（只是 n_plugins=0），属于最难查的一类静默失效。
+def test_discovers_plugins_nested_in_zones(tmp_path):
+    """子区里的插件必须被发现 —— 这是本次结构重组的核心保证。"""
+    zones = ["技能插件", "拓展插件"]
+    for i, z in enumerate(zones):
+        root = tmp_path / P.PLUGIN_DIR_NAME / z
+        _make_plugin(root, f"in_zone_{i}",
+                     "def on_report_enrich(p):\n    return {'z': %d}\n" % i,
+                     {"hooks": {"report.enrich": "on_report_enrich"}})
+    reg = _init(tmp_path)
+    ids = sorted(reg.plugins)
+    assert ids == ["in_zone_0", "in_zone_1"], f"子区插件未被发现：{ids}"
+    assert all(reg.plugins[x].state == "started" for x in ids)
+
+
+def test_a_directory_with_plugin_json_is_not_searched_deeper(tmp_path):
+    """一个插件目录内部的子目录不该被当成插件（避免把插件的私有目录扫成插件）。"""
+    root = tmp_path / P.PLUGIN_DIR_NAME / "技能插件"
+    d = _make_plugin(root, "outer", "def on_report_enrich(p):\n    return {}\n",
+                     {"hooks": {"report.enrich": "on_report_enrich"}})
+    # 插件内部再放一个"像插件"的目录，不应被发现
+    _make_plugin(d / "inner_dir", "inner", "x = 1\n")
+    reg = _init(tmp_path)
+    ids = sorted(reg.plugins)
+    assert ids == ["outer"], f"插件内部目录被误当成插件：{ids}"
+
+
+def test_duplicate_plugin_id_is_reported_not_silently_overwritten(tmp_path):
+    """两个子区里出现同一个 id 时必须记录告警，而不是静默覆盖。"""
+    for z in ("技能插件", "拓展插件"):
+        root = tmp_path / P.PLUGIN_DIR_NAME / z
+        _make_plugin(root, "dup",
+                     "def on_report_enrich(p):\n    return {'from': %r}\n" % z,
+                     {"hooks": {"report.enrich": "on_report_enrich"}})
+    reg = _init(tmp_path)
+    assert list(reg.plugins) == ["dup"]
+    assert any("重复" in e for e in reg.discovery_errors), \
+        f"重复 id 未记录告警：{reg.discovery_errors}"
+
+
+def test_search_paths_fall_back_to_repo_level_plugins_dir(tmp_path):
+    """未显式配置 search_paths 时，应自动找到 <base_dir>/../plugins（新布局）。
+
+    动机：结构重组后应用根是 core/，插件在仓库根的 plugins/。
+    若必须手写 "../plugins" 才能发现插件，克隆下来会"插件全消失且无报错"。
+    """
+    # 造出 core/ 与 plugins/ 的兄弟关系
+    core = tmp_path / "core"
+    core.mkdir()
+    _make_plugin(tmp_path / P.PLUGIN_DIR_NAME / "技能插件", "sibling",
+                 "def on_report_enrich(p):\n    return {}\n",
+                 {"hooks": {"report.enrich": "on_report_enrich"}})
+    P.reset_for_tests()
+    reg = P.PluginRegistry(str(core))          # 不传 config_path → 走默认
+    ids = [m.id for m in reg.discover()]
+    assert "sibling" in ids, f"未自动发现兄弟目录 plugins/：{ids}"

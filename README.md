@@ -48,37 +48,50 @@ The code talks to the `voxcpm` model through a small adapter layer (`voice_clone
 
 ## 📦 Project structure
 
+The repository root is organised by category: the main project lives under
+`core/`, and all plugins live under `plugins/` (split into two zones).
+
 ```
 .
-├── server.py                 # Main service (FastAPI web + API)
-├── audio_edit.py             # Audio post-processing engine (pitch/speed/volume/emotion/breath/SSML)
-├── voice_packs.py            # Voice pack management
-├── tokenization_voxcpm2.py   # Tokenizer
-├── voice_clone/              # Voice-clone enhancement toolkit
-│   ├── pipeline.py           #   Reference audio preprocessing pipeline
-│   ├── preprocess.py         #   Denoise / remove background / MDX dispatch / segment fusion
-│   ├── mdx_separator.py      #   Neural vocal separation (UVR MDX-NET ONNX inference)
-│   ├── transcriber.py        #   Long-audio transcription + transcript alignment
-│   ├── training_store.py     #   Training-sample store (text↔audio pairs)
-│   ├── trainer.py            #   LoRA fine-tuning runner
-│   ├── length_adapter.py     #   Long-audio adaptation
-│   ├── synthesis_stab.py     #   Long-text stable synthesis + emotion control
-│   └── cli.py                #   CLI entry point
-├── config.json               # Model config (voxcpm2 architecture)
-├── tokenizer.json            # Tokenizer vocabulary
-├── tokenizer_config.json     # Tokenizer config
-├── special_tokens_map.json   # Special token mapping
-├── scripts/                  # One-click launch scripts (Windows .bat + helper tools)
-│   ├── start.bat             #   Launch the service
-│   ├── check_inline_js.py    #   Validate the inlined front-end JS (node --check)
-│   └── fetch_mdx_models.py   #   Download MDX-NET vocal-separation weights
-├── tests/                    # Regression test suite (pytest)
-│   ├── fixtures.py           #   Synthetic + real-audio test fixtures & quality metrics
-│   ├── test_transcriber_align.py  # Transcript-alignment algorithm
-│   └── test_mdx_separator.py      # MDX chunk math, engine contract, separation quality
-├── examples/                 # Example scripts (inference self-test / pipeline test / diagnostics)
+├── core/                     # ← the main project
+│   ├── server.py             #   Main service (FastAPI web + API)
+│   ├── audio_edit.py         #   Audio post-processing engine (pitch/speed/volume/emotion/breath/SSML)
+│   ├── voice_packs.py        #   Voice pack management
+│   ├── tokenization_voxcpm2.py  # Tokenizer
+│   ├── voice_clone/          #   Voice-clone enhancement toolkit
+│   │   ├── plugin_core.py    #     Plugin interface (hooks + registry)
+│   │   ├── pipeline.py       #     Reference audio preprocessing pipeline
+│   │   ├── preprocess.py     #     Denoise / remove background / MDX dispatch / segment fusion
+│   │   ├── mdx_separator.py  #     Neural vocal separation (UVR MDX-NET ONNX inference)
+│   │   ├── transcriber.py    #     Long-audio transcription + transcript alignment
+│   │   ├── training_store.py #     Training-sample store (text↔audio pairs)
+│   │   ├── trainer.py        #     LoRA fine-tuning runner
+│   │   ├── length_adapter.py #     Long-audio adaptation
+│   │   ├── synthesis_stab.py #     Long-text stable synthesis + emotion control
+│   │   └── cli.py            #     CLI entry point
+│   ├── config.json           #   Model config (voxcpm2 architecture)
+│   ├── tokenizer.json        #   Tokenizer vocabulary
+│   ├── tokenizer_config.json #   Tokenizer config
+│   ├── special_tokens_map.json  # Special token mapping
+│   ├── scripts/              #   One-click launch scripts (Windows .bat + helper tools)
+│   │   ├── start.bat         #     Launch the service
+│   │   ├── check_inline_js.py   #  Validate the inlined front-end JS (node --check)
+│   │   └── fetch_mdx_models.py  #  Download MDX-NET vocal-separation weights
+│   ├── tests/                #   Regression test suite (pytest)
+│   ├── examples/             #   Example scripts (inference self-test / pipeline test / diagnostics)
+│   └── requirements.txt
+├── plugins/                  # ← all plugins live here
+│   ├── README.md             #   Plugin contract & authoring guide
+│   ├── 技能插件/               #   Skill plugins: listening, vocabulary, pronunciation, grammar, translation
+│   │   ├── clear_vocal/      #     A-cappella vocal generation from a song's vocal stem
+│   │   └── example_gain/     #     Minimal committable template
+│   └── 拓展插件/               #   Extension plugins: idioms, riddles, folk songs, customs
 └── .github/                  # CI workflow + Issue / PR templates
 ```
+
+See [`plugins/README.md`](plugins/README.md) for the plugin contract
+(hooks, manifest fields, lifecycle, error isolation, and the one hard red line:
+a hook must never call back into the generation path).
 
 ---
 
@@ -203,16 +216,20 @@ Python 3.10–3.12:
 ### One-click launch (Windows)
 
 ```bash
-scripts\start.bat
+core\scripts\start.bat
 ```
 
-Then open `http://localhost:8808` in your browser. The access token is auto-generated in `credentials.json` (in the project root) on first launch.
+Then open `http://localhost:8808` in your browser. The access token is auto-generated in `credentials.json` (next to `core/server.py`) on first launch.
 
 ### Command line
 
 ```bash
+cd core
 python server.py
 ```
+
+`server.py` locates its own directory, so it works from any checkout location;
+the weights, `credentials.json` and `outputs/` are resolved relative to it.
 
 Common environment variables:
 
@@ -220,13 +237,15 @@ Common environment variables:
 |---|---|---|
 | `VOXCPM_PORT` | `8808` | Service port |
 | `VOXCPM_HOST` | `127.0.0.1` | Bind address (set `0.0.0.0` for LAN access) |
-| `VOXCPM_HOME` | project root | Directory containing the weights (allows separating weights from code) |
+| `VOXCPM_BASE_DIR` | directory of `server.py` | Directory containing the weights (allows separating weights from code) |
 | `VOXCPM_DEVICE` | `auto` | Inference device (`auto` / `cuda` / `cpu`) |
+| `VOXCPM_PLUGIN_PATH` | — | Extra plugin search roots, `;`-separated |
 | `HF_HUB_OFFLINE` | — | Set `1` to load local weights offline |
 
 ### Inference self-test
 
 ```bash
+cd core
 python examples/test_infer.py
 ```
 

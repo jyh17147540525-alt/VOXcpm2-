@@ -1,7 +1,7 @@
 # 插件（Plugins）
 
 外部模块通过钩子（hook）扩展 VoxCPM2，**不需要修改核心文件**。
-核心实现在 `voice_clone/plugins.py`，契约以该文件的 `HOOK_SPECS` 为唯一准绳。
+核心实现在 `core/voice_clone/plugin_core.py`，契约以该文件的 `HOOK_SPECS` 为唯一准绳。
 
 > 默认状态：**零插件生效**，所有钩子在无处理器时是常数时间 no-op，
 > 行为与引入插件机制之前逐字节一致。
@@ -26,24 +26,42 @@
 ## 2. 目录结构
 
 ```
-vox_plugins/
-  my_plugin/
-    plugin.json      # 清单（必需）
-    plugin.py        # 入口模块（默认名，可在 entry 里改）
+<仓库根>/
+  core/                      # 主项目（server.py / voice_clone/ / tests/ ...）
+  plugins/                   # ← 插件总目录（本文件所在）
+    技能插件/                  # 能力型：听辨、词汇、发音、语法问答、互译
+      clear_vocal/
+        plugin.json          # 清单（必需）
+        plugin.py            # 入口模块（默认名，可在 entry 里改）
+      example_gain/          # 仓库自带的可提交模板
+    拓展插件/                  # 延伸型：俗语、歇后语、民谣、民俗
+      dingxian_dialect/
 ```
 
-> ⚠️ 目录名是 `vox_plugins`，**不是** `plugins` —— 仓库里已有
-> `voice_clone/plugins.py`（插件*机制*本身）。若目录也叫 `plugins`，
-> 由于 pytest 会把测试文件所在目录（含 `voice_clone/`）插到 `sys.path`，
-> `import plugins.<某插件>` 会命中那个模块文件而报
-> `'plugins' is not a package`（且只在特定收集顺序下复现）。
-> 目录名与机制模块名分开，两个概念各占一个名字。
+**两个子区是结构约定**（`plugin_core.PLUGIN_ZONE_SKILL` / `PLUGIN_ZONE_EXTRA`）：
+发现逻辑本身不依赖它们 —— 只要目录（含子区）里有 `plugin.json` 就会被发现，
+往下最多走 `DISCOVER_MAX_DEPTH`（3）层。
 
-`plugins_config.json`（与 `server.py` 同级，**不要提交**）控制启用状态：
+### ⚠️ 子区名是中文，不能直接 `import`
+
+`技能插件` / `拓展插件` 不是合法的 Python 标识符，所以**不能**写
+`from plugins.技能插件.clear_vocal import ...`。测试与库函数用
+`core/tests/_plugin_path.py` 构造一个 `plugins` 命名空间包（`__path__`
+指向两个子区），再按 `plugins.<插件 id>` 导入。
+
+### 为什么机制模块叫 `plugin_core` 而不是 `plugins`
+
+历史坑，别再改回去：顶层名 `plugins` 一旦被**目录**占用，包属性解析会与
+`voice_clone/plugins.py`（机制模块）互相干扰，症状是运行期
+`module 'plugins' has no attribute 'get_registry'`，且**只在有人 import 过
+`plugins` 时才复现**，极难定位。现已把机制模块改名为
+`voice_clone/plugin_core.py`，两个概念各占一个名字，目录才能安心叫 `plugins`。
+
+`plugins_config.json`（与 `core/server.py` 同级，**不要提交**）控制启用状态：
 
 ```json
 {
-  "search_paths": ["vox_plugins"],
+  "search_paths": ["../plugins"],
   "autoload": true,
   "disabled": ["my_plugin"],
   "settings": { "my_plugin": { "gain_db": 3.0 } }
@@ -51,7 +69,9 @@ vox_plugins/
 ```
 
 字段含义：
-- `search_paths`：插件搜索目录（相对项目根或绝对路径）。
+- `search_paths`：插件搜索目录（相对**应用根 `core/`** 或绝对路径）。
+  默认值 `"../plugins"` 即指向仓库根的插件总目录。若没配，会依次回落到
+  `<base_dir>/plugins`、`<base_dir>/../plugins` 以及环境变量 `VOXCPM_PLUGIN_PATH`。
 - `autoload`：`false` 时只发现不加载（排查用）。
 - `disabled`：停用名单，**优先级最高**（运行期停用也写在这里）。
 - `settings`：插件设置，覆盖 `settings_schema` 里的 default。
@@ -158,7 +178,8 @@ discovered → validated → loaded → started → (stopped | failed | disabled
 ### 调用方式（Python，必须在钩子之外）
 
 ```python
-from vox_plugins.clear_vocal import plugin as CV
+from plugins.技能插件.clear_vocal import plugin as CV   # 子区名中文，需 _plugin_path 辅助
+# 或：core/tests/_plugin_path.py 的 load_module("技能插件", "clear_vocal", "plugin")
 
 res = CV.run(
     model, sr,
@@ -202,5 +223,5 @@ print(res["out_wav"], res["summary"])
 | 变速不变调 | 0.000 – 0.100 半音 |
 | 叠加 8 路满幅限幅后峰值 | 0.969（不削波） |
 
-护栏：`tests/test_clear_vocal_plugin.py`（17）、`tests/test_clear_vocal_units.py`（24）、
-`tests/test_clear_vocal_aligner.py`（33）；突变自测 `_mut_clear_vocal.py`（8/8 捕获）。
+护栏：`core/tests/test_clear_vocal_plugin.py`（17）、`test_clear_vocal_units.py`（24）、
+`test_clear_vocal_aligner.py`（33）；突变自测 `_mut_clear_vocal.py`（8/8 捕获）。

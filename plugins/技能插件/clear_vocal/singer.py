@@ -65,11 +65,11 @@ class HookContextError(RuntimeError):
 def _assert_not_in_hook() -> None:
     """若当前处于插件钩子内，抛错（避免二次获取非可重入锁导致死锁）。
 
-    检测方式：读 ``voice_clone.plugins`` 的"当前钩子"状态。
+    检测方式：读 ``voice_clone.plugin_core`` 的"当前钩子"状态。
     该模块提供 ``current_hook()``（见 plugins.py），钩子执行期间返回钩子名。
     """
     try:
-        from voice_clone import plugins as _plugins
+        from voice_clone import plugin_core as _plugins
     except Exception:
         return
     hook = None

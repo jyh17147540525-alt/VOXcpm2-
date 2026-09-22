@@ -1,5 +1,5 @@
 {
-  "search_paths": ["vox_plugins"],
+  "search_paths": ["../plugins"],
   "autoload": true,
   "disabled": [],
   "settings": {

@@ -25,14 +25,18 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-_ROOT = Path(__file__).resolve().parent.parent
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
+_TESTS_DIR = Path(__file__).resolve().parent
+if str(_TESTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_TESTS_DIR))
 
-from vox_plugins.clear_vocal import analyzer as AN   # noqa: E402
-from vox_plugins.clear_vocal import planner as PL    # noqa: E402
-from vox_plugins.clear_vocal import singer as SG     # noqa: E402
-from vox_plugins.clear_vocal import syllabify as SY  # noqa: E402
+from _plugin_path import ensure_plugins_importable  # noqa: E402
+
+ensure_plugins_importable()
+
+from plugins.clear_vocal import analyzer as AN   # noqa: E402
+from plugins.clear_vocal import planner as PL    # noqa: E402
+from plugins.clear_vocal import singer as SG     # noqa: E402
+from plugins.clear_vocal import syllabify as SY  # noqa: E402
 
 
 # ===================================================================== analyzer
@@ -326,24 +330,32 @@ def test_singer_refuses_to_synthesize_inside_a_hook():
     这里用真实的插件运行上下文（emit 进入钩子）来验证守卫会**立刻抛错**，
     而不是安静地挂住。若这条护栏失效，表现是服务整体卡死、日志一片空白。
     """
-    from voice_clone import plugins as P
+    from voice_clone import plugin_core as P
 
     P.reset_for_tests()
     import shutil, tempfile
 
     tmp = Path(tempfile.mkdtemp())
-    pkg = tmp / P.PLUGIN_DIR_NAME
+    pkg = tmp / P.PLUGIN_DIR_NAME / "技能插件"
     pkg.mkdir(parents=True)
     (pkg / "probe").mkdir()
     (pkg / "probe" / "plugin.json").write_text(json.dumps({
         "id": "probe", "api_version": "1.0",
         "hooks": {"report.enrich": "on_report_enrich"},
     }), encoding="utf-8")
+    # 探针插件在**隔离的临时目录**里运行，拿不到测试进程的 plugins 命名空间
+    # （那是 _plugin_path 现搭的），所以按绝对路径把 singer 载进来。
+    from _plugin_path import zone_dir, ZONE_SKILL
+    singer_file = zone_dir(ZONE_SKILL) / "clear_vocal" / "singer.py"
+    assert singer_file.is_file(), f"找不到 singer.py: {singer_file}"
     (pkg / "probe" / "plugin.py").write_text(
+        "import importlib.util as _iu\n"
+        f"_P = r'{singer_file}'\n"
+        "_spec = _iu.spec_from_file_location('probe_cv_singer', _P)\n"
+        "S = _iu.module_from_spec(_spec); _spec.loader.exec_module(S)\n"
         "caught = []\n"
         "def on_report_enrich(p):\n"
         "    try:\n"
-        "        from vox_plugins.clear_vocal import singer as S\n"
         "        S.Singer(None, 22050)._synth_text('啊')\n"
         "        caught.append('NOT_RAISED')\n"
         "    except S.HookContextError as e:\n"

@@ -1,6 +1,6 @@
 """清唱生成插件 · 对齐器（aligner.py）与 DSP 层的正式回归测试
 
-对应 ``vox_plugins/clear_vocal/_t_aligner.py`` 那套真值断言，收编进 pytest 套件。
+对应 ``plugins/技能插件/clear_vocal/_t_aligner.py`` 那套真值断言，收编进 pytest 套件。
 侧重点与用户验收项一致：**时间对齐精度** 与 **音高准确性**。
 
 为什么这些断言写成"精确 == 0 样本"而不是"误差 < 5ms"：
@@ -17,13 +17,17 @@ import pytest
 
 # 与其它测试文件一致的显式引导：把仓库根插到 sys.path 首位。
 # 不依赖 pytest 的 rootdir 插入 —— 后者会随**收集顺序**变化。
-# ⚠️ 包名是 vox_plugins，不是 plugins：仓库里已有 voice_clone/plugins.py，
-#    而 pytest 会把 voice_clone/ 插到 sys.path，`import plugins` 会被它截胡。
-_ROOT = Path(__file__).resolve().parent.parent
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
+# ⚠️ 插件目录（仓库根 plugins/技能插件/）含中文，无法直接 import；
+#    由 _plugin_path 把子区注册成命名空间包路径，从而 `import plugins.<id>` 可用。
+_TESTS_DIR = Path(__file__).resolve().parent
+if str(_TESTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_TESTS_DIR))
 
-from vox_plugins.clear_vocal import aligner, dsp  # noqa: E402
+from _plugin_path import ensure_plugins_importable  # noqa: E402
+
+ensure_plugins_importable()
+
+from plugins.clear_vocal import aligner, dsp  # noqa: E402
 
 SR = 22050
 

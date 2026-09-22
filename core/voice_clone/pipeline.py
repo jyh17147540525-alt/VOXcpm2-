@@ -24,12 +24,16 @@ import soundfile as sf
 from . import preprocess, length_adapter, synthesis_stab
 
 try:                                   # 包内正常导入
-    from . import plugins as _plugins
+    from . import plugin_core as _plugins
 except ImportError:                    # pragma: no cover - 无包上下文的直接加载
     import sys as _sys
 
     _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    import plugins as _plugins  # type: ignore
+    # ⚠️ 只能是 plugin_core，**不能**退回 import plugins：
+    #    仓库根的 `plugins/` 目录（插件集合）也占这个顶层名，
+    #    一旦命中它就会在运行期报 `module 'plugins' has no attribute 'get_registry'`
+    #    —— 而且只在"有人 import 过 plugins"时才复现，极难定位。
+    import plugin_core as _plugins  # type: ignore
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PREPARED_DIR = os.path.join(BASE_DIR, "prepared")

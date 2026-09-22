@@ -53,18 +53,29 @@ PLUGIN_API_VERSION = "1.0"
 PLUGIN_API_MAJOR = 1
 #: 插件契约所面向的应用版本（与 server.py 的 FastAPI(version=...) 保持一致）
 APP_VERSION = "2.1.0"
-#: 插件搜索目录名。
-#: ⚠️ 必须是 ``vox_plugins`` 而不是 ``plugins``：仓库里已有本模块
-#:    ``voice_clone/plugins.py``。由于 pytest 会把每个测试文件所在目录
-#:    （包括 ``voice_clone/``）插到 sys.path 首位，顶层名 ``plugins``
-#:    会被本模块截胡，导致 ``import plugins.<某插件>`` 报
-#:    "ModuleNotFoundError: 'plugins' is not a package"（实测，
-#:    且只在特定收集顺序下出现 —— 最难查的一类 bug）。
-#:    目录改名后，两个概念各占一个名字，互不干扰。
-PLUGIN_DIR_NAME = "vox_plugins"
+#: 插件搜索目录名（**相对应用根**）。
+#:
+#: 历史与命名约束（踩过两次坑，别再改回去）
+#: -------------------------------------------
+#: 本模块曾在 ``voice_clone/plugins.py``，而插件目录曾叫 ``plugins/``。
+#: 两者同占顶层名 ``plugins``，在 ``from voice_clone import plugins`` 这种
+#: "包属性优先于 sys.modules"的解析下互相遮蔽（实测症状：改名后 8 个测试
+#: 失败并报 ``module 'plugins' has no attribute 'get_registry'``）。
+#:
+#: 现方案：**本模块改名为 ``plugin_core``，插件目录让给 ``plugins``**。
+#: 即：插件目录 = ``plugins/``（符合直觉），机制模块 = ``plugin_core.py``。
+#:
+#: ⚠️ 注意本常量是**相对应用根**的路径。结构重组后应用根是仓库根的 ``core/``，
+#:    而插件目录在仓库根的 ``plugins/`` —— 所以默认搜索路径由
+#:    :func:`_default_search_paths` 给出，而不是单靠本常量拼接。
+PLUGIN_DIR_NAME = "plugins"
 PLUGIN_DATA_DIR_NAME = "plugins_data"
 CONFIG_NAME = "plugins_config.json"
 CONFIG_EXAMPLE_NAME = "plugins_config.json.example"
+
+#: 插件目录下的两个子区（结构约定，仅用于提示与文档；发现逻辑不依赖它）
+PLUGIN_ZONE_SKILL = "技能插件"
+PLUGIN_ZONE_EXTRA = "拓展插件"
 
 #: 连续多少次钩子异常后自动停用该插件（熔断）
 MAX_CONSECUTIVE_ERRORS = 5
@@ -491,6 +502,40 @@ class PluginRegistry:
         return out or [os.path.join(self.base_dir, PLUGIN_DIR_NAME)]
 
     @property
+    def candidate_search_paths(self) -> list[str]:
+        """在 ``search_paths`` 之外补上**几个约定俗成的备选位置**，只用于发现。
+
+        动机：结构重组后应用根是 ``core/``，而插件目录按约定放在**仓库根的
+        ``plugins/``**（与 ``core/`` 平级）。若要求用户在每个部署里手写
+        ``"search_paths": ["../plugins"]``，克隆下来就会"插件一个都发现不了"
+        且没有任何报错 —— 这正是最难查的一类问题。
+
+        因此除显式配置外，再按顺序尝试：
+          · ``<base_dir>/plugins``                （插件就在应用根下，旧布局）
+          · ``<base_dir>/../plugins``             （插件在仓库根，新布局）
+          · 环境变量 ``VOXCPM_PLUGIN_PATH`` 指定的目录（冒号/分号分隔）
+
+        显式配置的路径**排在最前**，所以用户总能用配置覆盖。
+        """
+        cands: list[str] = list(self.search_paths)
+        extra = [
+            os.path.join(self.base_dir, PLUGIN_DIR_NAME),
+            os.path.normpath(os.path.join(self.base_dir, os.pardir, PLUGIN_DIR_NAME)),
+        ]
+        env = os.environ.get("VOXCPM_PLUGIN_PATH", "")
+        if env:
+            for sep in (";", ":"):
+                env = env.replace(sep, os.pathsep)
+            extra.extend(x for x in env.split(os.pathsep) if x.strip())
+        seen = {os.path.normcase(os.path.abspath(p)) for p in cands}
+        for p in extra:
+            key = os.path.normcase(os.path.abspath(p))
+            if key not in seen:
+                seen.add(key)
+                cands.append(p)
+        return cands
+
+    @property
     def disabled(self) -> set[str]:
         return {str(x) for x in (self.config.get("disabled") or [])}
 
@@ -544,33 +589,68 @@ class PluginRegistry:
         return ok
 
     # ---------------------------------------------------------------- 发现
+    #: 插件目录可位于 search_paths 下的**子区**里（如 plugins/技能插件/x/），
+    #: 故按 LIMITED 深度递归查找含 plugin.json 的目录。深度上限避免误扫
+    #: 第三方包内部（那里也可能有同名文件）。
+    DISCOVER_MAX_DEPTH = 3
+
     def discover(self) -> list[PluginManifest]:
         found: list[PluginManifest] = []
-        for root in self.search_paths:
+        seen_ids: set[str] = set()
+        for root in self.candidate_search_paths:
             if not os.path.isdir(root):
                 continue
-            try:
-                entries = sorted(os.listdir(root))
-            except OSError as e:
-                self.discovery_errors.append(f"无法读取 {root}: {e}")
-                continue
-            for name in entries:
-                pdir = os.path.join(root, name)
+            for pdir in self._iter_plugin_dirs(root):
+                name = os.path.relpath(pdir, root)
                 mf = os.path.join(pdir, "plugin.json")
-                if not os.path.isdir(pdir) or not os.path.isfile(mf):
-                    continue
                 try:
                     with open(mf, encoding="utf-8") as f:
                         data = json.load(f)
-                    found.append(parse_manifest(data, pdir))
+                    m = parse_manifest(data, pdir)
                 except PluginManifestError as e:
                     self.discovery_errors.append(f"{name}: {e}")
                     _log(f"清单被拒绝 {name}: {e}")
+                    continue
                 except Exception as e:
                     self.discovery_errors.append(f"{name}: JSON 解析失败 {e}")
                     _log(f"清单解析失败 {name}: {type(e).__name__}: {e}")
+                    continue
+                if m.id in seen_ids:
+                    # 同一个 id 出现两次：后发现的忽略并告警（不静默覆盖）
+                    self.discovery_errors.append(
+                        f"{name}: id「{m.id}」重复，已忽略（已在 "
+                        f"{self.plugins[m.id].manifest.dir if m.id in self.plugins else '别处'} 发现）")
+                    continue
+                seen_ids.add(m.id)
+                found.append(m)
         found.sort(key=lambda m: m.id)
         return found
+
+    def _iter_plugin_dirs(self, root: str):
+        """在 root 下（含子区）查找所有含 plugin.json 的目录，广度优先、深度受限。
+
+        子区本身**不是**插件目录（不含 plugin.json），所以会继续下钻一层；
+        一旦某目录含 plugin.json，就把它当插件、**不再**往里找
+        （一个插件内部可以有任意文件，不该被误当成插件集合）。
+        """
+        frontier = [(root, 0)]
+        while frontier:
+            cur, depth = frontier.pop(0)
+            try:
+                names = sorted(os.listdir(cur))
+            except OSError as e:
+                self.discovery_errors.append(f"无法读取 {cur}: {e}")
+                continue
+            for name in names:
+                if name.startswith((".", "_")):
+                    continue
+                pdir = os.path.join(cur, name)
+                if not os.path.isdir(pdir):
+                    continue
+                if os.path.isfile(os.path.join(pdir, "plugin.json")):
+                    yield pdir
+                elif depth + 1 < self.DISCOVER_MAX_DEPTH:
+                    frontier.append((pdir, depth + 1))
 
     # ---------------------------------------------------------------- 加载
     def load(self, manifest: PluginManifest) -> LoadedPlugin:

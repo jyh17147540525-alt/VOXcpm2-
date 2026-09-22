@@ -15,6 +15,11 @@ jobs:
   test:
     name: tests (${{ matrix.os }} / py${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
+    # 仓库根按类别组织：主项目在 core/，插件在 plugins/。
+    # 主项目的 pytest rootdir 就是 core/（core/pytest.ini）。
+    defaults:
+      run:
+        working-directory: core
     strategy:
       fail-fast: false
       matrix:
@@ -32,7 +37,7 @@ jobs:
 
       # 只装纯逻辑测试所需的轻量依赖。
       # torch / onnxruntime / voxcpm 体量大且需要权重才能跑，
-      # 相关测试会因缺少模型而自动 skip（见 tests/test_mdx_separator.py）。
+      # 相关测试会因缺少模型而自动 skip（见 core/tests/test_mdx_separator.py）。
       - name: Install test dependencies
         run: |
           python -m pip install --upgrade pip
@@ -50,8 +55,12 @@ jobs:
         with:
           python-version: "3.11"
 
+      # plugins/ 下的方言插件也要一起过语法检查，
+      # 否则一个手滑的插件可以静默上线（发现期不加载 = 不会在测试里暴露）。
       - name: Compile all Python sources
-        run: python -m compileall -q server.py voice_clone voice_packs.py audio_edit.py scripts examples tests
+        run: |
+          python -m compileall -q core
+          python -m compileall -q plugins
 
   frontend-syntax:
     name: inline JS syntax
@@ -69,4 +78,5 @@ jobs:
       # 历史上曾因 JS 字符串拼接出语法错误，导致整页交互静默失效
       # （V8 解析失败 -> 所有 onclick 失活）。这里用 node --check 兜住。
       - name: Extract inline JS and validate with node
+        working-directory: core
         run: python scripts/check_inline_js.py

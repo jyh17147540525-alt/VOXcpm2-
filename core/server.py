@@ -69,7 +69,13 @@ def _restore_native_deletion() -> None:
 _restore_native_deletion()
 
 # ============================== 配置 ==============================
-BASE_DIR = Path(r"F:\VoxCPM2")
+# 应用根目录（模型权重 / credentials.json / outputs 等的锚点）。
+# **随文件自定位**，不要硬编码绝对路径 —— 否则别人 clone 后必然找不到自己的文件，
+# 而且会让 `import server` 把 sys.path 指向开发机上的另一个副本，
+# 使 `voice_clone.*` 悄悄解析到别处（实测过：症状是诡异的 ModuleNotFoundError）。
+# 需要固定目录时用环境变量覆盖：set VOXCPM_BASE_DIR=D:\my\voxcpm
+_ENV_BASE_DIR = os.environ.get("VOXCPM_BASE_DIR", "").strip()
+BASE_DIR = Path(_ENV_BASE_DIR).expanduser() if _ENV_BASE_DIR else Path(__file__).resolve().parent
 MODEL_PATH = str(BASE_DIR)
 OUTPUT_DIR = BASE_DIR / "outputs"
 UPLOAD_DIR = BASE_DIR / "uploads"
@@ -135,7 +141,7 @@ except Exception as _e:
 # 外部模块的注册 / 加载 / 调用（见 voice_clone/plugins.py 的契约说明）。
 # 默认无插件时所有钩子都是常数时间 no-op，行为与未引入插件机制时逐字节一致。
 # init() 内部已吞掉全部异常：插件出问题绝不影响服务启动。
-import voice_clone.plugins as _plugins
+import voice_clone.plugin_core as _plugins
 
 
 def _plugin_log_impl(msg: str):

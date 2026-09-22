@@ -26,13 +26,16 @@ from __future__ import annotations
 import re
 
 try:                                   # 包内正常导入
-    from . import plugins as _plugins
+    from . import plugin_core as _plugins
 except ImportError:                    # pragma: no cover - 无包上下文的直接加载
     import os as _os
     import sys as _sys
 
     _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
-    import plugins as _plugins  # type: ignore
+    # ⚠️ 只能 import plugin_core，不能退回 `import plugins`：
+    #    仓库根的 plugins/ 目录（插件集合）占同一顶层名，命中它会报
+    #    `module 'plugins' has no attribute 'get_registry'`。
+    import plugin_core as _plugins  # type: ignore
 
 # --------------------------------------------------------------------- 预设表
 # 字段说明：

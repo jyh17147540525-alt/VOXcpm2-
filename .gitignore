@@ -26,6 +26,8 @@ outputs/
 uploads/
 voice_packs/
 prepared/
+# 训练样本库（音频 + 文本对，体积大且是本机私有素材）
+training_data/
 .pipcache/
 .tmp/
 # AI 导演层的磁盘缓存（按文本哈希存放，非源码）
@@ -36,9 +38,20 @@ _llm_cache/
 plugins_config.json
 # 插件私有数据目录（由 PluginContext.data_dir 提供）
 plugins_data/
-# 自家插件放这里（示例插件 plugins/example_gain/ 是有意提交的模板，故不整目录忽略）
-plugins/*/
-!plugins/example_gain/
+# 插件位置（结构约定：plugins/技能插件/ 与 plugins/拓展插件/ 两个子区，
+# 见 plugins/README.md）。子区名是中文，不能用 Python 标识符导入，
+# 测试通过 core/tests/_plugin_path.py 构造命名空间包来加载。
+#
+# ⚠️ 随仓库发布的插件（方言系列、example_gain 等）是**要提交**的，
+#    所以这里**不能**写 `plugins/*/` 之类的整目录忽略：
+#    git 的目录级 ignore 匹配到中文子区后会连内容一起吞掉，
+#    表现是"插件明明建好了，git status 里却什么都没有"。
+#    只忽略单个插件的运行期产物即可。
+plugins/**/*.wav
+plugins/**/*.mp3
+plugins/**/*.m4a
+plugins/**/*.flac
+plugins/**/__pycache__/
 *.wav
 *.mp3
 *.m4a

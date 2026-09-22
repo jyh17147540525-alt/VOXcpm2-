@@ -25,16 +25,20 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-_ROOT = Path(__file__).resolve().parent.parent
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
+_TESTS_DIR = Path(__file__).resolve().parent
+if str(_TESTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_TESTS_DIR))
 
-from vox_plugins.clear_vocal import aligner as AL       # noqa: E402
-from vox_plugins.clear_vocal import analyzer as AN      # noqa: E402
-from vox_plugins.clear_vocal import planner as PL       # noqa: E402
-from vox_plugins.clear_vocal import plugin as PG        # noqa: E402
-from vox_plugins.clear_vocal import singer as SG        # noqa: E402
-from vox_plugins.clear_vocal import syllabify as SY     # noqa: E402
+from _plugin_path import ensure_plugins_importable  # noqa: E402
+
+ensure_plugins_importable()
+
+from plugins.clear_vocal import aligner as AL       # noqa: E402
+from plugins.clear_vocal import analyzer as AN      # noqa: E402
+from plugins.clear_vocal import planner as PL       # noqa: E402
+from plugins.clear_vocal import plugin as PG        # noqa: E402
+from plugins.clear_vocal import singer as SG        # noqa: E402
+from plugins.clear_vocal import syllabify as SY     # noqa: E402
 
 SR = 22050
 
@@ -567,21 +571,36 @@ def test_resample_is_identity_when_rate_matches():
 
 # ===================================================================== C. 契约与安全
 def _repo_root() -> Path:
-    return _ROOT
+    """仓库根（= ``core/`` 的父目录）。
+
+    ⚠️ 别改回手算 ``Path(__file__).parent.parent``：本文件在重组前后层级变过
+    （``tests/`` → ``core/tests/``），手算的常量会静默指到错层，症状是
+    ``P.init(path)`` 找不到 ``plugins/`` 而发现 0 个插件。
+    统一从 ``_plugin_path`` 取，只有那一处需要跟着布局改。
+    """
+    from _plugin_path import repo_root
+    return repo_root()
+
+
+def _zone_dir() -> Path:
+    """插件所在子区（结构约定：plugins/技能插件/）。"""
+    from _plugin_path import zone_dir, ZONE_SKILL
+    return zone_dir(ZONE_SKILL)
 
 
 def _registry_with_clear_vocal(tmp_path: Path):
-    """把 vox_plugins 整个复制到 tmp，建配置并强制启用 clear_vocal。"""
-    from voice_clone import plugins as P
+    """把技能插件子区整个复制到 tmp，建配置并强制启用 clear_vocal。"""
+    from voice_clone import plugin_core as P
 
     # ⚠️ 必须先清全局注册表：``plugins.init()`` 是**幂等**的 —— 已初始化时直接
     # 返回既有注册表，忽略新的 base_dir。不清就会拿到上一个用例的注册表，
     # 于是钩子根本没挂上、emit 静默返回原值，而测试还以为在测新插件。
     P.reset_for_tests()
 
-    src = _repo_root() / P.PLUGIN_DIR_NAME
-    assert src.is_dir(), "缺少插件目录 %s" % src
-    dst = tmp_path / P.PLUGIN_DIR_NAME
+    src = _zone_dir()
+    assert src.is_dir(), "缺少插件子区 %s" % src
+    # tmp 布局复刻真实结构：<tmp>/plugins/技能插件/<id>/
+    dst = tmp_path / P.PLUGIN_DIR_NAME / "技能插件"
     dst.mkdir(parents=True, exist_ok=True)
     import shutil
     shutil.copytree(src / "clear_vocal", dst / "clear_vocal")
@@ -610,7 +629,7 @@ def test_manifest_matches_module_contract(tmp_path):
     这条不是形式主义：``plugins.py`` 在**加载期**就要求钩子函数存在且签名合法，
     声明错一个函数名会让整个插件变成 failed 且只有一行日志。
     """
-    from voice_clone import plugins as P
+    from voice_clone import plugin_core as P
     reg = _registry_with_clear_vocal(tmp_path)
     try:
         lp = reg.plugins.get("clear_vocal")
@@ -623,7 +642,7 @@ def test_manifest_matches_module_contract(tmp_path):
 
 
 def test_manifest_is_valid_json_with_expected_fields():
-    p = _repo_root() / "vox_plugins" / "clear_vocal" / "plugin.json"
+    p = _zone_dir() / "clear_vocal" / "plugin.json"
     d = json.loads(p.read_text(encoding="utf-8"))
     assert d["id"] == "clear_vocal"
     assert d["api_version"] == "1.0"
@@ -631,7 +650,7 @@ def test_manifest_is_valid_json_with_expected_fields():
     assert d["enabled"] is False, "清唱插件默认必须停用（保证零插件行为不变）"
     assert d["isolation"] == "inprocess"
     # 声明的每个钩子都必须真的存在
-    src = (_repo_root() / "vox_plugins" / "clear_vocal" / "plugin.py").read_text(
+    src = (_zone_dir() / "clear_vocal" / "plugin.py").read_text(
         encoding="utf-8")
     for hook, fn in d["hooks"].items():
         assert ("def %s(" % fn) in src, "plugin.json 声明的 %s -> %s() 不存在" % (hook, fn)
@@ -639,7 +658,7 @@ def test_manifest_is_valid_json_with_expected_fields():
 
 def test_report_enrich_does_not_trigger_generation(tmp_path):
     """``report.enrich`` 必须是纯只读 —— 不得触碰模型。"""
-    from voice_clone import plugins as P
+    from voice_clone import plugin_core as P
     reg = _registry_with_clear_vocal(tmp_path)
     try:
         before = PG._STATE.get("n_runs", 0)
@@ -654,7 +673,7 @@ def test_report_enrich_does_not_trigger_generation(tmp_path):
 
 def test_generation_is_refused_inside_a_hook(tmp_path):
     """最贵的一课：钩子内回调合成会**永久死锁且无报错**，必须被快速拒绝。"""
-    from voice_clone import plugins as P
+    from voice_clone import plugin_core as P
     reg = _registry_with_clear_vocal(tmp_path)
     caught: list[str] = []
 
@@ -689,7 +708,7 @@ def test_generation_is_refused_inside_a_hook(tmp_path):
 
 def test_plugin_does_not_import_server_module():
     """编排层不得直接 import server —— 否则模型/锁的注入契约就被破坏了。"""
-    src = (_repo_root() / "vox_plugins" / "clear_vocal" / "plugin.py").read_text(
+    src = (_zone_dir() / "clear_vocal" / "plugin.py").read_text(
         encoding="utf-8")
     for bad in ("import server", "from server import"):
         assert bad not in src, "plugin.py 不应依赖 server：发现 %r" % bad
@@ -697,7 +716,7 @@ def test_plugin_does_not_import_server_module():
 
 def test_no_plugin_means_emit_is_unchanged():
     """零插件时 emit 必须原样返回（清唱插件的存在不得改变这条保证）。"""
-    from voice_clone import plugins as P
+    from voice_clone import plugin_core as P
     P.reset_for_tests()
     arr = np.zeros(8, dtype=np.float32)
     assert P.emit("output.post", audio=arr) is arr
@@ -950,9 +969,9 @@ def test_api_routes_registers_status_route_via_testclient():
     正确做法：用 ``TestClient`` 发一次**真实请求**，断言状态码与响应体。
     这才是"路由通了"的唯一可信证据。
     """
-    from voice_clone import plugins as P
+    from voice_clone import plugin_core as P
     P.reset_for_tests()
-    P.init(str(_ROOT))
+    P.init(str(_repo_root()))
     P.get_registry().set_enabled("clear_vocal", True)
     P.get_registry()._reindex()
 
