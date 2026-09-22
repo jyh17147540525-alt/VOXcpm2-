@@ -18,7 +18,23 @@ python-multipart>=0.0.9
 # ---- 音频处理 ----
 numpy>=1.26
 scipy>=1.12
-librosa>=0.10
+# ⚠️ 上界 `,<1.0` 是**有意的**，别随手放开。
+#
+# 背景：`plugins/技能插件/clear_vocal/analyzer.py` 里的
+# `PYIN_MAX_TRANSITION_RATE = 86.1` 是针对 **librosa 0.11 的 pyin 行为**
+# 手工标定的（换算依据 hop=512 / sr=22050 → 24 半音/帧；默认 35.92 只有
+# 10 半音/帧，会系统性抹平大跳进）。
+#
+# librosa 1.0.0（2026-08-11 发布）采用 EffVer，changelog 含
+# "Yet another Viterbi acceleration PR" —— pyin 的八度判定正是走 Viterbi。
+# 实测：CI 因 `>=0.10` 无上界而装到 1.0.0，
+# `test_large_leaps_are_not_flattened_into_octaves` 等 10 条用例全红，
+# 且**全部恰好差一个八度**（60 vs 72 / 51 vs 63 / 63 vs 75），
+# 本地 0.11.0 则全绿。
+#
+# 所以这里锁住 0.x。要升 1.x 必须**重新标定**那个常量，
+# 并在两种版本下都跑过 clear_vocal 全套用例，不能只改这个版本号。
+librosa>=0.10,<1.0
 soundfile>=0.12
 
 # ---- 编辑音频 / 导出 ----

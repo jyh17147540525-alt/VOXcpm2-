@@ -53,9 +53,18 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
-          python -m pip install numpy scipy librosa soundfile fastapi uvicorn
+          # ⚠️ librosa 必须跟着 core/requirements.txt 的上界走（<1.0）：
+          #    clear_vocal 的 PYIN_MAX_TRANSITION_RATE=86.1 是针对 0.11 标定的，
+          #    1.0.0 换了 pyin 的 Viterbi 实现 → 音高全部差一个八度 →
+          #    test_large_leaps_are_not_flattened_into_octaves 等 10 条全红。
+          #    这里写死与 requirements.txt 一致的上界，别只写 librosa。
+          python -m pip install numpy scipy "librosa>=0.10,<1.0" soundfile
+          python -m pip install fastapi uvicorn
           python -m pip install python-multipart pypinyin lameenc imageio-ffmpeg
           python -m pip install transformers pytest pytest-timeout
+
+          # 把实际解析到的版本打出来，避免"CI 装了哪个版本"只能靠猜。
+          python -m pip show librosa numpy | grep -E "^(Name|Version):"
 
       - name: Run tests
         run: python -m pytest tests -v

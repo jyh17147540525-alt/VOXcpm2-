@@ -582,12 +582,54 @@ def _tone_to_engine_emotion(tag: str) -> str | None:
 #: 实测「喃喃自语」这类常用写法不在库内，会一路落到 `else` 被回填进朗读文本
 #: → 模型把"喃喃自语"念出来（与本次 bug 同型）。
 #: 这里是**补充层**，只放语气库里确实没有的；命中后仍走同一套"剥离 + 归一"流程。
+#:
+#: ⚠️ 本层的第二个职责：**兜住"语气库本身不存在"的部署环境**。
+#:    语气库来自 `~/.workbuddy/skills/natural-emotional-speech/assets/语气库.json`，
+#:    是 **Skill 侧文件、不在仓库里**。CI、别人的克隆、纯 pip 安装都没有它。
+#:    实测（把 `_BETA_TONE_LIB` 置 None 模拟）：
+#:      `（大笑）` `（放声大哭）` `（愤怒嘶吼）` `（冷笑讽刺）` `（轻声耳语）`
+#:      全部退化成 `neutral` —— 因为库内有、而本层没兜。
+#:    而 `（苦笑）` `（干笑）` `（咆哮）` 仍正确，因为它们恰好在本层里。
+#:    → 结论：**常见的「情绪+发声方式」复合词必须在本层各留一条**，
+#:      否则同一句文本在开发机与别人机器上的韵律预设会不一样。
+#:      （剥离不受影响：这些词无论能否归一出情绪，都会被剥掉不朗读。）
 _BETA_EXTRA_TONE_WORDS = {
     "喃喃自语": "whisper", "喃喃": "whisper", "自言自语": "whisper",
     "嘟囔": "whisper", "嘀咕": "whisper", "咕哝": "whisper",
     "默念": "whisper", "念叨": "whisper",
     "低喃": "whisper", "呢喃": "whisper", "轻语": "whisper",
     "颤抖": "fear", "发颤": "fear", "哆嗦": "fear", "战栗": "fear",
+    # —— 以下为「库内可能有、但必须在本层兜底」的高频复合语气词 ——
+    # 笑（laugh → 高兴）
+    "大笑": "laugh", "放声大笑": "laugh", "哈哈大笑": "laugh",
+    "狂笑": "laugh", "窃笑": "laugh", "偷笑": "laugh", "捂嘴笑": "laugh",
+    "噗嗤一笑": "laugh", "笑出声": "laugh", "憋不住笑": "laugh",
+    # 哭（cry → 悲伤）
+    "放声大哭": "cry", "大哭": "cry", "痛哭": "cry", "抽噎": "cry",
+    "泣不成声": "cry", "失声痛哭": "cry", "红了眼眶": "cry",
+    "带着哭腔": "cry", "哭腔": "cry",
+    # 怒（anger → 愤怒）
+    "愤怒嘶吼": "anger", "嘶吼": "anger", "吼叫": "anger", "怒斥": "anger",
+    "咬牙切齿": "anger", "勃然大怒": "anger", "沉声": "anger",
+    "压低声音": "anger", "提高音量": "anger",
+    # 惧（fear → 恐惧）
+    "惊恐": "fear", "惊惧": "fear", "害怕": "fear", "发怵": "fear",
+    "倒吸一口凉气": "fear", "毛骨悚然": "fear",
+    # 惊喜（surprise → 惊讶）
+    "惊喜": "surprise", "诧异": "surprise", "震惊": "surprise",
+    "愣了一下": "surprise", "吃了一惊": "surprise",
+    # 讽刺（sarcasm → 愤怒：按听觉气质就近）
+    "冷笑讽刺": "sarcasm", "阴阳怪气": "sarcasm", "嗤之以鼻": "sarcasm",
+    "嘲讽": "sarcasm", "揶揄": "sarcasm",
+    # 耳语（whisper → 温柔：按听觉气质就近）
+    "轻声耳语": "whisper", "耳语": "whisper", "压低嗓音": "whisper",
+    "细声细语": "whisper", "气声": "whisper",
+    # 疼痛（pain → 悲伤）
+    "痛苦": "pain", "疼得": "pain", "闷哼一声": "pain",
+    # 呼吸（breath → 平静）
+    "深呼吸": "breath", "轻叹": "breath", "长叹": "breath",
+    # 咳嗽（cough → 平静）
+    "咳嗽": "cough", "轻咳": "cough", "干咳": "cough",
     "哽咽": "cry", "呜咽": "cry", "抽泣": "cry", "啜泣": "cry",
     "悲鸣": "cry", "哭腔": "cry",
     "咆哮": "anger", "怒吼": "anger", "低吼": "anger", "咬牙": "anger",
