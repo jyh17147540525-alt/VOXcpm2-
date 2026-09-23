@@ -1423,6 +1423,7 @@ select option{background:var(--surface);color:var(--text)}
     <button class="tab ic-btn" data-mode="train" onclick="setMode('train')"><svg class="ic"><use href="#i-cpu"/></svg><span data-i18n="modeTrain">训练</span></button>
     <button class="tab ic-btn" data-mode="settings" onclick="setMode('settings')"><svg class="ic"><use href="#i-gear"/></svg><span data-i18n="modeSettings">设置</span></button>
     <button class="tab ic-btn" data-mode="plugins" id="navPlugins"><svg class="ic"><use href="#i-puzzle"/></svg><span data-i18n="modePlugins">插件</span></button>
+    <button class="tab ic-btn" data-mode="workbench" id="navWorkbench"><svg class="ic"><use href="#i-layers"/></svg><span data-i18n="modeWorkbench">工作台</span></button>
   </div>
 
   <div class="card" id="mainCard">
@@ -1674,6 +1675,98 @@ select option{background:var(--surface);color:var(--text)}
     <div id="plugList" style="display:flex;flex-direction:column;gap:12px"></div>
     <div class="muted" id="plugEmpty" style="display:none;line-height:1.7" data-i18n="plugEmpty">插件目录里还没有任何插件。把插件文件夹放进下方任一搜索路径，每个文件夹需含 plugin.json，然后点「重新扫描目录」。</div>
     <div class="muted" id="plugPathHint" style="font-size:11px;word-break:break-all;margin-top:14px"></div>
+  </div>
+
+  <div class="card hide" id="wbCard">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+      <button class="chip" onclick="setMode(prevMode||'design')" data-i18n="backBtn" style="padding:6px 12px;border:1px solid var(--border-2);border-radius:8px;background:var(--surface);cursor:pointer;font-size:13px">← 返回</button>
+      <span class="badge">All-in-One</span>
+      <label style="margin:0"><svg class="ic"><use href="#i-layers"/></svg> <span data-i18n="wbTitle">工作台 · 台词 / 指令 / 试听 一站式</span></label>
+    </div>
+    <div class="muted" style="margin-bottom:12px;line-height:1.7" data-i18n="wbDesc">把台词文件拖进来（txt / md / srt，自动去掉序号和时间轴），行首写方言指令、(@音色) 或 (情绪词)，先「解析预览」看清楚哪些行是指令、哪些行会被朗读，再逐行试运行或整体合成。全部在本地完成。</div>
+
+    <div class="field" id="wbDrop" style="border:1.5px dashed var(--border-2);border-radius:10px;padding:12px;text-align:center;cursor:pointer">
+      <svg class="ic" style="width:18px;height:18px;vertical-align:-4px"><use href="#i-inbox"/></svg>
+      <span data-i18n="wbDropHint">拖入 txt / md / srt 文件，或点击选择（大文件自动截断到 20000 字）</span>
+      <input type="file" id="wbFile" accept=".txt,.md,.srt,.lrc,text/plain" style="display:none">
+    </div>
+
+    <div class="field">
+      <label data-i18n="wbTextLabel">台词 / 台本（每行一段；行首支持 粤语翻译：… ／ (@音色包名) ／ (情绪词)）</label>
+      <textarea id="wbText" style="min-height:170px" placeholder="粤语翻译：聊天"></textarea>
+    </div>
+
+    <div class="chips" id="wbChips" style="margin-bottom:12px;flex-wrap:wrap">
+      <button class="chip" data-wb-insert="粤语翻译："><svg class="ic"><use href="#i-book"/></svg><span data-i18n="wbChipYue">粤语翻译</span></button>
+      <button class="chip" data-wb-insert="翻译："><svg class="ic"><use href="#i-book"/></svg><span data-i18n="wbChipCross">跨方言翻译</span></button>
+      <button class="chip" data-wb-insert="语法："><svg class="ic"><use href="#i-cap"/></svg><span data-i18n="wbChipGrammar">语法</span></button>
+      <button class="chip" data-wb-insert="(@)"><svg class="ic"><use href="#i-mic"/></svg><span data-i18n="wbChipAt">@音色</span></button>
+      <button class="chip" data-wb-insert="(高兴)"><svg class="ic"><use href="#i-emotion"/></svg><span data-i18n="wbChipEmo">情绪</span></button>
+    </div>
+
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+      <button class="chip ic-btn" id="wbParseBtn" style="padding:9px 16px"><svg class="ic"><use href="#i-eye"/></svg><span data-i18n="wbParse">解析预览</span></button>
+      <button class="chip ic-btn" id="wbInvokeBtn" style="padding:9px 16px"><svg class="ic"><use href="#i-zap"/></svg><span data-i18n="wbInvoke">逐行试运行（不占显卡）</span></button>
+      <button class="chip ic-btn" id="wbGoBtn" style="padding:9px 16px"><svg class="ic"><use href="#i-rocket"/></svg><span data-i18n="wbGo">合成试听</span></button>
+      <button class="chip ic-btn" id="wbSavePhraseBtn" style="padding:9px 16px"><svg class="ic"><use href="#i-save"/></svg><span data-i18n="wbSave">存为短语</span></button>
+    </div>
+
+    <div class="field hide" id="wbPackField">
+      <label data-i18n="wbPackLabel">音色（合成试听用；多人朗读模式请直接在文本里写 (@音色包名)）</label>
+      <select id="wbPack" style="width:100%"></select>
+    </div>
+
+    <div class="field" id="wbModeField">
+      <label data-i18n="wbModeLabel">合成方式</label>
+      <select id="wbMode" style="width:100%">
+        <option value="single" data-i18n="wbModeSingle">单音色（选音色包或默认音色）</option>
+        <option value="multi" data-i18n="wbModeMulti">多人朗读（按 (@音色) 标记逐段切音色）</option>
+      </select>
+    </div>
+
+    <div class="err" id="wbErr"></div>
+    <div id="wbOut" style="display:none;margin-top:12px">
+      <div class="checks" style="margin-bottom:8px">
+        <label><input type="checkbox" id="wbStable" checked> <span data-i18n="wbStable">长文本稳定合成（推荐：方言指令在两条路径都生效，勾选更稳）</span></label>
+      </div>
+      <audio id="wbPlayer" controls style="width:100%"></audio>
+      <div class="muted" id="wbMeta" style="margin-top:6px;word-break:break-all"></div>
+    </div>
+
+    <div class="field" style="margin-top:14px;border-top:1px solid var(--border-2);padding-top:12px">
+      <label style="display:flex;align-items:center;gap:6px"><svg class="ic"><use href="#i-wave"/></svg><span data-i18n="wbCvTitle">清唱生成（原曲 + 音色 → 按原曲旋律用该音色唱出来）</span></label>
+      <div class="muted" style="margin-bottom:8px;line-height:1.6" data-i18n="wbCvDesc">上传一首原曲和目标音色的参考音频，服务会先分离人声、分析旋律，再让音色照着唱。整首歌要合成几十到上百个片段，耗时较长（几分钟到十几分钟），请耐心等待进度条。</div>
+      <div class="field">
+        <label data-i18n="wbCvSong">原曲音频（带伴奏的完整歌曲，wav/mp3/flac）</label>
+        <input type="file" id="wbCvSong" accept=".wav,.mp3,.flac,.m4a,.ogg,audio/*" style="width:100%">
+      </div>
+      <div class="field">
+        <label data-i18n="wbCvRef">目标音色参考音频（与音色克隆要求相同，3 秒以上）</label>
+        <input type="file" id="wbCvRef" accept=".wav,.mp3,.flac,.m4a,.ogg,audio/*" style="width:100%">
+      </div>
+      <div class="field">
+        <label data-i18n="wbCvLyric">歌词（留空则整首哼鸣；或勾选自动识词）</label>
+        <textarea id="wbCvLyric" style="min-height:80px" data-i18n-ph="wbCvLyricPh" placeholder="在此粘贴与原曲对应的歌词，按行分段效果更好"></textarea>
+      </div>
+      <div class="checks" style="flex-wrap:wrap;margin-bottom:8px">
+        <label><input type="checkbox" id="wbCvAutoLyric"> <span data-i18n="wbCvAuto">歌词留空时自动识词（whisper，较慢）</span></label>
+        <label><input type="checkbox" id="wbCvSnap" checked> <span data-i18n="wbCvSnapT">节奏吸附到节拍网格（散板/自由节奏请取消勾选）</span></label>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button class="chip ic-btn" id="wbCvBtn"><svg class="ic"><use href="#i-sparkles"/></svg><span data-i18n="wbCvGo">开始清唱</span></button>
+        <span class="muted" id="wbCvStage" style="font-size:13px"></span>
+      </div>
+      <div id="wbCvBarWrap" style="display:none;margin-top:8px;height:8px;border-radius:6px;background:var(--surface-2,#e8e8ee);overflow:hidden">
+        <div id="wbCvBar" style="height:100%;width:0%;background:var(--ok-ink);transition:width .4s"></div>
+      </div>
+      <div class="err" id="wbCvErr"></div>
+      <audio id="wbCvPlayer" controls style="width:100%;margin-top:8px;display:none"></audio>
+    </div>
+
+    <div class="field" style="margin-top:14px">
+      <label data-i18n="wbPhraseTitle">我的短语（存在本机浏览器，随时一键回填）</label>
+      <div class="chips" id="wbPhraseList" style="flex-wrap:wrap"></div>
+    </div>
   </div>
 
   <div class="card hide" id="betaCard">
@@ -1996,7 +2089,27 @@ const I18N={
       trModelLoading:'正在加载 whisper 模型（首次约需 1~2 分钟）…',
       trTranscriptLabel:'有完整台词？粘贴全文，自动逐句匹配到各分段（免手动逐条修改）',
       trTranscriptPh:'把与音频完全一致的完整台词粘贴到这里（每行一句效果最佳）。可先转写后再粘贴点「按台词匹配」，也可上传前就粘贴、转写完成后自动匹配。',
-      trAlign:'按台词匹配到各分段',trTxtFile:'载入 txt 台词',trNoTranscript:'请先粘贴完整台词',themeGoDark:'深色',themeGoLight:'浅色'},
+      trAlign:'按台词匹配到各分段',trTxtFile:'载入 txt 台词',trNoTranscript:'请先粘贴完整台词',themeGoDark:'深色',themeGoLight:'浅色',
+      modeWorkbench:'工作台',
+      wbTitle:'工作台 · 台词 / 指令 / 试听 一站式',
+      wbDesc:'把台词文件拖进来（txt / md / srt，自动去掉序号和时间轴），行首写方言指令、(@音色) 或 (情绪词)，先「解析预览」看清楚哪些行是指令、哪些行会被朗读，再逐行试运行或整体合成。全部在本地完成。',
+      wbDropHint:'拖入 txt / md / srt 文件，或点击选择（大文件自动截断到 20000 字）',
+      wbTextLabel:'台词 / 台本（每行一段；行首支持 粤语翻译：… ／ (@音色包名) ／ (情绪词)）',
+      wbChipYue:'粤语翻译',wbChipCross:'跨方言翻译',wbChipGrammar:'语法',wbChipAt:'@音色',wbChipEmo:'情绪',
+      wbParse:'解析预览',wbInvoke:'逐行试运行（不占显卡）',wbGo:'合成试听',wbSave:'存为短语',
+      wbPackLabel:'音色（合成试听用；多人朗读模式请直接在文本里写 (@音色包名)）',
+      wbModeLabel:'合成方式',wbModeSingle:'单音色（选音色包或默认音色）',wbModeMulti:'多人朗读（按 (@音色) 标记逐段切音色）',
+      wbStable:'长文本稳定合成（推荐：方言指令在两条路径都生效，勾选更稳）',
+      wbCvTitle:'清唱生成（原曲 + 音色 → 按原曲旋律用该音色唱出来）',
+      wbCvDesc:'上传一首原曲和目标音色的参考音频，服务会先分离人声、分析旋律，再让音色照着唱。整首歌要合成几十到上百个片段，耗时较长（几分钟到十几分钟），请耐心等待进度条。',
+      wbCvSong:'原曲音频（带伴奏的完整歌曲，wav/mp3/flac）',
+      wbCvRef:'目标音色参考音频（与音色克隆要求相同，3 秒以上）',
+      wbCvLyric:'歌词（留空则整首哼鸣；或勾选自动识词）',
+      wbCvLyricPh:'在此粘贴与原曲对应的歌词，按行分段效果更好',
+      wbCvAuto:'歌词留空时自动识词（whisper，较慢）',
+      wbCvSnapT:'节奏吸附到节拍网格（散板/自由节奏请取消勾选）',
+      wbCvGo:'开始清唱',
+      wbPhraseTitle:'我的短语（存在本机浏览器，随时一键回填）'},
   en:{localDeploy:'Local',detecting:'Detecting…',modelNotLoaded:'Model not loaded',modelReady:'Model ready',
       modeDesign:'Voice Design',modeClone:'Voice Clone',modeHifi:'HiFi Clone',modeBeta:'Beta',modeTrain:'Train',
       history:'Generation history',noHistory:'No history yet',
@@ -2102,7 +2215,27 @@ const I18N={
       trTranscriptLabel:'Have the verbatim transcript? Paste it and auto-match into each segment (no manual line-by-line edits)',
       trTranscriptPh:'Paste the full transcript that matches the audio exactly (one sentence per line works best). You can transcribe first and then click "Match transcript", or paste before uploading and it will be matched automatically when transcription finishes.',
       trAlign:'Match transcript into segments',trTxtFile:'Load txt',trNoTranscript:'Please paste the full transcript first',
-      themeGoDark:'Dark',themeGoLight:'Light'}
+      themeGoDark:'Dark',themeGoLight:'Light',
+      modeWorkbench:'Workbench',
+      wbTitle:'Workbench · lines / commands / preview in one place',
+      wbDesc:'Drop a script file (txt / md / srt; numbering and timecodes stripped automatically), start lines with dialect commands, (@voice) or (emotion) tags, run Parse preview to see which lines are commands vs. narration, then line-invoke or synthesize. Everything runs locally.',
+      wbDropHint:'Drop a txt / md / srt file, or click to choose (long files truncated to 20000 chars)',
+      wbTextLabel:'Lines / script (one segment per line; line-head commands like 粤语翻译：…, (@voice) or (emotion) supported)',
+      wbChipYue:'Cantonese',wbChipCross:'Cross-dialect',wbChipGrammar:'Grammar',wbChipAt:'@voice',wbChipEmo:'Emotion',
+      wbParse:'Parse preview',wbInvoke:'Line invoke (no GPU)',wbGo:'Synthesize',wbSave:'Save phrase',
+      wbPackLabel:'Voice (for synthesis; for multi-speaker write (@pack_name) in the text)',
+      wbModeLabel:'Synthesis mode',wbModeSingle:'Single voice (pick a pack or default)',wbModeMulti:'Multi-speaker (per (@voice) tag)',
+      wbStable:'Long-text stable synthesis (recommended: dialect commands work on both paths)',
+      wbCvTitle:'Clear vocal (song + voice -> the voice sings the song)',
+      wbCvDesc:'Upload a song and a reference audio of the target voice. The server separates vocals, analyzes the melody, then makes the voice sing along. A whole song takes dozens of synthesis passes (minutes to tens of minutes), please watch the progress bar.',
+      wbCvSong:'Song audio (full track with accompaniment, wav/mp3/flac)',
+      wbCvRef:'Reference audio of the target voice (same rules as voice clone, 3s+)',
+      wbCvLyric:'Lyrics (empty = hum throughout; or enable auto transcription)',
+      wbCvLyricPh:'Paste lyrics matching the song; one line per segment works best',
+      wbCvAuto:'Auto transcribe lyrics when empty (whisper, slow)',
+      wbCvSnapT:'Snap rhythm to beat grid (uncheck for free-tempo material)',
+      wbCvGo:'Start clear vocal',
+      wbPhraseTitle:'My phrases (stored in this browser, one-click refill)'}
 };
 let curLang='zh';
 function setLang(l){
@@ -2843,8 +2976,8 @@ document.getElementById('trainStopBtn').addEventListener('click',stopTrain);
 
 function setMode(m){
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.mode===m));
-  const beta=(m==='beta'), tr=(m==='train'), st=(m==='settings'), pg=(m==='plugins');
-  const off=beta||tr||st||pg;
+  const beta=(m==='beta'), tr=(m==='train'), st=(m==='settings'), pg=(m==='plugins'), wb=(m==='workbench');
+  const off=beta||tr||st||pg||wb;
   document.getElementById('mainCard').classList.toggle('hide',off);
   document.getElementById('histCard').classList.toggle('hide',off);
   document.getElementById('packCard').classList.toggle('hide',off);
@@ -2852,10 +2985,12 @@ function setMode(m){
   document.getElementById('trainCard').classList.toggle('hide',!tr);
   document.getElementById('settingsCard').classList.toggle('hide',!st);
   document.getElementById('pluginCard').classList.toggle('hide',!pg);
+  document.getElementById('wbCard').classList.toggle('hide',!wb);
   if(beta){prevMode=mode||'design';renderDialoguePanels();refreshBetaLlmBar();return;}
   if(tr){prevMode=(mode&&mode!=='train')?mode:'design';refreshTrainUI();return;}
   if(st){prevMode=(mode&&mode!=='settings')?mode:'design';settingsLoad();return;}
   if(pg){prevMode=(mode&&mode!=='plugins')?mode:'design';pluginsLoad();return;}
+  if(wb){prevMode=(mode&&mode!=='workbench')?mode:'design';wbEnter();return;}
   mode=m;
   document.getElementById('refField').classList.toggle('hide',m==='design');
   document.getElementById('packSelField').classList.toggle('hide',m==='design');
@@ -3275,6 +3410,435 @@ async function plugSetAll(want){
     if(m&&typeof setMode==='function')setMode(m);
   });
 })();
+
+/* ==================== 工作台（All-in-One） ====================
+   定位：一个页面集成「拖文件入台词 + 指令速插 + 解析预览 + 逐行试运行 +
+   合成试听 + 短语库」。全部复用既有 API，不新增后端逻辑：
+     - 插件试运行 → POST /api/plugins/<id>/invoke（不占显卡）
+     - 单音色合成 → POST /api/generate（FormData）
+     - 多人朗读   → POST /api/multi_speaker（FormData，服务端解析 @标记）
+     - 音色列表   → GET /api/voicepacks
+   设计约束（血泪版）：
+     - 不拼 inline onclick：全部 data-wb-* + 事件委托（plugWire 同款）；
+     - 图标绝不放进带 data-i18n 的容器：label 里的图标与文案分开包 span；
+     - JS 动态消息零 emoji（check_ui_icons 第 6 项硬断言为 0）；
+     - 三态如实显示 handled / unchanged / invalid（与真实流水线同语义）；
+     - srt/lrc 行的「00:00:01,000 --> ...」时间轴与序号在导入时清洗。 */
+var wbPhrases=[];
+try{wbPhrases=JSON.parse(localStorage.getItem('voxcpm_wb_phrases')||'[]');}catch(_){wbPhrases=[];}
+var wbInvoking=false;
+
+function wbSave(){
+  try{localStorage.setItem('voxcpm_wb_phrases',JSON.stringify(wbPhrases.slice(0,20)));}catch(_){}
+}
+function wbEsc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function wbShowErr(m){var e=document.getElementById('wbErr');e.textContent=m||'';e.classList.add('show');}
+function wbClearErr(){var e=document.getElementById('wbErr');e.textContent='';e.classList.remove('show');}
+
+function wbCleanImport(t){
+  // srt: 去序号行与时间轴行；lrc: 去行内 [mm:ss.xx]；统一去掉首尾空白行
+  var lines=String(t||'').split(/\\r?\\n/),out=[];
+  for(var i=0;i<lines.length;i++){
+    var ln=lines[i];
+    if(/^\\s*\\d+\\s*$/.test(ln))continue;                       // srt 序号
+    if(/^\\s*\\d{1,2}:\\d{2}(:\\d{2})?[.,]\\d{1,3}\\s*-->\\s*\\d{1,2}:\\d{2}(:\\d{2})?[.,]\\d{1,3}\\s*$/.test(ln))continue; // srt 时间轴
+    ln=ln.replace(/^\[[0-9]{1,2}:[0-9]{2}(?:[.:][0-9]{1,3})?\]/,'');  // lrc 行首时间
+    out.push(ln);
+  }
+  return out.join('\\n').replace(/^\\n+|\\n+$/g,'');
+}
+
+function wbLoadFile(file){
+  if(!file)return;
+  var rd=new FileReader();
+  rd.onload=function(){
+    var cleaned=wbCleanImport(String(rd.result||''));
+    if(cleaned.length>20000)cleaned=cleaned.slice(0,20000)+tr('\\n…（超长，已截断到 20000 字）','\\n… (truncated to 20000 chars)');
+    document.getElementById('wbText').value=cleaned;
+    wbShowMeta(tr('已导入：','Imported: ')+file.name+'（'+cleaned.length+tr(' 字。可直接解析预览。',' chars. Ready to parse.')+'）');
+  };
+  rd.readAsText(file,'utf-8');
+}
+
+function wbShowMeta(m){document.getElementById('wbMeta').textContent=m||'';document.getElementById('wbOut').classList.add('show');}
+
+function wbInsert(txt){
+  var ta=document.getElementById('wbText');
+  var p=ta.selectionStart||0,e=ta.selectionEnd||0;
+  var v=ta.value;
+  ta.value=v.slice(0,p)+txt+v.slice(e);
+  var np=p+txt.length;
+  try{ta.setSelectionRange(np,np);}catch(_){}
+  ta.focus();
+}
+
+function wbRenderPhrases(){
+  var box=document.getElementById('wbPhraseList');
+  box.innerHTML='';
+  if(!wbPhrases.length){
+    var d=document.createElement('div');d.className='muted';
+    d.textContent=tr('还没有短语。写好一段台词后点「存为短语」。','No phrases yet. Write something and click Save phrase.');
+    box.appendChild(d);return;
+  }
+  wbPhrases.forEach(function(ph,idx){
+    var b=document.createElement('button');
+    b.className='chip';b.title=ph;
+    b.dataset.wbPhrase=String(idx);
+    var name=ph.length>18?ph.slice(0,17)+'…':ph;
+    b.textContent=name.replace(/\\r?\\n/g,' ');
+    box.appendChild(b);
+  });
+}
+
+function wbParse(){
+  wbClearErr();
+  var text=document.getElementById('wbText').value;
+  if(!text.trim()){wbShowErr(tr('请先填入台词（拖入文件或直接输入）。','Add lines first (drop a file or type).'));return;}
+  var packs=voicePacks||[];
+  var names=packs.map(function(p){return p.name;});
+  var cmdRe=/^\\s*(?:粤语|北方官话|中原官话|西南官话|晋语|吴语|闽南语|闽东语|客家话|赣语|湘语|徽语|平话)?(?:翻译|怎么说|语法|俗语|歇后语|童谣|民俗)\\s*[:：]/;
+  var lines=text.split(/\\r?\\n/),rows=[];
+  var nCmd=0,nVoice=0,nSpeak=0;
+  for(var i=0;i<lines.length;i++){
+    var ln=lines[i];
+    if(!ln.trim()){rows.push({t:'blank'});continue;}
+    var isCmd=cmdRe.test(ln);
+    var voice=null;
+    var vm=ln.match(/\(@([^(),，]*)\)/);
+    if(vm){voice=vm[1].trim()||'(空)';}
+    var emo=ln.match(/\(([^()@,，]*)\)/);
+    var kind=isCmd?'cmd':(voice?'voice':'speak');
+    if(isCmd)nCmd++;else if(voice)nVoice++;else nSpeak++;
+    var missing=voice&&voice!=='(空)'&&names.length>0&&names.indexOf(voice)<0;
+    rows.push({t:kind,ln:ln,voice:voice,emo:emo?emo[1]:'',missing:missing});
+  }
+  var box=document.getElementById('wbOut');
+  box.classList.add('show');
+  var old=document.getElementById('wbParseTable');
+  if(old)old.remove();
+  var tbl=document.createElement('div');tbl.id='wbParseTable';
+  tbl.style.cssText='margin-top:10px;display:flex;flex-direction:column;gap:4px';
+  var head=document.createElement('div');head.className='muted';
+  head.textContent=tr('解析：','Parse: ')+nCmd+tr(' 行指令',' command lines')+' / '+nVoice+tr(' 行带 @音色',' voice-tagged lines')+' / '+nSpeak+tr(' 行朗读',' lines to speak');
+  tbl.appendChild(head);
+  rows.forEach(function(r){
+    if(r.t==='blank')return;
+    var d=document.createElement('div');
+    d.style.cssText='padding:6px 10px;border-radius:8px;font-size:13px;line-height:1.6;border:1px solid var(--border-2)';
+    var tag='',color='';
+    if(r.t==='cmd'){tag=tr('指令','CMD');color='var(--warn-ink)';}
+    else if(r.t==='voice'){tag=(r.missing?tr('音色缺失','VOICE MISSING'):tr('音色','VOICE'));color=r.missing?'var(--err-ink)':'var(--ok-ink)';}
+    else{tag=tr('朗读','SPEAK');color='';}
+    d.innerHTML='<span style="font-weight:600;white-space:nowrap">'+wbEsc(tag)+'</span> '+wbEsc(r.ln.length>60?r.ln.slice(0,59)+'…':r.ln)+(r.emo?' <span class="muted">('+wbEsc(r.emo)+')</span>':'');
+    var sp=d.firstChild;sp.style.color=color;
+    tbl.appendChild(d);
+  });
+  var anchor=document.getElementById('wbChips');
+  anchor.parentNode.insertBefore(tbl,anchor.nextSibling);
+}
+
+async function wbInvoke(){
+  if(wbInvoking)return;
+  wbClearErr();
+  var text=document.getElementById('wbText').value;
+  var lines=text.split(/\\r?\\n/).filter(function(l){return l.trim();});
+  if(!lines.length){wbShowErr(tr('没有可试运行的行。','Nothing to invoke.'));return;}
+  var cmdRe=/^\\s*(?:粤语|北方官话|中原官话|西南官话|晋语|吴语|闽南语|闽东语|客家话|赣语|湘语|徽语|平话)?(?:翻译|怎么说|语法|俗语|歇后语|童谣|民俗)\\s*[:：]/;
+  var targets=lines.filter(function(l){return cmdRe.test(l);});
+  if(!targets.length){wbShowErr(tr('逐行试运行只处理指令行（行首 形如「粤语翻译：…」）。朗读行请用「合成试听」。','Invoke runs command lines only. Use Synthesize for narration lines.'));return;}
+  if(targets.length>5){wbShowErr(tr('一次最多试运行前 5 行指令。','At most 5 command lines per run.'));targets=targets.slice(0,5);}
+  wbInvoking=true;
+  var btn=document.getElementById('wbInvokeBtn');btn.disabled=true;
+  var out=[];
+  try{
+    var pr=await fetch('/api/plugins',{headers:apiHeaders()});
+    var plugs=pr.ok?((await pr.json()).plugins||[]):[];
+    var started=plugs.filter(function(p){return p.state==='started'&&(p.declared_hooks||[]).indexOf('text.pre')>=0;});
+    if(!started.length){wbShowErr(tr('没有已启用的 text.pre 插件（去插件页启用方言插件）。','No enabled text.pre plugin. Enable dialect plugins first.'));return;}
+    for(var i=0;i<targets.length;i++){
+      var ln=targets[i];
+      var row={line:ln,results:[]};
+      for(var k=0;k<started.length;k++){
+        var fd=new FormData();
+        fd.append('hook','text.pre');fd.append('text',ln);
+        try{
+          var r=await fetch('/api/plugins/'+encodeURIComponent(started[k].id)+'/invoke',{method:'POST',body:fd,headers:apiHeaders()});
+          if(!r.ok){row.results.push({id:started[k].id,err:'HTTP '+r.status});continue;}
+          var d=await r.json();
+          if(d.result==='handled')row.results.push({id:started[k].id,res:'handled',out:d.output});
+          else if(d.result==='invalid')row.results.push({id:started[k].id,res:'invalid',out:d.raw_output});
+          else row.results.push({id:started[k].id,res:'unchanged'});
+        }catch(e){row.results.push({id:started[k].id,err:String(e&&e.message||e)});}
+      }
+      out.push(row);
+    }
+    wbRenderInvoke(out);
+  }catch(e){wbShowErr(String(e&&e.message||e));}
+  finally{wbInvoking=false;btn.disabled=false;}
+}
+
+function wbRenderInvoke(rows){
+  var old=document.getElementById('wbInvokeTable');
+  if(old)old.remove();
+  var tbl=document.createElement('div');tbl.id='wbInvokeTable';
+  tbl.style.cssText='margin-top:10px;display:flex;flex-direction:column;gap:8px';
+  rows.forEach(function(r){
+    var card=document.createElement('div');
+    card.style.cssText='padding:8px 10px;border:1px solid var(--border-2);border-radius:8px;font-size:13px;line-height:1.7';
+    var h=document.createElement('div');h.textContent=r.line;h.style.fontWeight='600';
+    card.appendChild(h);
+    var handled=null;
+    r.results.forEach(function(rs){
+      var d=document.createElement('div');d.className='muted';
+      if(rs.err){d.textContent='· '+rs.id+' → '+tr('失败','failed')+' ('+rs.err+')';}
+      else if(rs.res==='handled'){handled=rs.out;d.textContent='· '+rs.id+' → '+tr('已改写','handled');}
+      else if(rs.res==='invalid'){d.textContent='· '+rs.id+' → '+tr('返回值无效（真实合成会保持原值）','invalid (kept as-is in real synth)');}
+      else{d.textContent='· '+rs.id+' → '+tr('不归它管','not its scope');}
+      card.appendChild(d);
+    });
+    if(handled!=null){
+      var ok=document.createElement('div');
+      ok.style.cssText='margin-top:4px;color:var(--ok-ink)';
+      ok.textContent=tr('会朗读：','Will speak: ')+handled;
+      card.appendChild(ok);
+    }
+    tbl.appendChild(card);
+  });
+  var anchor=document.getElementById('wbParseTable')||document.getElementById('wbChips');
+  anchor.parentNode.insertBefore(tbl,anchor.nextSibling);
+}
+
+function wbSyncPackUI(){
+  var isMulti=document.getElementById('wbMode').value==='multi';
+  document.getElementById('wbPackField').classList.toggle('hide',isMulti);
+  var sel=document.getElementById('wbPack');
+  sel.innerHTML='';
+  var o0=document.createElement('option');o0.value='';o0.textContent=tr('— 默认音色（不上传参考） —','— default voice (no reference) —');
+  sel.appendChild(o0);
+  (voicePacks||[]).forEach(function(p){
+    var o=document.createElement('option');o.value=p.id;o.textContent=p.name;
+    sel.appendChild(o);
+  });
+}
+
+function wbEnter(){
+  mode='workbench';
+  wbSyncPackUI();
+  wbRenderPhrases();
+}
+
+async function wbGo(){
+  wbClearErr();
+  var text=document.getElementById('wbText').value.trim();
+  if(!text){wbShowErr(tr('请先填入台词。','Add lines first.'));return;}
+  var btn=document.getElementById('wbGoBtn');btn.disabled=true;
+  var meta=document.getElementById('wbMeta');
+  document.getElementById('wbOut').classList.add('show');
+  meta.textContent=tr('合成中…（首次需加载模型，请耐心等待）','Synthesizing… (first run loads the model)');
+  var t0=Date.now();
+  var timer=setInterval(function(){meta.textContent=tr('合成中… 已用 ','Synthesizing… ')+((Date.now()-t0)/1000).toFixed(1)+tr(' 秒','s');},300);
+  try{
+    var isMulti=document.getElementById('wbMode').value==='multi';
+    var r;
+    if(isMulti){
+      var fd=new FormData();
+      fd.append('text',text);
+      fd.append('cfg_value','2.0');fd.append('inference_timesteps','10');
+      fd.append('denoise','false');
+      r=await fetch('/api/multi_speaker',{method:'POST',body:fd,headers:apiHeaders()});
+    }else{
+      var fd=new FormData();
+      fd.append('text',text);
+      fd.append('mode','clone');
+      fd.append('cfg_value','2.0');fd.append('inference_timesteps','10');
+      fd.append('normalize','true');fd.append('denoise','false');
+      fd.append('stable',document.getElementById('wbStable').checked?'true':'false');
+      var pid=document.getElementById('wbPack').value;
+      if(pid)fd.append('voice_pack_id',pid);
+      r=await fetch('/api/generate',{method:'POST',body:fd,headers:apiHeaders()});
+    }
+    clearInterval(timer);
+    if(!r.ok){
+      var m=tr('合成失败','Synthesis failed');
+      try{var j=await r.json();m=(j.detail||m)+' (HTTP '+r.status+')';}catch(_){}
+      wbShowErr(m);meta.textContent='';btn.disabled=false;return;
+    }
+    var blob=await r.blob();
+    var pl=document.getElementById('wbPlayer');
+    if(pl.src&&pl.src.indexOf('blob:')===0){try{URL.revokeObjectURL(pl.src);}catch(_){}}
+    pl.src=URL.createObjectURL(blob);
+    var name=r.headers.get('X-Output-Name')||'output.wav';
+    var dur=r.headers.get('X-Duration')||r.headers.get('X-Elapsed')||'?';
+    meta.textContent=tr('完成 · ','Done · ')+dur+tr('s · 文件 ','s · file ')+name;
+    refreshStatus();
+  }catch(e){
+    clearInterval(timer);
+    wbShowErr(String(e&&e.message||e));meta.textContent='';
+  }
+  btn.disabled=false;
+}
+
+(function wbWire(){
+  var card=document.getElementById('wbCard');
+  if(!card)return;
+  card.addEventListener('click',function(e){
+    var ins=e.target.closest('[data-wb-insert]');
+    if(ins){wbInsert(ins.dataset.wbInsert);return;}
+    var ph=e.target.closest('[data-wb-phrase]');
+    if(ph){
+      var idx=parseInt(ph.dataset.wbPhrase,10);
+      if(wbPhrases[idx]!=null)document.getElementById('wbText').value=wbPhrases[idx];
+      return;
+    }
+    var b=e.target.closest('button');
+    if(!b)return;
+    var id=b.id;
+    if(id==='wbParseBtn')wbParse();
+    else if(id==='wbInvokeBtn')wbInvoke();
+    else if(id==='wbGoBtn')wbGo();
+    else if(id==='wbCvBtn')wbCvStart();
+    else if(id==='wbSavePhraseBtn'){
+      var v=document.getElementById('wbText').value.trim();
+      if(!v)return;
+      if(wbPhrases.indexOf(v)<0){wbPhrases.unshift(v);wbPhrases=wbPhrases.slice(0,20);wbSave();}
+      wbRenderPhrases();
+    }
+    else if(id==='wbDrop'){
+      var f=document.getElementById('wbFile');
+      if(f)f.click();
+    }
+  });
+  var drop=document.getElementById('wbDrop');
+  if(drop){
+    ['dragover','dragenter'].forEach(function(ev){
+      drop.addEventListener(ev,function(e){e.preventDefault();e.stopPropagation();
+        drop.style.borderColor='var(--ok-ink)';});
+    });
+    ['dragleave','dragend'].forEach(function(ev){
+      drop.addEventListener(ev,function(e){e.preventDefault();e.stopPropagation();
+        drop.style.borderColor='var(--border-2)';});
+    });
+    drop.addEventListener('drop',function(e){
+      e.preventDefault();e.stopPropagation();
+      drop.style.borderColor='var(--border-2)';
+      var fs=e.dataTransfer&&e.dataTransfer.files;
+      if(fs&&fs.length)wbLoadFile(fs[0]);
+    });
+  }
+  var fi=document.getElementById('wbFile');
+  if(fi)fi.addEventListener('change',function(){wbLoadFile(fi.files[0]);fi.value='';});
+  var mo=document.getElementById('wbMode');
+  if(mo)mo.addEventListener('change',wbSyncPackUI);
+  var ta=document.getElementById('wbText');
+  if(ta&&!ta.value){ta.value=tr('粤语翻译：聊天','粤语翻译：聊天');}
+})();
+
+/* ==================== 工作台 · 清唱生成 ====================
+   走「提交任务 -> 轮询进度 -> 取产物」三步：
+     POST /api/clear_vocal/start  (multipart: song/reference/lyric/...)
+     GET  /api/clear_vocal/progress (stage/done/total/ok/error/result)
+     GET  /api/clear_vocal/audio    (最近一次成功产物)
+   进度阶段映射为粗粒度百分比：分离~15%，分析~35%，规划~45%，
+   合成 45%-95%（按 done/total 线性），对齐/收尾 ~100%。 */
+var wbCvPolling=false;
+function wbCvShowErr(m){var e=document.getElementById('wbCvErr');e.textContent=m||'';if(m)e.classList.add('show');}
+function wbCvClearErr(){var e=document.getElementById('wbCvErr');e.textContent='';e.classList.remove('show');}
+function wbCvStagePct(st,done,total){
+  if(st==='done')return 100;
+  if(st==='error')return 100;
+  if(st==='queued')return 2;
+  if(st==='load')return 6;
+  if(st==='separate')return 15;
+  if(st==='analyze')return 30;
+  if(st==='plan')return 42;
+  if(st==='sing'||st==='phrases'){
+    var frac=(total>0)?(done/total):0;
+    return Math.round(45+frac*50);
+  }
+  if(st==='align')return 96;
+  return 50;
+}
+function wbCvRender(st){
+  var stageEl=document.getElementById('wbCvStage');
+  var wrap=document.getElementById('wbCvBarWrap');
+  var bar=document.getElementById('wbCvBar');
+  var names={queued:tr('排队中','Queued'),load:tr('加载模型','Loading model'),
+    separate:tr('分离人声','Separating vocals'),analyze:tr('分析旋律','Analyzing melody'),
+    plan:tr('规划音符','Planning notes'),sing:tr('逐句合成','Synthesizing phrases'),
+    phrases:tr('逐句合成','Synthesizing phrases'),align:tr('对齐拼接','Aligning'),
+    done:tr('完成','Done'),error:tr('失败','Failed'),idle:''};
+  var nm=names[st.stage]!==undefined?names[st.stage]:st.stage;
+  var txt=nm;
+  if((st.stage==='sing'||st.stage==='phrases')&&st.total>0)txt=nm+' '+st.done+'/'+st.total;
+  else if(st.detail&&st.stage!=='done')txt=nm+' · '+st.detail;
+  stageEl.textContent=txt;
+  if(st.stage==='idle'){wrap.style.display='none';bar.style.width='0%';return;}
+  wrap.style.display='block';
+  bar.style.width=wbCvStagePct(st.stage,st.done||0,st.total||0)+'%';
+}
+async function wbCvPoll(){
+  var st=null;
+  try{
+    var r=await fetch('/api/clear_vocal/progress',{headers:apiHeaders()});
+    if(!r.ok)return;
+    st=await r.json();
+  }catch(_){return;}
+  wbCvRender(st);
+  if(st.stage==='done'&&st.ok===true){
+    wbCvPolling=false;
+    var btn=document.getElementById('wbCvBtn');btn.disabled=false;
+    var pl=document.getElementById('wbCvPlayer');
+    pl.style.display='block';
+    pl.src='/api/clear_vocal/audio?ts='+Date.now();
+    var res=st.result||{};
+    var lyMap={text:tr('文本','text'),auto:tr('自动识别','auto'),hum:tr('哼鸣','hum')};
+    var lySrc=lyMap[res.lyric_source]||res.lyric_source||'?';
+    var txt=tr('完成 · 音符 ','Done · notes ')+(res.n_notes!=null?res.n_notes:'?')+
+      tr(' · 耗时 ',' · elapsed ')+(res.elapsed!=null?res.elapsed:'?')+tr(' 秒 · 歌词：','s · lyric: ')+lySrc;
+    document.getElementById('wbCvStage').textContent=txt;
+    return;
+  }
+  if(st.stage==='error'){
+    wbCvPolling=false;
+    var btn=document.getElementById('wbCvBtn');btn.disabled=false;
+    wbCvShowErr(st.error||tr('清唱任务失败','Clear vocal task failed'));
+    return;
+  }
+  setTimeout(wbCvPoll,1500);
+}
+async function wbCvStart(){
+  wbCvClearErr();
+  if(wbCvPolling)return;
+  var song=document.getElementById('wbCvSong').files[0];
+  var ref=document.getElementById('wbCvRef').files[0];
+  var lyric=document.getElementById('wbCvLyric').value.trim();
+  var auto=document.getElementById('wbCvAutoLyric').checked;
+  if(!song){wbCvShowErr(tr('请先选择原曲音频。','Choose a song file first.'));return;}
+  if(!ref){wbCvShowErr(tr('请先选择目标音色的参考音频。','Choose a reference audio first.'));return;}
+  if(!lyric&&!auto){wbCvShowErr(tr('请填写歌词，或勾选自动识词。','Fill lyrics or enable auto transcription.'));return;}
+  var fd=new FormData();
+  fd.append('song',song);
+  fd.append('reference',ref);
+  fd.append('lyric',lyric);
+  fd.append('auto_lyric',auto?'true':'false');
+  fd.append('snap',document.getElementById('wbCvSnap').checked?'true':'false');
+  var btn=document.getElementById('wbCvBtn');btn.disabled=true;
+  try{
+    var r=await fetch('/api/clear_vocal/start',{method:'POST',body:fd,headers:apiHeaders()});
+    if(!r.ok){
+      var m=tr('提交失败','Submit failed');
+      try{var j=await r.json();m=(j.detail||m);}catch(_){}
+      wbCvShowErr(m+' (HTTP '+r.status+')');
+      btn.disabled=false;return;
+    }
+    wbCvPolling=true;
+    wbCvRender({stage:'queued',done:0,total:0});
+    setTimeout(wbCvPoll,1200);
+  }catch(e){
+    wbCvShowErr(String(e&&e.message||e));
+    btn.disabled=false;
+  }
+}
 
 async function settingsLoad(notify){
   const err=document.getElementById('setErr');
@@ -4463,6 +5027,15 @@ def _do_generate(kwargs: dict):
                 stability_report = stab_rep
                 print(f"[VoxCPM2] 稳定合成指标: {stab_rep}", flush=True)
             else:
+                # 短文本直通路径：稳定路径的 text.pre 挂在 synthesize_stable 内部，
+                # 此路径不经过它，会造成「同一段文本勾不勾『长文本稳定合成』、
+                # 插件行为不同」的语义分裂（文本改写明明与文本长短无关）。
+                # 这里补一次同语义调用，与「整段视为单块同样走 chunk.post」同理 ——
+                # 保持两条路径的钩子语义一致。无插件时 emit 原值返回，行为与改造前逐字节一致。
+                _t_pre = _plugins.emit("text.pre", text=text_str, params={})
+                if isinstance(_t_pre, str) and _t_pre:
+                    kwargs["text"] = _t_pre
+                    text_str = _t_pre
                 wav = model.generate(**kwargs)
         if isinstance(wav, list):
             wav = np.concatenate(wav)
@@ -5748,6 +6321,190 @@ def invoke_plugin(plugin_id: str, request: Request,
         log_error("试运行插件失败", e)
         raise HTTPException(status_code=500,
                             detail=f"试运行插件失败: {type(e).__name__}: {e}")
+
+
+# ============================== 清唱生成（clear_vocal） ==============================
+# 与 /api/train/start 同款的「提交任务 -> 后台线程 -> 轮询进度」模式。
+# 设计要点（契约）：
+#   - 合成必须发生在 _infer_lock 之外的一瞬间加锁内（CV.run 内部处理），
+#     本路由只负责把参数收齐、把线程拉起来，绝不在 HTTP 线程里跑流水线；
+#   - whisper 自动识词（auto_lyric）同样只能在后台线程跑（见 transcribe_lyric 告警），
+#     前端默认传歌词文本，auto_lyric 仅在歌词留空时由用户显式勾选；
+#   - 插件默认停用是共同设计：这里在任务启动时动态启用一次（落盘），
+#     让「不装插件 = 零行为」的承诺对其它功能不受影响；
+#   - 状态字典只由后台线程写、HTTP 线程只读，进度字段用不可变替换而非原地修改。
+_CV_STATE: dict = {"stage": "idle", "done": 0, "total": 0, "detail": "",
+                   "ok": None, "error": "", "result": None, "started_at": 0.0}
+_CV_THREAD: threading.Thread | None = None
+_CV_LOCK = threading.Lock()
+
+
+def _cv_set_state(**kw) -> None:
+    with _CV_LOCK:
+        _CV_STATE.update(kw)
+
+
+def _cv_get_state() -> dict:
+    with _CV_LOCK:
+        return dict(_CV_STATE)
+
+
+def _cv_clear_vocal_worker(song_path: str, ref_path: str, lyric: str,
+                           snap: bool, auto_lyric: bool, cfg_value: float,
+                           timesteps: int, out_dir: str) -> None:
+    """后台线程：读原曲 -> 人声分离 -> CV.run() 全流水线。异常全部折进 _CV_STATE。"""
+    stem_path = ""
+    try:
+        _cv_set_state(stage="load", detail="", done=0, total=0)
+        model = get_model()
+        sr_tts = _vc_stab._get_sample_rate(model)
+
+        # ---- 人声分离：MDX 优先（models/mdx/ 有权重），失败回退 DSP 链 ----
+        _cv_set_state(stage="separate", detail="", done=0, total=1)
+        y, sr = vc_preprocess.load_audio(song_path, sr=None)
+        stem = vc_preprocess.isolate_vocals(np.asarray(y, dtype=np.float32), int(sr))
+        if stem is None or len(stem) == 0:
+            raise ValueError("人声分离没有产出任何音频（原曲为空或全部被判为伴奏）")
+        stem_path = str(Path(out_dir) / "vocal_stem.wav")
+        sf.write(stem_path, stem, int(sr))
+        _cv_set_state(stage="separate", done=1, total=1,
+                      detail=f"sr={int(sr)}")
+
+        # ---- 清唱流水线（内部仅在合成瞬间拿锁）----
+        def _prog(stage: str, done: int, total: int, item) -> None:
+            _cv_set_state(stage=stage, done=int(done), total=int(total),
+                          detail=str(item) if item is not None else "")
+
+        reg = _plugins.get_registry()
+        mod = None
+        if reg is not None:
+            lp = reg.plugins.get("clear_vocal")
+            if lp is not None and lp.module is not None:
+                mod = lp.module
+        if mod is None or not hasattr(mod, "run"):
+            raise RuntimeError("clear_vocal 插件不可用（未安装或加载失败）")
+        try:
+            res = mod.run(model=model, sr=sr_tts, reference_wav=ref_path,
+                          vocal_audio=stem_path, vocal_sr=int(sr),
+                          lyric_text=lyric, out_dir=out_dir,
+                          lock=_infer_lock, snap=snap, auto_lyric=auto_lyric,
+                          cfg_value=cfg_value, inference_timesteps=timesteps,
+                          progress=_prog)
+        except mod.ClearVocalError as e:  # 编排层可预期失败：如没有人声/没有音符
+            raise ValueError(str(e)) from e
+        _cv_set_state(stage="done", ok=True, done=1, total=1, detail="",
+                      result={"out_wav": res.get("out_wav", ""),
+                              "out_dir": res.get("out_dir", ""),
+                              "n_notes": res.get("n_notes"),
+                              "n_degraded": res.get("n_degraded"),
+                              "duration": res.get("duration"),
+                              "elapsed": res.get("elapsed"),
+                              "lyric_source": res.get("lyric_source"),
+                              "summary": res.get("summary")})
+        print(f"[clear_vocal] 完成 -> {res.get('out_wav')}", flush=True)
+    except Exception as e:
+        log_error("清唱生成失败", e)
+        _cv_set_state(stage="error", ok=False, error=f"{type(e).__name__}: {e}",
+                      detail="")
+    finally:
+        _safe_unlink(song_path)
+        _safe_unlink(ref_path)
+
+
+@app.post("/api/clear_vocal/start")
+async def clear_vocal_start(request: Request):
+    """提交一次清唱生成任务（原曲 + 参考音色 + 可选歌词）。
+
+    multipart 字段：song（必需，原曲音频）、reference（必需，目标音色参考）、
+    lyric（可选，整段歌词文本）、snap（默认 true；散板素材传 false）、
+    auto_lyric（默认 false；歌词留空时用 whisper 识别，较慢）、
+    cfg_value（默认 2.0）、inference_timesteps（默认 10）。
+    返回 ok=true 仅代表任务已受理，结果用 /api/clear_vocal/progress 轮询。
+    """
+    require_auth(request)
+    global _CV_THREAD
+    if _infer_lock.locked():
+        raise HTTPException(status_code=409, detail="正在生成音频，请稍后再试")
+    st = _cv_get_state()
+    if st["stage"] in ("load", "separate", "analyze", "plan", "sing", "align"):
+        raise HTTPException(status_code=409, detail="清唱任务进行中，请等待完成")
+    _check_not_training()
+    form = await request.form()
+    song = form.get("song")
+    ref = form.get("reference")
+    for name, up in (("song", song), ("reference", ref)):
+        if up is None or not hasattr(up, "read"):
+            raise HTTPException(status_code=400, detail=f"缺少文件字段 {name}")
+    lyric = str(form.get("lyric") or "").strip()
+    auto_lyric = str(form.get("auto_lyric") or "").lower() in ("1", "true", "on", "yes")
+    if not lyric and not auto_lyric:
+        raise HTTPException(status_code=400,
+                            detail="请填写歌词文本，或勾选自动识词（whisper，较慢）")
+    try:
+        cfg_value = float(form.get("cfg_value") or 2.0)
+        timesteps = int(form.get("inference_timesteps") or 10)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="cfg_value / inference_timesteps 必须是数字")
+    snap = str(form.get("snap") or "true").lower() not in ("0", "false", "off", "no")
+
+    ts = time.strftime("%Y%m%d_%H%M%S")
+    out_dir = str(OUTPUT_DIR / f"clear_vocal_{ts}")
+    song_path = str(UPLOAD_DIR / f"cv_song_{ts}{Path(song.filename or 'song.wav').suffix or '.wav'}")
+    ref_path = str(UPLOAD_DIR / f"cv_ref_{ts}{Path(ref.filename or 'ref.wav').suffix or '.wav'}")
+    Path(song_path).write_bytes(await song.read())
+    Path(ref_path).write_bytes(await ref.read())
+    try:
+        normalize_reference(ref_path)  # 与音色包同一条校验：坏文件在此给出清晰 400
+    except ValueError as e:
+        _safe_unlink(song_path)
+        _safe_unlink(ref_path)
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # 插件默认停用：任务受理时动态启用一次（并落盘），保证 run() 可用
+    reg = _plugins.get_registry()
+    if reg is None:
+        _safe_unlink(song_path)
+        _safe_unlink(ref_path)
+        raise HTTPException(status_code=503, detail="插件子系统未初始化")
+    if "clear_vocal" not in reg.plugins:
+        _safe_unlink(song_path)
+        _safe_unlink(ref_path)
+        raise HTTPException(status_code=404, detail="未安装 clear_vocal 插件")
+    lp = reg.plugins.get("clear_vocal")
+    if lp is None or lp.state != "started":
+        if not reg.set_enabled("clear_vocal", True):
+            _safe_unlink(song_path)
+            _safe_unlink(ref_path)
+            raise HTTPException(status_code=500, detail="启用 clear_vocal 插件失败")
+
+    _cv_set_state(stage="queued", done=0, total=0, ok=None, error="",
+                  result=None, detail="", started_at=time.time())
+    th = threading.Thread(target=_cv_clear_vocal_worker,
+                          args=(song_path, ref_path, lyric, snap, auto_lyric,
+                                cfg_value, timesteps, out_dir), daemon=True)
+    _CV_THREAD = th
+    th.start()
+    return JSONResponse({"ok": True, "stage": "queued"})
+
+
+@app.get("/api/clear_vocal/progress")
+def clear_vocal_progress(request: Request):
+    """轮询清唱任务进度：stage / done / total / ok / error / result。"""
+    require_auth(request)
+    return JSONResponse(_cv_get_state())
+
+
+@app.get("/api/clear_vocal/audio")
+def clear_vocal_audio(request: Request):
+    """最近一次成功任务的产物 wav（无任务或未成功时 404）。"""
+    require_auth(request)
+    st = _cv_get_state()
+    res = st.get("result") or {}
+    out = res.get("out_wav") or ""
+    if st.get("ok") is not True or not out or not Path(out).exists():
+        raise HTTPException(status_code=404, detail="暂无清唱产物")
+    return FileResponse(out, media_type="audio/wav",
+                        filename="clear_vocal.wav")
 
 
 # ============================== 启动 ==============================
