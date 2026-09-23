@@ -2969,9 +2969,9 @@ function renderPlugins(d){
   if(note){
     var txt=tr('配置：','Config: ')+(d.config_path||'')+
             (d.autoload?tr('　自动装载已开启','　autoload on'):tr('　自动装载已关闭','　autoload off'));
-    if(d.fatal)txt+='　⚠ '+d.fatal;
+    if(d.fatal)txt+='　[!] '+d.fatal;
     var de=d.discovery_errors||[];
-    for(var i=0;i<de.length;i++)txt+='　⚠ '+de[i];
+    for(var i=0;i<de.length;i++)txt+='　[!] '+de[i];
     note.textContent=txt;
   }
   var ph=document.getElementById('plugPathHint');
@@ -3149,7 +3149,7 @@ async function plugSetAll(want){
 
 /* 顶栏 tab 事件委托：新 tab 不带 inline onclick（遵守「图标不拼字符串」约定），
    所以在这里统一接管 —— 未显式绑 onclick 的 .tab 由 setMode 处理。
-   ⚠️ 曾经漏掉这一步 → 「插件」tab 点了没反应。 */
+   [教训] 曾经漏掉这一步 → 「插件」tab 点了没反应。 */
 (function navWire(){
   var nav=document.getElementById('mainNav');
   if(!nav)return;
