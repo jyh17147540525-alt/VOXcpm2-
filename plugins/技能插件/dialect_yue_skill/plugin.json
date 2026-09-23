@@ -1,0 +1,36 @@
+{
+  "id": "dialect_yue_skill",
+  "name": "粤语·语言技能",
+  "name_en": "Cantonese Language Skills",
+  "version": "0.1.0",
+  "api_version": "1.0",
+  "requires_app": ">=2.0,<3",
+  "author": "VoxCPM2",
+  "description": "粤语语言能力插件：词汇互译（词典驱动，未收录明确说明）、常用语对照、发音要点（粤拼）、语法差异问答。文本中出现查询指令（如「翻译：早上好」）时自动应答并剥离指令，不把指令念出来。数据均注明来源与置信度。",
+  "description_en": "Cantonese language-skill plugin: dictionary-driven vocabulary translation, common phrases, Jyutping pronunciation notes, grammar Q&A. Query commands in text (e.g. '翻译：早上好') are answered and stripped, never read aloud. All data carries source and confidence tags.",
+  "entry": "plugin.py",
+  "enabled": true,
+  "priority": 60,
+  "isolation": "inprocess",
+  "hooks": {
+    "text.pre": "on_text_pre",
+    "report.enrich": "on_report_enrich"
+  },
+  "requires_packages": [],
+  "settings_schema": {
+    "properties": {
+      "max_queries_per_call": {
+        "type": "integer",
+        "default": 3,
+        "title": "单次合成最多处理的查询数",
+        "minimum": 1,
+        "maximum": 10
+      },
+      "keep_query_echo": {
+        "type": "boolean",
+        "default": false,
+        "title": "是否把查询指令保留在朗读文本中（调试用）"
+      }
+    }
+  }
+}

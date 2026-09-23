@@ -1,0 +1,31 @@
+{
+  "id": "dialect_yue_extra",
+  "name": "粤语·俗语歇后语",
+  "name_en": "Cantonese Proverbs, Xiehouyu & Folklore",
+  "version": "0.1.0",
+  "api_version": "1.0",
+  "requires_app": ">=2.0,<3",
+  "author": "VoxCPM2",
+  "description": "粤语文化延伸插件：俗语、歇后语、童谣民谣与民俗注解。文本中出现查询指令（如「俗语：扮猪食老虎」）时自动讲解并剥离指令。全部内容注明来源与置信度，不虚构。",
+  "description_en": "Cantonese culture-extension plugin: proverbs, xiehouyu (two-part allegorical sayings), nursery rhymes and folklore notes. Query commands in text are answered and stripped. All content carries source and confidence tags; nothing is fabricated.",
+  "entry": "plugin.py",
+  "enabled": true,
+  "priority": 60,
+  "isolation": "inprocess",
+  "hooks": {
+    "text.pre": "on_text_pre",
+    "report.enrich": "on_report_enrich"
+  },
+  "requires_packages": [],
+  "settings_schema": {
+    "properties": {
+      "max_queries_per_call": {
+        "type": "integer",
+        "default": 3,
+        "title": "单次合成最多处理的查询数",
+        "minimum": 1,
+        "maximum": 10
+      }
+    }
+  }
+}
