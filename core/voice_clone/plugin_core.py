@@ -144,6 +144,18 @@ class HookSpec:
     doc: str
 
 
+class PluginInvokeError(RuntimeError):
+    """直接调用单个插件失败（不存在 / 未启用 / 钩子不可试运行 / 处理器异常）。
+
+    ``status`` 是建议采用的 HTTP 状态码，供管理接口直接使用 ——
+    把"为什么失败"的判断留在插件层，接口层只负责翻译成状态码。
+    """
+
+    def __init__(self, message: str, status: int = 400):
+        super().__init__(message)
+        self.status = int(status)
+
+
 HOOK_SPECS: dict[str, HookSpec] = {
     "text.pre": HookSpec(
         "text.pre", "pipeline", "text",
@@ -1056,6 +1068,113 @@ def snapshot() -> dict:
 def plugin_settings(pid: str) -> dict:
     reg = _REGISTRY
     return reg.settings_for(pid) if reg is not None else {}
+
+
+def invokable_hooks() -> list[str]:
+    """可以被「试运行」直接调用的钩子。
+
+    只放 **pipeline 类且携带纯文本**的钩子（目前即 ``text.pre``）：
+    audio/ndarray 之类的钩子依赖真实合成上下文，单独调用没有意义。
+    """
+    return sorted(h for h, s in HOOK_SPECS.items()
+                  if s.kind == "pipeline" and s.arg == "text")
+
+
+def _safe_repr(v: Any, limit: int = 400) -> str:
+    """把任意返回值压成简短、可 JSON 序列化的文本（试运行面板要显示它）。"""
+    if v is None:
+        return ""
+    try:
+        s = v if isinstance(v, str) else repr(v)
+    except Exception:
+        s = "<%s>" % type(v).__name__
+    return s if len(s) <= limit else s[:limit] + "…"
+
+
+def _invoke_report(hook: str, inp: str, out: str, raw: Any,
+                   result: str, ms: float) -> dict:
+    """组装试运行结果。
+
+    ``result`` 是**机器可读**的结论（前端据此选双语文案），三种取值：
+
+    - ``handled``   —— 本插件处理了这行，``output`` 是流水线里真正会采用的文本；
+    - ``unchanged`` —— 插件返回 None，明确表示"不管这行"，原值继续往后传；
+    - ``invalid``   —— 返回值没通过钩子校验，真实合成时会保持原值（并记一次错误）。
+
+    ``raw_output`` 原样带回插件到底返回了什么，方便插件作者自查。
+    把"结论"和"原文"分开，是为了让界面既说人话、又不丢失排查线索。
+    """
+    return {"hook": hook, "input": inp, "output": out,
+            "raw_output": _safe_repr(raw) if raw is not None else None,
+            "applied": result == "handled", "changed": out != inp,
+            "valid": result != "invalid", "result": result, "duration_ms": ms}
+
+
+def invoke_one(plugin_id: str, hook: str = "text.pre", value: str = "",
+               registry: "PluginRegistry | None" = None) -> dict:
+    """直接调用**单个**插件的钩子（不经整条链），供管理界面「试运行」使用。
+
+    与 ``emit()`` 的关键差别是**只跑指定插件**：
+
+    - 能单独观察某个插件的行为，不受其它插件执行顺序的影响；
+    - 链式钩子下先跑的插件可能已改写输入，整链结果无法归因到某一个插件。
+
+    异常仍交给 ``_invoke`` 隔离并计入该插件的统计（连续出错照样熔断），
+    但这里转成 ``PluginInvokeError`` 抛出，让调用方能如实把失败回给用户 ——
+    试运行的价值就在于"看得见成功，也看得见失败"。
+
+    成功时返回 ``{"hook", "input", "output", "raw_output", "applied",
+    "changed", "valid", "result", "duration_ms"}``；其中 ``result`` 取
+    ``handled`` / ``unchanged`` / ``invalid``，语义见 ``_invoke_report``。
+    """
+    reg = registry if registry is not None else _REGISTRY
+    if reg is None:
+        raise PluginInvokeError("插件子系统未初始化", status=503)
+    lp = reg.plugins.get(str(plugin_id))
+    if lp is None:
+        raise PluginInvokeError(f"插件「{plugin_id}」不存在", status=404)
+
+    allowed = invokable_hooks()
+    spec = HOOK_SPECS.get(hook)
+    if spec is None or hook not in allowed:
+        raise PluginInvokeError(
+            f"钩子「{hook}」不支持试运行；可试运行的文本钩子："
+            f"{', '.join(allowed) or '（无）'}")
+    # 先看状态，再看钩子有没有挂上。
+    # 顺序反了会给出误导性诊断：随包分发且 enabled=false 的插件在 load_all 里
+    # 根本没被加载，handlers 是空的，于是"插件已停用"会被报成"没有挂载钩子" ——
+    # 用户照这条提示去改钩子，怎么改都不会好。
+    if lp.state != "started":
+        raise PluginInvokeError(
+            f"插件「{plugin_id}」当前状态为 {lp.state}，请先启用再试运行", status=409)
+    if hook not in (lp.handlers or {}):
+        raise PluginInvokeError(f"插件「{plugin_id}」没有挂载钩子「{hook}」", status=409)
+
+    before = lp.total_errors
+    t0 = time.perf_counter()
+    out = _invoke(lp, hook, {spec.arg: value})
+    ms = round((time.perf_counter() - t0) * 1000.0, 2)
+
+    # _invoke 把异常吞成 None 并计入 total_errors；靠它区分"出错"与"正常地不改动"
+    if lp.total_errors > before:
+        raise PluginInvokeError(lp.last_error or "处理器抛出异常", status=500)
+
+    # 插件返回 None = "这个输入我不管"，而不是"把文本清空"。
+    # emit() 里就是 `if out is None: continue` —— 保持原值继续往后传。
+    # 这里必须照同一套语义还原，否则面板会把"没命中"显示成「已改写：<一片空白>」，
+    # 把一次正常的不处理谎报成一次改写。
+    if out is None:
+        return _invoke_report(hook, value, value, None, "unchanged", ms)
+
+    # emit() 对返回值还有一道校验（text.pre 要求非空字符串），不过关的在真实
+    # 合成里会被丢弃、保持原值并记一次错误。试运行若不照做，用户会看到一条
+    # 流水线永远不会采纳的"效果" —— 那比不显示更糟。
+    validator = _VALIDATORS.get(hook)
+    if validator is not None and not validator(out):
+        return _invoke_report(hook, value, value, out, "invalid", ms)
+
+    out_s = out if isinstance(out, str) else str(out)
+    return _invoke_report(hook, value, out_s, out_s, "handled", ms)
 
 
 def reset_for_tests() -> None:

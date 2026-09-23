@@ -150,6 +150,7 @@ discovered → validated → loaded → started → (stopped | failed | disabled
 - `teardown(ctx)`：停止、被停用、被熔断、服务退出时调用，**保证恰好一次**。
 - 热重载：`POST /api/plugins/<id>/reload`（改完插件代码无需重启服务）。
 - 启停：`POST /api/plugins/<id>/enabled`（表单字段 `enabled=true|false`，落盘）。
+- 单独试运行：`POST /api/plugins/<id>/invoke`（只跑这一个插件，不合成、不占显卡，见 §8）。
 - 查看状态：`GET /api/plugins`（需 `x-api-key`）。
 
 ## 6. 错误处理与隔离（重要）
@@ -177,14 +178,51 @@ discovered → validated → loaded → started → (stopped | failed | disabled
 在 `_infer_lock` **之内**运行的是 `text.pre` / `text.chunks` / `chunk.post` /
 `synth.post` / `emotion.detect`；`output.post` / `api.routes` / `lifecycle.*` 在其之外。
 
-## 8. 调试建议
+## 8. 单独试运行单个插件（不合成、不占显卡）
 
-1. `GET /api/plugins` 看 `state` / `error` / `stats.last_error` / `discovery_errors`。
-2. 插件日志前缀为 `[VoxCPM2][plugin] <id>:`，同时进 stdout 与 `server_error.log`。
-3. 先只用 `report.enrich` 这类"只读增强"钩子验证挂载成功，再动音频。
-4. 改完代码调用 `/reload` 即可，不必重启整个服务（模型不会重新加载）。
+排查"这个插件到底有没有生效"最省事的第一步：把它单独跑一次，不走合成流水线、
+不加载模型、不占显存，毫秒级返回。
 
-## 9. 内置插件：清唱生成（`clear_vocal`）
+- **界面**：插件面板里每张已启用的卡片自带一个输入框，填一行文本点「试运行」
+  （或直接按回车），结果就显示在输入框下方。
+- **接口**：`POST /api/plugins/<id>/invoke`，表单字段 `hook`（默认 `text.pre`）与 `text`。
+
+```bash
+curl -X POST http://127.0.0.1:8808/api/plugins/my_plugin/invoke \
+     -H "x-api-key: <TOKEN>" \
+     -F "hook=text.pre" -F "text=要试的内容"
+```
+
+只允许试运行 **pipeline 类且携带纯文本**的钩子（当前即 `text.pre`）：音频 / ndarray
+之类的钩子依赖真实合成上下文，单独调用没有意义。
+
+返回的 `result` 是三态之一，它是**"真实流水线会怎么处理"的如实预告**：
+
+| `result` | 含义 | `output` |
+| --- | --- | --- |
+| `handled` | 插件处理了这行 | 真正会进入合成的新文本 |
+| `unchanged` | 插件返回 `None`（"这行不归我管"） | 原样等于 `input` |
+| `invalid` | 返回值未通过钩子校验（如 `text.pre` 返回空串） | 原样等于 `input`（真实合成会丢弃它并保持原值） |
+
+另外还有 `raw_output`（插件到底返回了什么，便于自查）、`applied` / `changed` /
+`valid` / `duration_ms`。
+
+失败时给出明确状态码：`404` 插件不存在、`409` 插件未启用或没挂该钩子、
+`400` 钩子不可试运行、`401` 令牌无效、`500` 处理器抛异常。
+
+⚠️ 与合成时的一个区别：**只跑指定的那一个插件**。整链执行下，链上先跑的插件可能
+已经改写了输入，结果无法归因到某一个插件 —— 这正是试运行要解决的问题。
+
+## 9. 调试建议
+
+1. 先在插件面板里「试运行」一行文本（见 §8）—— 不用合成、不占显卡，
+   能立刻分清"是插件没生效"还是"是合成这条链路的问题"。
+2. `GET /api/plugins` 看 `state` / `error` / `stats.last_error` / `discovery_errors`。
+3. 插件日志前缀为 `[VoxCPM2][plugin] <id>:`，同时进 stdout 与 `server_error.log`。
+4. 先只用 `report.enrich` 这类"只读增强"钩子验证挂载成功，再动音频。
+5. 改完代码调用 `/reload` 即可，不必重启整个服务（模型不会重新加载）。
+
+## 10. 内置插件：清唱生成（`clear_vocal`）
 
 从一首歌生成"节奏与旋律同原曲一致"的清唱人声。默认**停用**，
 启用后只注册两个**只读**钩子（`report.enrich` 汇报状态、`api.routes` 暴露查询接口），

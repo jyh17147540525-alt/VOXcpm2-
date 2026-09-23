@@ -2947,7 +2947,7 @@ async function pluginsLoad(){
 }
 
 function plugStateText(st){
-  if(st==='active')return tr('已生效','active');
+  if(st==='started'||st==='active')return tr('已生效','active');
   if(st==='disabled')return tr('已停用','disabled');
   if(st==='error')return tr('出错','error');
   return st;
@@ -2994,7 +2994,7 @@ function renderPlugins(d){
     head.appendChild(title);
     head.appendChild(plugEl('span','badge',p.id));
     var st=p.state||'unknown';
-    head.appendChild(plugEl('span','badge '+(st==='active'?'ok':(st==='error'?'warn':'')),plugStateText(st)));
+    head.appendChild(plugEl('span','badge '+(st==='started'?'ok':(st==='error'?'warn':'')),plugStateText(st)));
     var vv=plugEl('span','muted','v'+(p.version||'?')+' · api '+(p.api_version||'?'));
     vv.style.fontSize='12px';
     head.appendChild(vv);
@@ -3047,6 +3047,53 @@ function renderPlugins(d){
 
     card.appendChild(acts);
 
+    /* 试运行入口：只对挂了文本钩子的插件显示。
+       未启用时不给输入框 —— 插件没 setup 就没有词典，跑了也是白跑。 */
+    var run=plugEl('div','');
+    run.style.cssText='margin-top:12px;padding-top:10px;border-top:1px dashed var(--border-2)';
+    if(hooks.indexOf('text.pre')<0){
+      run.appendChild(plugEl('div','muted',
+        tr('该插件没有可试运行的文本钩子。','No runnable text hook.')));
+    }else if(st!=='started'){
+      run.appendChild(plugEl('div','muted',
+        tr('启用后可直接在这里试运行（不用合成、不占显卡）。',
+           'Enable it to try it out here (no synthesis, no GPU).')));
+    }else{
+      /* 占位示例优先取"带方言简称的定向指令"。
+         插件描述里出现的第一个「」常常是裸指令示例（「翻译：崽」），
+         那种指令归路由插件应答 —— 本插件会回"未改动"。
+         照抄进输入框会让人以为功能坏了，所以这里专门挑带动词的那一条。 */
+      var exs=(p.description||'').match(
+          /「([^」]{1,32}(?:翻译|怎么说|语法|俗语|歇后语|童谣|民俗)[：:][^」]{0,16})」/)
+            ||(p.description||'').match(/「([^」]{2,24})」/);
+      var exv=exs?exs[1].replace(/[<>＜＞]/g,''):'';
+      var rrow=plugEl('div','');
+      rrow.style.cssText='display:flex;gap:8px;flex-wrap:wrap';
+      var rin=plugEl('input','');
+      rin.type='text';
+      rin.style.cssText='flex:1;min-width:200px;padding:8px 10px;border-radius:8px;'
+                       +'border:1px solid var(--border-2);background:var(--surface-3);'
+                       +'color:inherit;font-family:inherit;font-size:13px';
+      rin.placeholder=exv?tr('例如：','e.g. ')+exv
+                         :tr('输入一行文本试运行','Type a line to try');
+      rin.setAttribute('data-plug-input',p.id);
+      var rbtn=plugEl('button','chip ic-btn');
+      rbtn.style.padding='8px 14px';
+      rbtn.appendChild(plugIcon('i-wave'));
+      rbtn.appendChild(plugEl('span','',tr('试运行','Run')));
+      rbtn.dataset.plugAct='invoke';
+      rbtn.dataset.plugId=p.id;
+      rrow.appendChild(rin);
+      rrow.appendChild(rbtn);
+      run.appendChild(rrow);
+      var rout=plugEl('div','muted','');
+      rout.style.cssText='font-size:12.5px;line-height:1.75;margin-top:8px;'
+                        +'white-space:pre-wrap;word-break:break-word;display:none';
+      rout.setAttribute('data-plug-out',p.id);
+      run.appendChild(rout);
+    }
+    card.appendChild(run);
+
     var dpath=plugEl('div','muted',p.dir||'');
     dpath.style.cssText='font-size:11px;word-break:break-all;margin-top:8px';
     card.appendChild(dpath);
@@ -3083,6 +3130,62 @@ async function plugReload(id){
     await pluginsLoad();
   }catch(e){
     plugErr(tr('热重载失败：','Reload failed: ')+e.message);
+  }
+}
+
+/* 试运行：直接调单个插件，不经过合成流水线。
+   刻意**不重渲染插件列表** —— 否则用户刚输入的那行会被清掉。 */
+async function plugInvoke(id){
+  var box=document.querySelector('[data-plug-out="'+id+'"]');
+  var inp=document.querySelector('[data-plug-input="'+id+'"]');
+  if(!box||!inp)return;
+  var text=inp.value||'';
+  box.style.display='block';
+  if(!text.trim()){
+    box.className='muted';
+    box.textContent=tr('请先输入一行文本。','Type something first.');
+    return;
+  }
+  box.className='muted';
+  box.textContent=tr('运行中…','Running…');
+  try{
+    var fd=new FormData();
+    fd.append('hook','text.pre');
+    fd.append('text',text);
+    var r=await fetch('/api/plugins/'+encodeURIComponent(id)+'/invoke',
+                      {method:'POST',headers:apiHeaders(),body:fd});
+    var d=await r.json().catch(function(){return {};});
+    if(!r.ok)throw new Error(d.detail||('HTTP '+r.status));
+    /* 后端回的是**三态**，必须分开讲清楚 ——
+       unchanged：插件返回 None，等于"这行不归我管"，是正常行为，
+                  既不是失败，也**不是**"被改成了空"（早期版本就在这儿撒了谎）；
+       invalid  ：返回值没通过钩子校验，真实合成时会保持原值 —— 照实说，
+                  否则用户会以为一个永远不会生效的效果已经生效了；
+       handled  ：本插件确实改写了流水线里的文本。 */
+    if(d.result==='unchanged'){
+      box.className='muted';
+      box.textContent=tr('未改动：本插件不处理这行（指令不匹配，或不属于它的作用域）。',
+                         'Unchanged: this plugin does not handle this line '
+                         +'(no matching command in its scope).')
+                      +'　('+d.duration_ms+'ms)';
+      return;
+    }
+    if(d.result==='invalid'){
+      box.className='err';
+      box.textContent=tr('返回值未通过校验，真实合成时会保持原值：',
+                         'Return value rejected by validation; the real pipeline '
+                         +'keeps the original: ')+(d.raw_output||'')
+                      +'　('+d.duration_ms+'ms)';
+      return;
+    }
+    box.className=d.changed?'':'muted';
+    box.textContent=(d.changed?tr('已改写：','Changed: ')
+                             :tr('已处理（输出与输入相同）：',
+                                 'Handled (output identical): '))
+                    +(d.output||'')+'　('+d.duration_ms+'ms)';
+  }catch(e){
+    box.className='err';
+    box.textContent=tr('试运行失败：','Run failed: ')+e.message;
   }
 }
 
@@ -3135,6 +3238,17 @@ async function plugSetAll(want){
       if(!b)return;
       if(b.dataset.plugAct==='toggle')plugSetEnabled(b.dataset.plugId,b.dataset.plugWant==='true');
       else if(b.dataset.plugAct==='reload')plugReload(b.dataset.plugId);
+      else if(b.dataset.plugAct==='invoke')plugInvoke(b.dataset.plugId);
+    });
+    /* 输入框里按 Enter 直接试运行，不用抬手去点按钮。
+       挂在委托层而不是逐个 input 上：列表每次刷新都会重建 DOM，
+       逐个绑必然把监听丢掉（和「新 tab 漏绑定」是同一类坑）。 */
+    list.addEventListener('keydown',function(e){
+      if(e.key!=='Enter')return;
+      var inp=e.target.closest('[data-plug-input]');
+      if(!inp)return;
+      e.preventDefault();
+      plugInvoke(inp.dataset.plugInput);
     });
   }
   var map={plugRefreshBtn:function(){pluginsLoad();},
@@ -5611,6 +5725,29 @@ def rediscover_plugins(request: Request):
         log_error("重新扫描插件失败", e)
         raise HTTPException(status_code=500,
                             detail=f"重新扫描插件失败: {type(e).__name__}: {e}")
+
+
+@app.post("/api/plugins/{plugin_id}/invoke")
+def invoke_plugin(plugin_id: str, request: Request,
+                  hook: str = Form("text.pre"), text: str = Form("")):
+    """直接试跑**单个**插件的文本钩子（不经合成流水线、不加载模型、不占显卡）。
+
+    和合成时走整条钩子链不同，这里只调用指定的那一个插件：既能单独看到该插件的
+    行为，也不会因为链上先跑的插件已改写输入而把结果算到别人头上。
+    只允许 pipeline 类且携带纯文本的钩子（目前即 text.pre），避免误触发
+    audio/ndarray 之类依赖真实合成上下文的钩子。
+    """
+    require_auth(request)
+    try:
+        return JSONResponse(_plugins.invoke_one(plugin_id, hook=hook, value=text))
+    except _plugins.PluginInvokeError as e:
+        # 不存在 / 未启用 / 钩子不可试运行 / 处理器异常 —— 都如实回给用户，
+        # 状态码由插件层给出的 status 决定（不在接口层重新猜一遍原因）
+        raise HTTPException(status_code=getattr(e, "status", 400), detail=str(e))
+    except Exception as e:
+        log_error("试运行插件失败", e)
+        raise HTTPException(status_code=500,
+                            detail=f"试运行插件失败: {type(e).__name__}: {e}")
 
 
 # ============================== 启动 ==============================
