@@ -6,10 +6,10 @@
   "api_version": "1.0",
   "requires_app": ">=2.0,<3",
   "author": "VoxCPM2",
-  "description": "粤语文化延伸插件：俗语、歇后语、童谣民谣与民俗注解。文本中出现查询指令（如「俗语：扮猪食老虎」）时自动讲解并剥离指令。全部内容注明来源与置信度，不虚构。",
+  "description": "粤语文化延伸插件。适用范围：粤语（广府文化圈）的俗语、歇后语、童谣民谣与民俗。示例用法：文本写「粤语俗语：扮猪食老虎」→ 应答释义与出处；写「粤语民俗：派利是」→ 应答注解；写「粤语歇后语：湿水棉花」→ 应答后半句「冇得弹」。指令须写在文本行首并带本方言简称，如「粤语俗语：扮猪食老虎」；裸的「俗语：<关键词>」由跨方言路由插件跨表检索。命中后自动讲解并把指令从朗读文本中剥离。共 20 条、4 项来源，全部内容注明来源与置信度，不虚构。",
   "description_en": "Cantonese culture-extension plugin: proverbs, xiehouyu (two-part allegorical sayings), nursery rhymes and folklore notes. Query commands in text are answered and stripped. All content carries source and confidence tags; nothing is fabricated.",
   "entry": "plugin.py",
-  "enabled": true,
+  "enabled": false,
   "priority": 60,
   "isolation": "inprocess",
   "hooks": {

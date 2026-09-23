@@ -1,0 +1,31 @@
+{
+  "id": "dialect_pinghua_extra",
+  "name": "平话与土话·俗语歇后语",
+  "name_en": "Pinghua & Tuhua Proverbs & Folklore",
+  "version": "0.1.0",
+  "api_version": "1.0",
+  "requires_app": ">=2.0,<3",
+  "author": "VoxCPM2",
+  "description": "平话与土话 的文化延伸插件。适用范围：平话与土话（桂南平话、桂北平话、湘南土话、粤北土话） 的俗语、歇后语、童谣民谣与民俗。示例用法：文本写「平话俗语：磨刀不误砍柴工」→ 应答释义与出处；写「平话民俗：庙会」→ 应答注解。指令须写在文本行首并带本方言简称；裸的「俗语：<关键词>」交给跨方言路由插件跨表检索。检索为子串匹配，命中才讲，未命中明确回「未收录」，不编造内容。共 6 条、2 项来源，每条带 type（俗语/歇后语/童谣/民俗）、src 与 conf 置信度。",
+  "description_en": "平话与土话 culture-extension plugin: proverbs, xiehouyu, nursery rhymes and folklore notes. Scope: 平话与土话（桂南平话、桂北平话、湘南土话、粤北土话）. Commands and corpora live in dialect_data.json. Substring matching over 6 verified entries, each tagged with type, source and confidence; an unmatched query returns an explicit 'not covered' answer instead of a guess.",
+  "entry": "plugin.py",
+  "enabled": false,
+  "priority": 60,
+  "isolation": "inprocess",
+  "hooks": {
+    "text.pre": "on_text_pre",
+    "report.enrich": "on_report_enrich"
+  },
+  "requires_packages": [],
+  "settings_schema": {
+    "properties": {
+      "max_queries_per_call": {
+        "type": "integer",
+        "default": 3,
+        "title": "单次合成最多处理的查询数",
+        "minimum": 1,
+        "maximum": 10
+      }
+    }
+  }
+}

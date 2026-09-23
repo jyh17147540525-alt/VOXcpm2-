@@ -30,17 +30,44 @@
   core/                      # 主项目（server.py / voice_clone/ / tests/ ...）
   plugins/                   # ← 插件总目录（本文件所在）
     技能插件/                  # 能力型：听辨、词汇、发音、语法问答、互译
-      clear_vocal/
-        plugin.json          # 清单（必需）
-        plugin.py            # 入口模块（默认名，可在 entry 里改）
-      example_gain/          # 仓库自带的可提交模板
+      README.md              #   方言插件族的说明与「新增一个方言」步骤
+      _dialect_common/       #   共享层（不是插件）：指令词表 + 词典引擎 + 两个工厂 + 路由
+      dialect_router/        #   跨方言检索 / 兜底路由（priority 20）
+      dialect_<key>_skill/   #   13 个方言大区的技能插件（priority 60）
+      clear_vocal/           #   内置清唱生成（默认停用）
+      example_gain/          #   仓库自带的可提交模板
     拓展插件/                  # 延伸型：俗语、歇后语、民谣、民俗
-      dingxian_dialect/
+      README.md
+      dialect_<key>_extra/   #   13 个方言大区的文化延伸插件
 ```
+
+> **随仓库发布的插件一律 `enabled: false`**（`example_gain`、`clear_vocal`、
+> 方言插件族的 27 个都是）。这是为了守住上面那条「零插件生效」的保证 ——
+> 已在 `core/tests/test_plugins.py::test_shipped_example_plugin_is_disabled_by_default`
+> 里作为回归护栏固定下来。要用就在面板里启用，或点「全部启用」。
+
+> **下划线前缀的目录不对发现机制可见**（`_iter_plugin_dirs()` 里
+> `if name.startswith((".", "_")): continue`），可用来放共享代码 ——
+> 例如 `技能插件/_dialect_common/`。所以共享层**不需要**也不应该放 `plugin.json`。
 
 **两个子区是结构约定**（`plugin_core.PLUGIN_ZONE_SKILL` / `PLUGIN_ZONE_EXTRA`）：
 发现逻辑本身不依赖它们 —— 只要目录（含子区）里有 `plugin.json` 就会被发现，
 往下最多走 `DISCOVER_MAX_DEPTH`（3）层。
+
+### ⚠️ 同一钩子上的多插件：注意「谁先跑」
+
+`priority` **数值大的先执行**，同值按 id 稳定排序；而 `pipeline` 类钩子
+（`text.pre` 等）是**链式**的 —— 后者收到的是前者的输出。
+所以当多个插件都想处理同一类输入时，**排在前面且「认领」了输入的插件会把机会吃掉**。
+
+方言插件族就是这个坑的实例：13 个方言若都认裸指令 `翻译：`，id 最小的那个会抢答
+一切查询、对它不认识的词回「未收录」并把指令从文本里剥掉，其余方言永远轮不到。
+解法是给指令加**方言作用域**（`<简称>翻译：X`），并把裸指令集中交给
+跑在最后的 `dialect_router`。详见 [`技能插件/README.md`](技能插件/README.md) §2。
+
+**新增插件时请先想清楚**：你的插件会不会认领一段本来属于别人的输入？
+如果需要「只有在能处理时才消费」，就**把不认识的输入原样放行**（返回 None 或保持原行），
+不要「认领后报错」。
 
 ### ⚠️ 子区名是中文，不能直接 `import`
 

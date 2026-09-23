@@ -1,0 +1,36 @@
+{
+  "id": "dialect_wu_skill",
+  "name": "吴语·语言技能",
+  "name_en": "Wu Chinese Language Skills",
+  "version": "0.1.0",
+  "api_version": "1.0",
+  "requires_app": ">=2.0,<3",
+  "author": "VoxCPM2",
+  "description": "吴语·语言技能。适用范围：吴语各片（太湖、台州、瓯江、婺州、处衢、宣州等）的词汇互译与语法差异问答。示例用法：文本写「翻译：白相」→ 应答「白相」→ 普通话「玩」；写「吴语语法：浊音」→ 应答全浊声母保留说明。指令须写在文本行首并带本方言简称：「吴语翻译：<词>」「吴语怎么说：<词>」「吴语语法：<主题>」；裸的「翻译：<词>」交给跨方言路由插件跨表检索。双向互译为词典驱动 —— 查表命中才作答，未收录明确回「未收录」，不编造内容。共 23 条词条、6 项来源，每条带 src（来源）与 conf（high/mid/low 置信度）。语料与语法问答都在 dialect_data.json，改语料不必改代码。",
+  "description_en": "Wu Chinese Language Skills. Scope: 吴语各片（太湖、台州、瓯江、婺州、处衢、宣州等）的词汇互译与语法差异问答. Commands and corpora live in dialect_data.json, so data can be updated without touching code. Translation is dictionary-driven: 23 verified entries, each tagged with source and confidence (high/mid/low); an unmatched query returns an explicit 'not covered' answer instead of a guess.",
+  "entry": "plugin.py",
+  "enabled": false,
+  "priority": 60,
+  "isolation": "inprocess",
+  "hooks": {
+    "text.pre": "on_text_pre",
+    "report.enrich": "on_report_enrich"
+  },
+  "requires_packages": [],
+  "settings_schema": {
+    "properties": {
+      "max_queries_per_call": {
+        "type": "integer",
+        "default": 3,
+        "title": "单次合成最多处理的查询数",
+        "minimum": 1,
+        "maximum": 10
+      },
+      "keep_query_echo": {
+        "type": "boolean",
+        "default": false,
+        "title": "是否把查询指令保留在朗读文本中（调试用）"
+      }
+    }
+  }
+}

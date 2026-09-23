@@ -47,7 +47,10 @@ def build_index(data):
     for idx in (d2m, m2d):
         for k in idx:
             idx[k].sort(key=lambda x: _CONF_ORDER.get(x.get("conf"), 3))
-    return {"d2m": d2m, "m2d": m2d, "by_id": by_id}
+    # lang_name 在数据**顶层**，不在词条里 —— 索引里带一份，
+    # 否则 translate() 的「普通话→方言」方向只能回落到占位符「方言」。
+    return {"d2m": d2m, "m2d": m2d, "by_id": by_id,
+            "lang_name": (data.get("lang_name") or "方言")}
 
 
 def lookup(index, term):
@@ -65,6 +68,7 @@ def translate(index, term):
     direction, hits = lookup(index, term)
     if not hits:
         return None
+    lang = index.get("lang_name") or "方言"
     lines = []
     for e in hits[:3]:  # 最多取 3 条，避免刷屏
         conf = e.get("conf", "?")
@@ -73,7 +77,8 @@ def translate(index, term):
             lines.append(f"「{e['dialect']}」→ 普通话「{e.get('mandarin', '?')}」"
                          f"（{e.get('roman', '')}）【置信度:{conf}｜来源:{src}】")
         else:
-            lines.append(f"普通话「{term}」→ {e.get('lang_name', '方言')}"
+            # 词条级 lang_name 可覆盖顶层（少数词条来自邻近方言时用得上）
+            lines.append(f"普通话「{term}」→ {e.get('lang_name') or lang}"
                          f"「{e['dialect']}」（{e.get('roman', '')}）【置信度:{conf}｜来源:{src}】")
     note = e.get("note") or ""
     if note:

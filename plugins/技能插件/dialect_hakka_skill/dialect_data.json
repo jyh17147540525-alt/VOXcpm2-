@@ -1,0 +1,215 @@
+{
+  "lang_name": "客家话（粤台、粤中、惠州、汀州、宁龙、于桂、铜桂等片）",
+  "lang_short": "客家话",
+  "roman_scheme": "通行拉丁化近似转写（非严格音位标音；精确记音见来源词典）",
+  "sources": [
+    "《梅县方言词典》（黄雪贞，江苏教育出版社 1995，《现代汉语方言大词典》分卷本（李荣 主编，江苏教育出版社））",
+    "《于都方言词典》（谢留文，江苏教育出版社 1998）",
+    "《东莞方言词典》（詹伯慧、陈晓锦，江苏教育出版社 1997）",
+    "《中国语言地图集（第2版）·汉语方言卷》（中国社会科学院语言研究所等，商务印书馆 2012）"
+  ],
+  "coverage_note": "本表共 23 条（置信度 high 16 / mid 4 / low 3）。客家话内部相对一致，本表以梅县话为准，于都（赣南）、东莞（粤中）两片差异已在 note 中标注。",
+  "grammar_qa": {
+    "古音保留": "客家话保留大量中古音特征：有入声（收［-p］［-t］［-k］）、无撮口呼、古全浊声母清化后无论平仄多读送气（「病」「白」读送气），因此常被称作「中古汉语的活化石」之一。",
+    "声调": "梅县话有六个单字调（阴平44、阳平11、上声31、去声53、阴入21、阳入5），平声与入声各分阴阳，上声、去声不分。",
+    "人称": "第一人称单数读 ŋai（民间多写作「涯」），第三人称用「佢」，复数加「兜」等后缀。",
+    "否定": "「唔」表一般否定（唔系＝不是），「冇」表存在否定（没有），另有「唔曾」表「还没……过」。",
+    "词汇": "客家话有若干标志性特征词：「屋下」（家）、「禾」（稻子）、「食」（吃）、「行」（走），与粤语、闽语共享部分古语层次。"
+  },
+  "entries": [
+    {
+      "id": "hak_0001",
+      "dialect": "我",
+      "roman": "ngai",
+      "mandarin": "我",
+      "conf": "high",
+      "src": "《梅县方言词典》",
+      "note": "民间多写作「涯」"
+    },
+    {
+      "id": "hak_0002",
+      "dialect": "汝",
+      "roman": "ngi",
+      "mandarin": "你",
+      "conf": "high",
+      "src": "《梅县方言词典》"
+    },
+    {
+      "id": "hak_0003",
+      "dialect": "佢",
+      "roman": "ki",
+      "mandarin": "他、她",
+      "conf": "high",
+      "src": "《梅县方言词典》"
+    },
+    {
+      "id": "hak_0004",
+      "dialect": "我兜",
+      "roman": "ngai deu",
+      "mandarin": "我们",
+      "conf": "mid",
+      "src": "《梅县方言词典》",
+      "note": "复数后缀各片不同"
+    },
+    {
+      "id": "hak_0005",
+      "dialect": "唔",
+      "roman": "m",
+      "mandarin": "不",
+      "conf": "high",
+      "src": "《梅县方言词典》"
+    },
+    {
+      "id": "hak_0006",
+      "dialect": "唔曾",
+      "roman": "m tshen",
+      "mandarin": "未曾、没有（过）",
+      "conf": "mid",
+      "src": "《梅县方言词典》",
+      "note": "表「还没有……过」，区别于表存在的「冇」"
+    },
+    {
+      "id": "hak_0007",
+      "dialect": "冇",
+      "roman": "mo",
+      "mandarin": "没有",
+      "conf": "high",
+      "src": "《梅县方言词典》",
+      "note": "存在否定"
+    },
+    {
+      "id": "hak_0008",
+      "dialect": "系",
+      "roman": "he",
+      "mandarin": "是",
+      "conf": "high",
+      "src": "《梅县方言词典》"
+    },
+    {
+      "id": "hak_0009",
+      "dialect": "食",
+      "roman": "shit",
+      "mandarin": "吃、喝",
+      "conf": "high",
+      "src": "《梅县方言词典》"
+    },
+    {
+      "id": "hak_0010",
+      "dialect": "屋下",
+      "roman": "vuk ha",
+      "mandarin": "家、家里",
+      "conf": "high",
+      "src": "《梅县方言词典》"
+    },
+    {
+      "id": "hak_0011",
+      "dialect": "禾",
+      "roman": "vo",
+      "mandarin": "稻子",
+      "conf": "high",
+      "src": "《梅县方言词典》"
+    },
+    {
+      "id": "hak_0012",
+      "dialect": "目珠",
+      "roman": "muk tsu",
+      "mandarin": "眼睛",
+      "conf": "mid",
+      "src": "《梅县方言词典》"
+    },
+    {
+      "id": "hak_0013",
+      "dialect": "面",
+      "roman": "mien",
+      "mandarin": "脸",
+      "conf": "high",
+      "src": "《梅县方言词典》"
+    },
+    {
+      "id": "hak_0014",
+      "dialect": "细",
+      "roman": "se",
+      "mandarin": "小",
+      "conf": "high",
+      "src": "《梅县方言词典》",
+      "note": "「细人」＝小孩，「细妹」＝小女孩"
+    },
+    {
+      "id": "hak_0015",
+      "dialect": "落雨",
+      "roman": "lok i",
+      "mandarin": "下雨",
+      "conf": "high",
+      "src": "《梅县方言词典》"
+    },
+    {
+      "id": "hak_0016",
+      "dialect": "日头",
+      "roman": "ngit theu",
+      "mandarin": "太阳",
+      "conf": "high",
+      "src": "《梅县方言词典》"
+    },
+    {
+      "id": "hak_0017",
+      "dialect": "暗",
+      "roman": "am",
+      "mandarin": "晚、天黑",
+      "conf": "mid",
+      "src": "《梅县方言词典》"
+    },
+    {
+      "id": "hak_0018",
+      "dialect": "讲",
+      "roman": "kong",
+      "mandarin": "说",
+      "conf": "high",
+      "src": "《梅县方言词典》"
+    },
+    {
+      "id": "hak_0019",
+      "dialect": "行",
+      "roman": "hang",
+      "mandarin": "走",
+      "conf": "high",
+      "src": "《梅县方言词典》",
+      "note": "客家话「行」＝走，保留古义"
+    },
+    {
+      "id": "hak_0020",
+      "dialect": "走",
+      "roman": "tseu",
+      "mandarin": "跑",
+      "conf": "high",
+      "src": "《梅县方言词典》",
+      "note": "客家话「走」＝跑，保留古义"
+    },
+    {
+      "id": "hak_0021",
+      "dialect": "头那",
+      "roman": "theu na",
+      "mandarin": "头",
+      "conf": "low",
+      "src": "《梅县方言词典》",
+      "note": "记音与写法不一，须以词典原文复核"
+    },
+    {
+      "id": "hak_0022",
+      "dialect": "揞",
+      "roman": "em",
+      "mandarin": "捂、掩",
+      "conf": "low",
+      "src": "《于都方言词典》",
+      "note": "赣南客家话词条，字与义须复核"
+    },
+    {
+      "id": "hak_0023",
+      "dialect": "靓",
+      "roman": "liang",
+      "mandarin": "漂亮",
+      "conf": "low",
+      "src": "《东莞方言词典》",
+      "note": "粤中（东莞）客家话受粤语影响用「靓」，梅县话少用，须复核"
+    }
+  ]
+}

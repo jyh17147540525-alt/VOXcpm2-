@@ -1,0 +1,189 @@
+{
+  "lang_name": "赣语（昌都、宜浏、吉茶、抚广、鹰弋、大通、耒资、洞绥、怀岳等片）",
+  "lang_short": "赣语",
+  "roman_scheme": "通行拉丁化近似转写（非严格音位标音；精确记音见来源词典）",
+  "sources": [
+    "《南昌方言词典》（熊正辉，江苏教育出版社 1995，《现代汉语方言大词典》分卷本（李荣 主编，江苏教育出版社））",
+    "《黎川方言词典》（颜森，江苏教育出版社 1995）",
+    "《萍乡方言词典》（魏钢强，江苏教育出版社 1998）",
+    "《中国语言地图集（第2版）·汉语方言卷》（中国社会科学院语言研究所等，商务印书馆 2012）"
+  ],
+  "coverage_note": "本表共 20 条（置信度 high 12 / mid 7 / low 1）。赣语夹在官话、湘语、客家话、吴语之间，边界片受周边影响明显。本表以南昌话为主，标 low 者须复核。",
+  "grammar_qa": {
+    "入声": "赣语保留入声，但内部差别大：南昌话入声收喉塞音［-ʔ］，黎川、萍乡等地保留［-p］［-t］［-k］三类塞音韵尾者亦不少见。",
+    "声调": "南昌话有七个单字调（阴平42、阳平24、上声213、阴去35、阳去11、阴入5、阳入2），去声与入声各分阴阳。",
+    "人称": "第三人称用「佢」，复数后缀各地不同（南昌「我里」、黎川「我多」等）。",
+    "否定": "「唔」表一般否定，「冇」表存在否定（没有），分工与客家话、粤语类似。",
+    "词汇": "赣语的古语层与客家话、湘语交错，边界片常同时具备多种特征，因此「赣语」与「客家话」如何划界，学界仍有讨论。"
+  },
+  "entries": [
+    {
+      "id": "gan_0001",
+      "dialect": "我",
+      "roman": "ngo",
+      "mandarin": "我",
+      "conf": "high",
+      "src": "《南昌方言词典》"
+    },
+    {
+      "id": "gan_0002",
+      "dialect": "你",
+      "roman": "n",
+      "mandarin": "你",
+      "conf": "high",
+      "src": "《南昌方言词典》"
+    },
+    {
+      "id": "gan_0003",
+      "dialect": "佢",
+      "roman": "tɕie",
+      "mandarin": "他、她",
+      "conf": "high",
+      "src": "《南昌方言词典》"
+    },
+    {
+      "id": "gan_0004",
+      "dialect": "我里",
+      "roman": "ngo li",
+      "mandarin": "我们",
+      "conf": "mid",
+      "src": "《南昌方言词典》"
+    },
+    {
+      "id": "gan_0005",
+      "dialect": "唔",
+      "roman": "m",
+      "mandarin": "不",
+      "conf": "mid",
+      "src": "《南昌方言词典》"
+    },
+    {
+      "id": "gan_0006",
+      "dialect": "冇",
+      "roman": "mau",
+      "mandarin": "没有",
+      "conf": "high",
+      "src": "《南昌方言词典》"
+    },
+    {
+      "id": "gan_0007",
+      "dialect": "系",
+      "roman": "ɕi",
+      "mandarin": "是",
+      "conf": "high",
+      "src": "《南昌方言词典》"
+    },
+    {
+      "id": "gan_0008",
+      "dialect": "恰",
+      "roman": "tɕhia",
+      "mandarin": "吃",
+      "conf": "mid",
+      "src": "《南昌方言词典》",
+      "note": "「恰饭」＝吃饭；本字多认为即「喫」，须复核"
+    },
+    {
+      "id": "gan_0009",
+      "dialect": "屋里",
+      "roman": "u li",
+      "mandarin": "家",
+      "conf": "high",
+      "src": "《南昌方言词典》"
+    },
+    {
+      "id": "gan_0010",
+      "dialect": "崽",
+      "roman": "tsai",
+      "mandarin": "儿子",
+      "conf": "high",
+      "src": "《南昌方言词典》",
+      "note": "「崽俚」＝小孩"
+    },
+    {
+      "id": "gan_0011",
+      "dialect": "几多",
+      "roman": "tɕi to",
+      "mandarin": "多少",
+      "conf": "high",
+      "src": "《南昌方言词典》"
+    },
+    {
+      "id": "gan_0012",
+      "dialect": "么斯",
+      "roman": "mo s",
+      "mandarin": "什么",
+      "conf": "mid",
+      "src": "《南昌方言词典》",
+      "note": "萍乡一带作「么子」"
+    },
+    {
+      "id": "gan_0013",
+      "dialect": "话",
+      "roman": "ua",
+      "mandarin": "说",
+      "conf": "high",
+      "src": "《南昌方言词典》",
+      "note": "「话事」＝说话"
+    },
+    {
+      "id": "gan_0014",
+      "dialect": "落雨",
+      "roman": "lok y",
+      "mandarin": "下雨",
+      "conf": "high",
+      "src": "《南昌方言词典》"
+    },
+    {
+      "id": "gan_0015",
+      "dialect": "日头",
+      "roman": "nyit theu",
+      "mandarin": "太阳",
+      "conf": "high",
+      "src": "《南昌方言词典》"
+    },
+    {
+      "id": "gan_0016",
+      "dialect": "晏",
+      "roman": "ngan",
+      "mandarin": "晚、迟",
+      "conf": "mid",
+      "src": "《南昌方言词典》"
+    },
+    {
+      "id": "gan_0017",
+      "dialect": "老俵",
+      "roman": "lau piau",
+      "mandarin": "老乡；江西人互称",
+      "conf": "high",
+      "src": "《南昌方言词典》",
+      "note": "原指表亲，今多作同乡称谓"
+    },
+    {
+      "id": "gan_0018",
+      "dialect": "圩",
+      "roman": "ɕy",
+      "mandarin": "集市",
+      "conf": "mid",
+      "src": "《萍乡方言词典》",
+      "note": "「赶圩」＝赶集"
+    },
+    {
+      "id": "gan_0019",
+      "dialect": "嘞",
+      "roman": "le",
+      "mandarin": "语气助词",
+      "conf": "mid",
+      "src": "《黎川方言词典》",
+      "note": "功能近普通话「呢／了」，各点分派不同"
+    },
+    {
+      "id": "gan_0020",
+      "dialect": "几",
+      "roman": "tɕi",
+      "mandarin": "很、多么（几好＝很好）",
+      "conf": "low",
+      "src": "《萍乡方言词典》",
+      "note": "程度副词的通行范围须复核"
+    }
+  ]
+}

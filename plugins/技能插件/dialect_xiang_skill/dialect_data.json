@@ -1,0 +1,222 @@
+{
+  "lang_name": "湘语（长益、娄邵、吉溆、辰溆等片；含新湘语与老湘语）",
+  "lang_short": "湘语",
+  "roman_scheme": "通行拉丁化近似转写（非严格音位标音；精确记音见来源词典）",
+  "sources": [
+    "《长沙方言词典》（鲍厚星、崔振华、沈若云、伍云姬，江苏教育出版社 1993，《现代汉语方言大词典》分卷本（李荣 主编，江苏教育出版社））",
+    "《娄底方言词典》（颜清徽、刘丽华，江苏教育出版社 1994）",
+    "《中国语言地图集（第2版）·汉语方言卷》（中国社会科学院语言研究所等，商务印书馆 2012）"
+  ],
+  "coverage_note": "本表共 24 条（置信度 high 17 / mid 6 / low 1）。湘语分新、老两派：新湘语（长沙）浊音已清化，老湘语（娄底、双峰）保留全浊声母。本表以长沙话为准，老湘语词条另注。",
+  "grammar_qa": {
+    "新老湘语": "湘语分两派：新湘语（长沙、益阳）全浊声母已清化且不送气；老湘语（娄底、双峰、湘乡）**保留中古全浊声母**，与吴语类似。这是湘语内部最大的分界。",
+    "声调": "长沙话有六个单字调（阴平33、阳平13、上声41、阴去45、阳去21、入声24），入声自成一调但无塞音尾，只读短调。",
+    "入声": "湘语保留入声**调类**，但已失去［-p］［-t］［-k］塞音韵尾（老湘语部分点例外），属「入声舒化」型，与吴语、粤语保留塞音尾的入声不同。",
+    "人称": "第三人称用「他」而非「佢」，这一点与赣语、客家话、粤语都不同，是湘语的辨识特征之一。",
+    "词汇": "「堂客」（妻子）、「呷」（吃）、「么子」（什么）、「何解」（为什么）是长沙话辨识度最高的几个词。"
+  },
+  "entries": [
+    {
+      "id": "xia_0001",
+      "dialect": "我",
+      "roman": "ngo",
+      "mandarin": "我",
+      "conf": "high",
+      "src": "《长沙方言词典》"
+    },
+    {
+      "id": "xia_0002",
+      "dialect": "你",
+      "roman": "nyi",
+      "mandarin": "你",
+      "conf": "high",
+      "src": "《长沙方言词典》"
+    },
+    {
+      "id": "xia_0003",
+      "dialect": "他",
+      "roman": "tha",
+      "mandarin": "他、她",
+      "conf": "high",
+      "src": "《长沙方言词典》",
+      "note": "湘语第三人称用「他」，不用「佢」，与赣语、客家话不同"
+    },
+    {
+      "id": "xia_0004",
+      "dialect": "我们",
+      "roman": "ngo men",
+      "mandarin": "我们",
+      "conf": "high",
+      "src": "《长沙方言词典》"
+    },
+    {
+      "id": "xia_0005",
+      "dialect": "不",
+      "roman": "pu",
+      "mandarin": "不",
+      "conf": "high",
+      "src": "《长沙方言词典》"
+    },
+    {
+      "id": "xia_0006",
+      "dialect": "冇",
+      "roman": "mau",
+      "mandarin": "没有",
+      "conf": "high",
+      "src": "《长沙方言词典》",
+      "note": "存在否定"
+    },
+    {
+      "id": "xia_0007",
+      "dialect": "是",
+      "roman": "sy",
+      "mandarin": "是",
+      "conf": "high",
+      "src": "《长沙方言词典》"
+    },
+    {
+      "id": "xia_0008",
+      "dialect": "呷",
+      "roman": "tɕhia",
+      "mandarin": "吃",
+      "conf": "high",
+      "src": "《长沙方言词典》",
+      "note": "「呷饭」＝吃饭；本字问题（或即「喫」）须注意"
+    },
+    {
+      "id": "xia_0009",
+      "dialect": "屋里",
+      "roman": "u li",
+      "mandarin": "家",
+      "conf": "high",
+      "src": "《长沙方言词典》"
+    },
+    {
+      "id": "xia_0010",
+      "dialect": "何解",
+      "roman": "ho kai",
+      "mandarin": "为什么",
+      "conf": "high",
+      "src": "《长沙方言词典》"
+    },
+    {
+      "id": "xia_0011",
+      "dialect": "么子",
+      "roman": "mo tsy",
+      "mandarin": "什么",
+      "conf": "high",
+      "src": "《长沙方言词典》"
+    },
+    {
+      "id": "xia_0012",
+      "dialect": "咯",
+      "roman": "ko",
+      "mandarin": "这",
+      "conf": "high",
+      "src": "《长沙方言词典》",
+      "note": "「咯里」＝这里"
+    },
+    {
+      "id": "xia_0013",
+      "dialect": "蛮",
+      "roman": "man",
+      "mandarin": "很",
+      "conf": "high",
+      "src": "《长沙方言词典》",
+      "note": "「蛮好」＝很好"
+    },
+    {
+      "id": "xia_0014",
+      "dialect": "堂客",
+      "roman": "tan khe",
+      "mandarin": "妻子",
+      "conf": "high",
+      "src": "《长沙方言词典》",
+      "note": "湘语标志性称谓"
+    },
+    {
+      "id": "xia_0015",
+      "dialect": "崽",
+      "roman": "tsai",
+      "mandarin": "儿子",
+      "conf": "high",
+      "src": "《长沙方言词典》"
+    },
+    {
+      "id": "xia_0016",
+      "dialect": "细伢子",
+      "roman": "ɕi nga tsy",
+      "mandarin": "小孩",
+      "conf": "mid",
+      "src": "《长沙方言词典》"
+    },
+    {
+      "id": "xia_0017",
+      "dialect": "满哥",
+      "roman": "man ko",
+      "mandarin": "小伙子",
+      "conf": "mid",
+      "src": "《长沙方言词典》"
+    },
+    {
+      "id": "xia_0018",
+      "dialect": "港",
+      "roman": "kan",
+      "mandarin": "讲、说",
+      "conf": "mid",
+      "src": "《长沙方言词典》",
+      "note": "「港话」＝说话，本字即「讲」"
+    },
+    {
+      "id": "xia_0019",
+      "dialect": "策",
+      "roman": "tshe",
+      "mandarin": "调侃、神侃",
+      "conf": "mid",
+      "src": "《长沙方言词典》",
+      "note": "长沙特色词，褒贬随语境"
+    },
+    {
+      "id": "xia_0020",
+      "dialect": "宝",
+      "roman": "pau",
+      "mandarin": "傻、糊涂",
+      "conf": "mid",
+      "src": "《长沙方言词典》",
+      "note": "「宝里宝气」＝傻里傻气"
+    },
+    {
+      "id": "xia_0021",
+      "dialect": "日头",
+      "roman": "nyi teu",
+      "mandarin": "太阳",
+      "conf": "high",
+      "src": "《长沙方言词典》"
+    },
+    {
+      "id": "xia_0022",
+      "dialect": "落雨",
+      "roman": "lo y",
+      "mandarin": "下雨",
+      "conf": "high",
+      "src": "《长沙方言词典》"
+    },
+    {
+      "id": "xia_0023",
+      "dialect": "嘞",
+      "roman": "le",
+      "mandarin": "语气助词",
+      "conf": "mid",
+      "src": "《长沙方言词典》"
+    },
+    {
+      "id": "xia_0024",
+      "dialect": "卬",
+      "roman": "ngong",
+      "mandarin": "硬、勉强",
+      "conf": "low",
+      "src": "《娄底方言词典》",
+      "note": "老湘语词条，字与用法须复核"
+    }
+  ]
+}

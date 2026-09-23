@@ -1,0 +1,228 @@
+{
+  "lang_name": "闽语·闽南（泉漳、潮汕、海南、雷州）",
+  "lang_short": "闽南语",
+  "roman_scheme": "通行拉丁化近似转写（非严格音位标音；精确记音见来源词典）",
+  "sources": [
+    "《厦门方言词典》（周长楫，江苏教育出版社 1993，《现代汉语方言大词典》分卷本（李荣 主编，江苏教育出版社））",
+    "《雷州方言词典》（张振兴、蔡叶青，江苏教育出版社 1998）",
+    "《海口方言词典》（陈鸿迈，江苏教育出版社 1996）",
+    "《中国语言地图集（第2版）·汉语方言卷》（中国社会科学院语言研究所等，商务印书馆 2012）"
+  ],
+  "coverage_note": "本表共 24 条（置信度 high 14 / mid 8 / low 2）。闽南语保留大量古汉语层次，文白异读成系统。本表为泉漳厦通行高频词，潮汕、海南片读音差别较大，已在 note 中分别标注。",
+  "grammar_qa": {
+    "文白异读": "闽南语有系统的**文白异读**：同一字有文读与白读两套音，分工不同。如「日」文读 jit、白读 lit；「人」文读 jin、白读 lang。这是闽南语最显著的特征之一，官话没有。",
+    "声调": "厦门话有七个单字调（阴平44、阳平24、上声53、阴去21、阳去22、阴入32、阳入4），去声与入声各分阴阳，连读时普遍变调。",
+    "入声": "闽南语完整保留三套塞音韵尾［-p］［-t］［-k］以及喉塞［-ʔ］：「十」［tsap］、「七」［tsit］、「六」［lak］、「百」［pah］，比粤语保留得更完整。",
+    "人称": "人称代词复数用鼻音韵尾区分包括式与排除式：「咱」［lan］包含听话人，「阮」［gun］不包含 —— 普通话无此区别。",
+    "否定": "否定词分工很细：「无」表存在否定（没有），「毋」表意愿/判断否定（不），「袂」表可能否定（不会、不至于），「未」表「还没」。"
+  },
+  "entries": [
+    {
+      "id": "mnn_0001",
+      "dialect": "汝",
+      "roman": "li",
+      "mandarin": "你",
+      "conf": "high",
+      "src": "《厦门方言词典》"
+    },
+    {
+      "id": "mnn_0002",
+      "dialect": "伊",
+      "roman": "i",
+      "mandarin": "他、她",
+      "conf": "high",
+      "src": "《厦门方言词典》"
+    },
+    {
+      "id": "mnn_0003",
+      "dialect": "阮",
+      "roman": "gun",
+      "mandarin": "我们（不含听话人）",
+      "conf": "high",
+      "src": "《厦门方言词典》",
+      "note": "排除式"
+    },
+    {
+      "id": "mnn_0004",
+      "dialect": "咱",
+      "roman": "lan",
+      "mandarin": "咱们（含听话人）",
+      "conf": "high",
+      "src": "《厦门方言词典》",
+      "note": "包括式"
+    },
+    {
+      "id": "mnn_0005",
+      "dialect": "恁",
+      "roman": "lin",
+      "mandarin": "你们",
+      "conf": "high",
+      "src": "《厦门方言词典》"
+    },
+    {
+      "id": "mnn_0006",
+      "dialect": "食",
+      "roman": "tsiah",
+      "mandarin": "吃；喝",
+      "conf": "high",
+      "src": "《厦门方言词典》",
+      "note": "「食饭」＝吃饭，「食茶」＝喝茶"
+    },
+    {
+      "id": "mnn_0007",
+      "dialect": "厝",
+      "roman": "tshu",
+      "mandarin": "房子、家",
+      "conf": "high",
+      "src": "《厦门方言词典》",
+      "note": "「厝里」＝家里，「转厝」＝回家"
+    },
+    {
+      "id": "mnn_0008",
+      "dialect": "衫",
+      "roman": "sann",
+      "mandarin": "衣服",
+      "conf": "high",
+      "src": "《厦门方言词典》"
+    },
+    {
+      "id": "mnn_0009",
+      "dialect": "目睭",
+      "roman": "bak tsiu",
+      "mandarin": "眼睛",
+      "conf": "mid",
+      "src": "《厦门方言词典》",
+      "note": "「目」单用亦表眼睛"
+    },
+    {
+      "id": "mnn_0010",
+      "dialect": "水",
+      "roman": "sui",
+      "mandarin": "漂亮（真水＝很美）",
+      "conf": "mid",
+      "src": "《厦门方言词典》",
+      "note": "闽南语特色义项，与普通话「水」义不同"
+    },
+    {
+      "id": "mnn_0011",
+      "dialect": "无",
+      "roman": "bo",
+      "mandarin": "没有",
+      "conf": "high",
+      "src": "《厦门方言词典》",
+      "note": "存在否定"
+    },
+    {
+      "id": "mnn_0012",
+      "dialect": "毋",
+      "roman": "m",
+      "mandarin": "不",
+      "conf": "high",
+      "src": "《厦门方言词典》",
+      "note": "意愿/判断否定"
+    },
+    {
+      "id": "mnn_0013",
+      "dialect": "袂",
+      "roman": "be",
+      "mandarin": "不会、不至于",
+      "conf": "high",
+      "src": "《厦门方言词典》",
+      "note": "可能否定；与表「还没」的「未」（bue）不同，两者常被混用"
+    },
+    {
+      "id": "mnn_0014",
+      "dialect": "知影",
+      "roman": "tsai iann",
+      "mandarin": "知道",
+      "conf": "high",
+      "src": "《厦门方言词典》"
+    },
+    {
+      "id": "mnn_0015",
+      "dialect": "走",
+      "roman": "tsau",
+      "mandarin": "跑",
+      "conf": "high",
+      "src": "《厦门方言词典》",
+      "note": "闽南语「走」＝跑，保留古义"
+    },
+    {
+      "id": "mnn_0016",
+      "dialect": "行",
+      "roman": "kiann",
+      "mandarin": "走",
+      "conf": "high",
+      "src": "《厦门方言词典》",
+      "note": "闽南语「行」＝走，保留古义"
+    },
+    {
+      "id": "mnn_0017",
+      "dialect": "目屎",
+      "roman": "bak sai",
+      "mandarin": "眼泪",
+      "conf": "mid",
+      "src": "《厦门方言词典》"
+    },
+    {
+      "id": "mnn_0018",
+      "dialect": "头家",
+      "roman": "thau ke",
+      "mandarin": "老板",
+      "conf": "mid",
+      "src": "《厦门方言词典》",
+      "note": "台湾闽南语亦用"
+    },
+    {
+      "id": "mnn_0019",
+      "dialect": "拍拼",
+      "roman": "phah piann",
+      "mandarin": "打拼、努力",
+      "conf": "mid",
+      "src": "《厦门方言词典》"
+    },
+    {
+      "id": "mnn_0020",
+      "dialect": "遮",
+      "roman": "tsia",
+      "mandarin": "这里",
+      "conf": "mid",
+      "src": "《厦门方言词典》",
+      "note": "与普通话「遮」义不同"
+    },
+    {
+      "id": "mnn_0021",
+      "dialect": "遐",
+      "roman": "hia",
+      "mandarin": "那里",
+      "conf": "mid",
+      "src": "《厦门方言词典》"
+    },
+    {
+      "id": "mnn_0022",
+      "dialect": "逐",
+      "roman": "tak",
+      "mandarin": "每（逐日＝每天）",
+      "conf": "mid",
+      "src": "《厦门方言词典》"
+    },
+    {
+      "id": "mnn_0023",
+      "dialect": "定着",
+      "roman": "tiann tioh",
+      "mandarin": "一定、非得",
+      "conf": "low",
+      "src": "《雷州方言词典》",
+      "note": "雷州片词条，与泉漳片差别较大，须以词典原文复核"
+    },
+    {
+      "id": "mnn_0024",
+      "dialect": "乜",
+      "roman": "mi",
+      "mandarin": "什么",
+      "conf": "low",
+      "src": "《海口方言词典》",
+      "note": "海南闽语（琼文片）用词，与泉漳片「啥」不同，须复核"
+    }
+  ]
+}

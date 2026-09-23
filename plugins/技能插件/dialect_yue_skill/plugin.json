@@ -6,10 +6,10 @@
   "api_version": "1.0",
   "requires_app": ">=2.0,<3",
   "author": "VoxCPM2",
-  "description": "粤语语言能力插件：词汇互译（词典驱动，未收录明确说明）、常用语对照、发音要点（粤拼）、语法差异问答。文本中出现查询指令（如「翻译：早上好」）时自动应答并剥离指令，不把指令念出来。数据均注明来源与置信度。",
+  "description": "粤语语言能力插件。适用范围：粤语（广州话）的词汇互译、常用语对照、发音要点（粤拼）与语法差异问答。示例用法：文本写「粤语翻译：唔该」→ 应答「唔该」→ 普通话「谢谢／劳驾」；写「粤语怎么说：早上好」→ 应答「早晨」；写「粤语语法：量词」→ 应答量词作指示成分的说明。指令须写在文本行首并带本方言简称；裸的「翻译：<词>」由跨方言路由插件跨表检索。文本中出现指令时自动应答并把指令从朗读文本中剥离，不把指令念出来。共 30 条词条、4 项来源，均注明来源与置信度；未收录明确回「未收录」，不编造。",
   "description_en": "Cantonese language-skill plugin: dictionary-driven vocabulary translation, common phrases, Jyutping pronunciation notes, grammar Q&A. Query commands in text (e.g. '翻译：早上好') are answered and stripped, never read aloud. All data carries source and confidence tags.",
   "entry": "plugin.py",
-  "enabled": true,
+  "enabled": false,
   "priority": 60,
   "isolation": "inprocess",
   "hooks": {

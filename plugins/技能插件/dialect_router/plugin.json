@@ -1,0 +1,38 @@
+{
+  "id": "dialect_router",
+  "name": "方言·跨方言检索路由",
+  "name_en": "Cross-dialect Lookup Router",
+  "version": "0.1.0",
+  "api_version": "1.0",
+  "requires_app": ">=2.0,<3",
+  "author": "VoxCPM2",
+  "description": "方言插件族的跨方言检索与兜底路由。适用范围：处理不带方言简称的裸指令（翻译：／怎么说：／语法：／俗语：／歇后语：／童谣：／民俗：），一次读遍全部方言词表并列出命中的方言；同时兜住被停用或加载失败的方言插件所留下的作用域指令。示例用法：文本写「翻译：聊天」→ 一次给出唠嗑（北方官话）、谝（中原官话）、摆龙门阵（西南官话）、倾偈（粤语）等命中项；写「翻译：量子纠缠」→ 报出实际检索了多少张表后回「未收录」。为什么需要它：text.pre 是链式执行，若每个方言插件都认裸指令，id 最小的那个会截胡一切查询、对它不认识的词回「未收录」并剥掉指令，其余方言永远轮不到 —— 把裸指令集中到跑在最后的单一插件，是多方言共存的干净解法。它直接读各插件目录下的 dialect_data.json（只读），不依赖那些插件是否启用。",
+  "description_en": "Cross-dialect lookup router and safety net for the dialect plugin family. Scope: handles command forms without a dialect prefix (翻译/怎么说/语法/俗语/歇后语/童谣/民俗) by scanning every dialect dictionary at once and listing all matching dialects; also covers scoped commands left behind by disabled or failed dialect plugins. Example: '翻译：聊天' returns 唠嗑 (Northern Mandarin), 谝 (Central Mandarin), 摆龙门阵 (Southwestern Mandarin), 倾偈 (Cantonese). Why it exists: the text.pre hook is a chain — if every dialect plugin accepted the bare command, the lowest-id one would intercept all queries, answer 'not covered' for terms it does not know, and strip the command, so no other dialect would ever respond. It reads each plugin's dialect_data.json read-only, so it works regardless of whether those plugins are enabled.",
+  "entry": "plugin.py",
+  "enabled": false,
+  "priority": 20,
+  "isolation": "inprocess",
+  "hooks": {
+    "text.pre": "on_text_pre",
+    "report.enrich": "on_report_enrich"
+  },
+  "requires_packages": [],
+  "settings_schema": {
+    "properties": {
+      "max_queries_per_call": {
+        "type": "integer",
+        "default": 3,
+        "title": "单次合成最多处理的查询数",
+        "minimum": 1,
+        "maximum": 10
+      },
+      "max_hits_per_query": {
+        "type": "integer",
+        "default": 6,
+        "title": "单个查询最多列出多少个方言的命中",
+        "minimum": 1,
+        "maximum": 20
+      }
+    }
+  }
+}

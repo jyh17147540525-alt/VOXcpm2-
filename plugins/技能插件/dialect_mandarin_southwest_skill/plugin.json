@@ -1,0 +1,36 @@
+{
+  "id": "dialect_mandarin_southwest_skill",
+  "name": "官话·西南与江淮·语言技能",
+  "name_en": "Southwestern & Jianghuai Mandarin Language Skills",
+  "version": "0.1.0",
+  "api_version": "1.0",
+  "requires_app": ">=2.0,<3",
+  "author": "VoxCPM2",
+  "description": "官话·西南与江淮·语言技能。适用范围：西南官话（成渝、滇黔、桂柳等）、江淮官话（洪巢、通泰、黄孝等）的词汇互译与语法差异问答。示例用法：文本写「翻译：巴适」→ 应答「巴适」→ 普通话「舒服／好」；写「西南官话语法：入声」→ 应答入声归阳平说明。指令须写在文本行首并带本方言简称：「西南官话翻译：<词>」「西南官话怎么说：<词>」「西南官话语法：<主题>」；裸的「翻译：<词>」交给跨方言路由插件跨表检索。双向互译为词典驱动 —— 查表命中才作答，未收录明确回「未收录」，不编造内容。共 22 条词条、7 项来源，每条带 src（来源）与 conf（high/mid/low 置信度）。语料与语法问答都在 dialect_data.json，改语料不必改代码。",
+  "description_en": "Southwestern & Jianghuai Mandarin Language Skills. Scope: 西南官话（成渝、滇黔、桂柳等）、江淮官话（洪巢、通泰、黄孝等）的词汇互译与语法差异问答. Commands and corpora live in dialect_data.json, so data can be updated without touching code. Translation is dictionary-driven: 22 verified entries, each tagged with source and confidence (high/mid/low); an unmatched query returns an explicit 'not covered' answer instead of a guess.",
+  "entry": "plugin.py",
+  "enabled": false,
+  "priority": 60,
+  "isolation": "inprocess",
+  "hooks": {
+    "text.pre": "on_text_pre",
+    "report.enrich": "on_report_enrich"
+  },
+  "requires_packages": [],
+  "settings_schema": {
+    "properties": {
+      "max_queries_per_call": {
+        "type": "integer",
+        "default": 3,
+        "title": "单次合成最多处理的查询数",
+        "minimum": 1,
+        "maximum": 10
+      },
+      "keep_query_echo": {
+        "type": "boolean",
+        "default": false,
+        "title": "是否把查询指令保留在朗读文本中（调试用）"
+      }
+    }
+  }
+}
