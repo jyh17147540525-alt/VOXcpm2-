@@ -1,6 +1,8 @@
-# VOXcpm2
+# VoxCPM2 Studio
 
-A ready-to-use local voice cloning and text-to-speech (TTS) service. Built on top of [OpenBMB/VoxCPM](https://github.com/OpenBMB/VoxCPM) (`voxcpm 2.0.3`), it wraps the core model with a complete web application and a voice-cloning toolchain, so voice-cloning enthusiasts can **run it out of the box** and contribute easily.
+**An unofficial community web app for [OpenBMB/VoxCPM](https://github.com/OpenBMB/VoxCPM) (`voxcpm 2.0.3`).** It wraps the core model with a complete web application and a voice-cloning toolchain, so voice-cloning enthusiasts can **run it out of the box** and contribute easily.
+
+> **Community project — not an official OpenBMB release.** The VoxCPM2 model, tokenizer and pretrained weights are created and owned by OpenBMB; this repository only adds an application layer on top of them. Application-layer bugs belong here, not in the upstream model repository.
 
 > This repository contains only the **application-layer code and config files**. The pretrained model weights are large (~4.7 GB) and must be downloaded separately (see below).
 
@@ -362,6 +364,8 @@ Issues and pull requests are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING
 ## 📄 License
 
 The code in this repository is licensed under [Apache-2.0](LICENSE). The core model `voxcpm` and its pretrained weights belong to [OpenBMB](https://github.com/OpenBMB/VoxCPM) and are used under its Apache-2.0 license.
+
+**Unofficial project notice.** VoxCPM2 Studio is a community project. It is **not affiliated with, sponsored by, or endorsed by OpenBMB**, and the name is used only to describe which model this application runs on. Only the application-layer code in this repository is maintained here; for the model itself, please refer to the upstream [OpenBMB/VoxCPM](https://github.com/OpenBMB/VoxCPM).
 
 ## 🙏 Acknowledgements
 

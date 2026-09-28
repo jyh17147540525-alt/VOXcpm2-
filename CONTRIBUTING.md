@@ -1,6 +1,8 @@
 # Contributing Guide
 
-Thank you for your interest in VOXcpm2! We welcome all kinds of contributions, including bug reports, feature suggestions, documentation improvements, and code.
+Thank you for your interest in VoxCPM2 Studio! We welcome all kinds of contributions, including bug reports, feature suggestions, documentation improvements, and code.
+
+> Scope note: this repository is the **application layer** (a community project, not an official OpenBMB release). Model-level issues such as synthesis quality of the pretrained weights should be reported upstream to [OpenBMB/VoxCPM](https://github.com/OpenBMB/VoxCPM).
 
 ## Code of conduct
 

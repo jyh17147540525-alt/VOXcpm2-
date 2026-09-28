@@ -1,6 +1,6 @@
 # 插件（Plugins）
 
-外部模块通过钩子（hook）扩展 VoxCPM2，**不需要修改核心文件**。
+外部模块通过钩子（hook）扩展 VoxCPM2 Studio，**不需要修改核心文件**。
 核心实现在 `core/voice_clone/plugin_core.py`，契约以该文件的 `HOOK_SPECS` 为唯一准绳。
 
 > 默认状态：**零插件生效**，所有钩子在无处理器时是常数时间 no-op，
