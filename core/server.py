@@ -145,7 +145,7 @@ except Exception as _e:
     print(f"[warn] director (rule) unavailable: {_e}")
 
 # ============================== 插件子系统 ==============================
-# 外部模块的注册 / 加载 / 调用（见 voice_clone/plugin_core.py 的契约说明）。
+# 外部模块的注册 / 加载 / 调用（见 voice_clone/plugins.py 的契约说明）。
 # 默认无插件时所有钩子都是常数时间 no-op，行为与未引入插件机制时逐字节一致。
 # init() 内部已吞掉全部异常：插件出问题绝不影响服务启动。
 import voice_clone.plugin_core as _plugins
@@ -325,7 +325,19 @@ def unload_model():
 
 def normalize_reference(ref_path: str) -> str:
     """校验上传的参考音频：可解码 + 时长合理；返回模型可用的路径。
-    坏文件抛出 ValueError，由调用方转成清晰的 400。"""
+
+    三级解码兜底（2026-10-05 补第三级）：
+      1. soundfile 直读 —— wav / flac / ogg 等；
+      2. librosa —— 部分 mp3；
+      3. ffmpeg 转码 —— m4a / opus / webm 音轨、以及 mp4/mov/mkv 等视频容器
+         只有它能解。前两级都失败且检测到 ffmpeg 时，把源转成 24k 单声道
+         wav（与音色包视频分支同款参数，链路已真机验证）再校验。
+
+    注意：走第三级且校验通过时，**原上传副本会被删除，返回转码产物路径**
+    （调用方拿到的永远是可直接解码的文件；库来源 pack:/asset: 是 wav，
+    第一级就成功，永远不会触发删除）。坏文件抛 ValueError，由调用方转 400。
+    """
+    converted = None  # 本函数创建的转码产物；校验失败时要自己收掉，别泄漏
     try:
         data, sr = sf.read(ref_path)
         dur = len(data) / sr
@@ -334,12 +346,45 @@ def normalize_reference(ref_path: str) -> str:
             import librosa
             y, sr = librosa.load(ref_path, sr=None, mono=False)
             dur = len(y) / sr
-        except Exception as e:
-            raise ValueError(f"参考音频无法解码（请使用 wav/mp3/flac 且未损坏的文件）: {e}")
+        except Exception:
+            ff = _find_ffmpeg()
+            if not ff:
+                raise ValueError(
+                    "参考音频无法解码（请使用 wav/mp3/flac 且未损坏的文件）；"
+                    "m4a/视频等格式需要 ffmpeg，当前未检测到")
+            import subprocess
+            dec_path = str(UPLOAD_DIR / f"dec_{uuid.uuid4().hex[:8]}.wav")
+            r = subprocess.run(
+                [ff, "-y", "-i", ref_path, "-vn", "-ac", "1", "-ar", "24000", dec_path],
+                capture_output=True,
+            )
+            if r.returncode != 0 or not Path(dec_path).exists():
+                _safe_unlink(dec_path)
+                raise ValueError(
+                    "参考音频无法解码（请使用 wav/mp3/flac 且未损坏的文件）: "
+                    + r.stderr.decode("utf-8", "ignore")[:200])
+            try:
+                data, sr = sf.read(dec_path)
+                dur = len(data) / sr
+            except Exception as e:
+                _safe_unlink(dec_path)
+                raise ValueError(
+                    f"参考音频无法解码（请使用 wav/mp3/flac 且未损坏的文件）: {e}")
+            converted = dec_path
     if dur < MIN_REFERENCE_SECONDS:
+        if converted:
+            _safe_unlink(converted)
         raise ValueError(f"参考音频太短（<{MIN_REFERENCE_SECONDS:g} 秒），请上传 0.3 秒以上的清晰音频")
     if dur > MAX_REFERENCE_SECONDS:
+        if converted:
+            _safe_unlink(converted)
         raise ValueError(f"参考音频过长（>{MAX_REFERENCE_SECONDS // 60} 分钟），请裁剪到 10 分钟以内")
+    if converted is not None:
+        try:
+            Path(ref_path).unlink()  # 原始上传副本弃用，转码产物取而代之
+        except OSError:
+            pass
+        ref_path = converted
     return ref_path
 
 
@@ -5249,9 +5294,10 @@ def generate(
                             detail="该模式需要上传参考音频，或从已保存音色包 / 声音资产中选择")
 
     # 参考音频校验（坏文件在此给出清晰 400，不进入推理）
+    # normalize_reference 可能做 ffmpeg 转码兜底并返回新路径，必须接住。
     if ref_path and not used_pack:
         try:
-            normalize_reference(ref_path)
+            ref_path = normalize_reference(ref_path)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
 
@@ -6690,7 +6736,7 @@ def create_voice_pack(
         ref_path = raw_path
 
     try:
-        normalize_reference(ref_path)  # 坏文件在此给出清晰 400
+        ref_path = normalize_reference(ref_path)  # 坏文件在此给出清晰 400；可能返回转码产物路径
     except ValueError as e:
         p = Path(ref_path)
         if p.exists():
@@ -7125,7 +7171,7 @@ async def clear_vocal_start(request: Request):
                             detail="请上传目标音色的参考音频，或从音色包 / 声音资产中选择")
 
     try:
-        normalize_reference(ref_path)  # 与音色包同一条校验：坏文件在此给出清晰 400
+        ref_path = normalize_reference(ref_path)  # 与音色包同一条校验；可能返回转码产物路径
     except ValueError as e:
         _safe_unlink(song_path)
         _safe_unlink(ref_path)
