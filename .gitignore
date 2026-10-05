@@ -25,6 +25,8 @@ api_key.txt
 outputs/
 uploads/
 voice_packs/
+# 声音资产库（导入素材的元数据；音频本体另由下方 *.wav 规则忽略）
+voice_assets/
 prepared/
 # 训练样本库（音频 + 文本对，体积大且是本机私有素材）
 training_data/

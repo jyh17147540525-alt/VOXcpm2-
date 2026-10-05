@@ -114,6 +114,13 @@ import voice_packs as vp_store
 vp_store.init(BASE_DIR)
 VOICE_PACK_DIR = vp_store.VOICE_PACK_DIR
 
+# 声音资产（原始素材库）本地持久化管理。
+# 与音色包分开存：音色包是「已提纯的代表参考」，资产是「未加工的原始素材」，
+# 两者处理契约相反（前者不能再预处理，后者必须保持原样），混存会互相污染。
+import voice_assets as va_store
+va_store.init(BASE_DIR)
+VOICE_ASSET_DIR = va_store.VOICE_ASSET_DIR
+
 # 训练模块：数据管理 + LoRA 训练引擎
 import voice_clone.training_store as tstore
 import voice_clone.trainer as trainer
@@ -138,7 +145,7 @@ except Exception as _e:
     print(f"[warn] director (rule) unavailable: {_e}")
 
 # ============================== 插件子系统 ==============================
-# 外部模块的注册 / 加载 / 调用（见 voice_clone/plugins.py 的契约说明）。
+# 外部模块的注册 / 加载 / 调用（见 voice_clone/plugin_core.py 的契约说明）。
 # 默认无插件时所有钩子都是常数时间 no-op，行为与未引入插件机制时逐字节一致。
 # init() 内部已吞掉全部异常：插件出问题绝不影响服务启动。
 import voice_clone.plugin_core as _plugins
@@ -1450,7 +1457,7 @@ select option{background:var(--surface);color:var(--text)}
     <div class="field hide" id="packSelField">
       <label data-i18n="packSelLabel">或选择已保存音色包（免重复上传长音频）</label>
       <select class="vp-sel" id="packSel" onchange="onPackSel()">
-        <option value="" data-i18n="noPackOpt">— 不使用音色包，改为上传音频 —</option>
+        <option value="" data-i18n="noPackOpt">— 不选用库内素材，改为上传音频 —</option>
       </select>
       <div class="muted" style="margin-top:6px" id="packSelHint"></div>
     </div>
@@ -1738,11 +1745,15 @@ select option{background:var(--surface);color:var(--text)}
       <div class="muted" style="margin-bottom:8px;line-height:1.6" data-i18n="wbCvDesc">上传一首原曲和目标音色的参考音频，服务会先分离人声、分析旋律，再让音色照着唱。整首歌要合成几十到上百个片段，耗时较长（几分钟到十几分钟），请耐心等待进度条。</div>
       <div class="field">
         <label data-i18n="wbCvSong">原曲音频（带伴奏的完整歌曲，wav/mp3/flac）</label>
+        <select class="vp-sel" id="wbCvSongSel" style="width:100%;margin-bottom:6px"></select>
         <input type="file" id="wbCvSong" accept=".wav,.mp3,.flac,.m4a,.ogg,audio/*" style="width:100%">
+        <div class="muted" id="wbCvSongHint" style="margin-top:6px"></div>
       </div>
       <div class="field">
         <label data-i18n="wbCvRef">目标音色参考音频（与音色克隆要求相同，3 秒以上）</label>
+        <select class="vp-sel" id="wbCvRefSel" style="width:100%;margin-bottom:6px"></select>
         <input type="file" id="wbCvRef" accept=".wav,.mp3,.flac,.m4a,.ogg,audio/*" style="width:100%">
+        <div class="muted" id="wbCvRefHint" style="margin-top:6px"></div>
       </div>
       <div class="field">
         <label data-i18n="wbCvLyric">歌词（留空则整首哼鸣；或勾选自动识词）</label>
@@ -1929,6 +1940,7 @@ select option{background:var(--surface);color:var(--text)}
     <div class="tabs">
       <button class="ptab active ic-btn" data-pane="manage" onclick="showPackPane('manage')"><svg class="ic"><use href="#i-layers"/></svg><span data-i18n="packManage">音色包管理</span></button>
       <button class="ptab ic-btn" data-pane="save" onclick="showPackPane('save')"><svg class="ic"><use href="#i-mic"/></svg><span data-i18n="packMake">制作音色声线包</span></button>
+      <button class="ptab ic-btn" data-pane="assets" onclick="showPackPane('assets')"><svg class="ic"><use href="#i-inbox"/></svg><span data-i18n="assetTab">声音资产</span></button>
     </div>
 
       <div id="packManage">
@@ -1964,6 +1976,33 @@ select option{background:var(--surface);color:var(--text)}
       <div class="status" id="vpStatus"><div class="spin"></div><div id="vpStatusText" data-i18n="vpStatusIdle">提取中…（首次需加载模型，请稍候）</div></div>
       <div class="err" id="vpErr"></div>
     </div>
+
+    <div id="packAssets" class="hide">
+      <div class="muted" style="margin-bottom:12px;line-height:1.7" data-i18n="assetDesc">声音资产是「一次导入、随处复用」的原始素材库：这里保存的是<b>未经提纯</b>的音频（视频会自动提取音轨），因此「音色克隆」的参考和「工作台 · 清唱生成」的原曲都能直接选用，不必重复上传。要一条可直接 (@) 引用的声线，请对资产点「提纯为音色包」。数据存于 voice_assets/ 目录，重启服务后依然保留。</div>
+
+      <div class="field" id="asDropZone" style="border:2px dashed var(--border-2);border-radius:10px;padding:12px;transition:all .2s">
+        <label data-i18n="assetDropLabel">拖入音频或视频到这里（wav/mp3/flac/m4a/mp4/mov/mkv 等，视频自动提取音轨）</label>
+        <input type="file" id="asFile" accept="audio/*,video/*">
+        <div class="muted" id="asDropHint" style="margin-top:6px"></div>
+      </div>
+
+      <div class="field">
+        <label data-i18n="assetNameLabel">素材名称（便于识别）</label>
+        <input type="text" id="asName" data-i18n-ph="assetNamePh" placeholder="例如：客服原声 / 某首歌原曲">
+      </div>
+      <div class="field">
+        <label data-i18n="assetNoteLabel">备注（可选）</label>
+        <input type="text" id="asNote" data-i18n-ph="assetNotePh" placeholder="例如：含背景音乐，只用它的旋律">
+      </div>
+      <button class="gen" id="asSaveBtn"><svg class="ic"><use href="#i-inbox"/></svg> <span data-i18n="assetImportBtn">导入为声音资产</span></button>
+      <div class="status" id="asStatus"><div class="spin"></div><div id="asStatusText" data-i18n="asStatusIdle">导入中…（大文件或视频会久一点）</div></div>
+      <div class="err" id="asErr"></div>
+
+      <div style="margin-top:18px;border-top:1px solid var(--border-2);padding-top:14px">
+        <label style="display:flex;align-items:center;gap:6px;margin-bottom:8px"><svg class="ic"><use href="#i-headphones"/></svg><span data-i18n="assetListLabel">我的声音资产</span></label>
+        <div id="assetList"></div>
+      </div>
+    </div>
   </div>
 
   <div class="card">
@@ -1981,7 +2020,14 @@ const API_TOKEN='TOKEN_PLACEHOLDER';
 let mode='design';
 let prevMode='design';
 let selectedPackId=null;
+let selectedAssetId=null;   // 从「声音资产」选中的素材（与 selectedPackId 互斥）
 let voicePacks=[];
+let voiceAssets=[];         // 声音资产（原始素材库）
+/* 下拉显隐同步函数表（见 bindRefSelUI）。
+   必须在这里声明：initRefSelectors() 在顶层的调用位置比「音色包 JS 区」靠前，
+   若把 let 留在那边，初始化时会踩 TDZ —— 而它被 loadVoicePacks 的静默 catch
+   吞掉，症状是「选项填好了、提示却不更新」，看上去像没生效。 */
+let REF_SEL_SYNC=[];
 let lastOutputName=null;
 // ===== i18n 双语言 =====
 const I18N={
@@ -2044,7 +2090,7 @@ const I18N={
       chip1:'年轻女性·温柔',chip2:'中年男性·沉稳',chip3:'活力少年',chip4:'粤语',chip5:'四川话',chip6:'新闻播报',
       designHint:'语音设计模式：用「()」在文本开头描述想要的音色、情绪、语速，例如「(年轻女性，温柔甜美)你好」。',
       refLabel:'参考音频（0.3 秒 – 10 分钟，wav/mp3/flac）',refHint:'克隆模式必填，模型会复刻这段音频的音色。',
-      packSelLabel:'或选择已保存音色包（免重复上传长音频）',noPackOpt:'— 不使用音色包，改为上传音频 —',
+      packSelLabel:'或从已保存的音色包 / 声音资产中选择（免重复上传）',noPackOpt:'— 不选用库内素材，改为上传音频 —',
       ptLabel:'参考音频的逐字文本（极致克隆必填）',ptPh:'必须与参考音频内容完全一致',
       cfgLabel:'CFG 引导强度（1.0-3.0，默认 2.0）',stepsLabel:'扩散步数（4-30，越大越细腻越慢）',
       normalizeLabel:'文本规范化（数字/日期正确读出）',denoiseLabel:'参考音频降噪',removeBgLabel:'去除背景音/音乐',stableLabel:'长文本稳定合成',
@@ -2057,6 +2103,14 @@ const I18N={
       packMake:'制作音色声线包',
       packDesc:'已提取并保存在本地的音色声线包，后续克隆可直接选用，无需重复上传长音频。数据存于 voice_packs/ 目录，重启服务后依然保留。也可用 API：POST /api/voicepacks 保存，生成时传 voice_pack_id。带 加速 标记的音色包在生成时自动提速。',
       packEmpty:'还没有音色包，去“制作音色声线包”做一个吧。',
+      wbPackDefaultOpt:'— 默认音色（不上传参考） —',upNewFileOpt:'— 上传新文件 —',
+      assetTab:'声音资产',
+      assetDesc:'声音资产是「一次导入、随处复用」的原始素材库：这里保存的是未经提纯的音频（视频会自动提取音轨），因此「音色克隆」的参考和「工作台 · 清唱生成」的原曲都能直接选用，不必重复上传。要一条可直接 (@) 引用的声线，请对资产点「提纯为音色包」。数据存于 voice_assets/ 目录，重启服务后依然保留。',
+      assetDropLabel:'拖入音频或视频到这里（wav/mp3/flac/m4a/mp4/mov/mkv 等，视频自动提取音轨）',
+      assetNameLabel:'素材名称（便于识别）',assetNamePh:'例如：客服原声 / 某首歌原曲',
+      assetNoteLabel:'备注（可选）',assetNotePh:'例如：含背景音乐，只用它的旋律',
+      assetImportBtn:'导入为声音资产',asStatusIdle:'导入中…（大文件或视频会久一点）',
+      assetListLabel:'我的声音资产',
       recMethod:'方式一：实时录制（直接用麦克风，无需上传文件）',recStart:'开始录制',
       recHint:'点击下方按钮授权麦克风后开始朗读，建议 10–30 秒清晰语句；录制完可回放确认。',recPlayback:'录制回放（确认无误再保存）',
       upMethod:'方式二：上传音频或拖拽视频（wav/mp3/flac/mp4/mov 等，视频自动提取人声）',
@@ -2169,7 +2223,7 @@ const I18N={
       chip1:'Young woman, gentle',chip2:'Mature man, deep voice',chip3:'Lively teenager',chip4:'Cantonese',chip5:'Sichuan dialect',chip6:'News anchor',
       designHint:'Design mode: describe the voice, emotion or speed in "()" at the start of the text, e.g. "(young woman, sweet)Hello".',
       refLabel:'Reference audio (0.3s – 10min, wav/mp3/flac)',refHint:'Required for Clone mode. The model replicates the timbre of this audio.',
-      packSelLabel:'Or pick a saved voice pack (no re-upload needed)',noPackOpt:'— No voice pack, upload audio instead —',
+      packSelLabel:'Or pick a saved voice pack / voice asset (no re-upload)',noPackOpt:'— No library item, upload audio instead —',
       ptLabel:'Verbatim transcript of the reference (required for HiFi)',ptPh:'Must match the reference audio exactly',
       cfgLabel:'CFG guidance (1.0-3.0, default 2.0)',stepsLabel:'Diffusion steps (4-30, higher = finer & slower)',
       normalizeLabel:'Text normalization (numbers/dates read correctly)',denoiseLabel:'Reference denoise',removeBgLabel:'Remove background/music',stableLabel:'Long-text stable synthesis',
@@ -2182,6 +2236,14 @@ const I18N={
       packMake:'Create Voice Pack',
       packDesc:'Voice packs are extracted and saved locally for reuse, so you never re-upload long audio. Stored under the voice_packs/ directory and persist across restarts. Save via POST /api/voicepacks and pass voice_pack_id when generating. Packs marked accelerated generate faster automatically.',
       packEmpty:'No voice packs yet. Go to "Create Voice Pack" to make one.',
+      wbPackDefaultOpt:'— default voice (no reference) —',upNewFileOpt:'— Upload a new file —',
+      assetTab:'Voice Assets',
+      assetDesc:'Voice assets are a reusable library of raw material: imported once, used anywhere. Files are kept as imported (no denoise or extraction) and video audio is auto-extracted, so both the cloning reference and the clear-vocal source song can be picked directly with no re-upload. To get a voice line usable via (@), run Make pack on an asset. Stored under voice_assets/ and kept across restarts.',
+      assetDropLabel:'Drop audio or video here (wav/mp3/flac/m4a/mp4/mov/mkv etc.; video audio is auto-extracted)',
+      assetNameLabel:'Asset name (for recognition)',assetNamePh:'e.g. Support agent voice / a source song',
+      assetNoteLabel:'Note (optional)',assetNotePh:'e.g. Has background music; melody only',
+      assetImportBtn:'Import as voice asset',asStatusIdle:'Importing… (large files or video take longer)',
+      assetListLabel:'My voice assets',
       recMethod:'Method 1: record live (microphone, no file upload)',recStart:'Start Recording',
       recHint:'Click the button, allow microphone access, then read for 10–30s. Playback to confirm after recording.',recPlayback:'Playback (confirm before saving)',
       upMethod:'Method 2: upload audio or drag a video (wav/mp3/flac/mp4/mov; voice auto-extracted from video)',
@@ -2996,7 +3058,7 @@ function setMode(m){
   document.getElementById('packSelField').classList.toggle('hide',m==='design');
   document.getElementById('chips').style.display=(m==='hifi')?'none':'flex';
   if(m==='design'){
-    selectedPackId=null;
+    selectedPackId=null; selectedAssetId=null;
     const sel=document.getElementById('packSel');
     if(sel)sel.value='';
     document.getElementById('packSelHint').textContent='';
@@ -3398,7 +3460,8 @@ async function plugSetAll(want){
 
 /* 顶栏 tab 事件委托：新 tab 不带 inline onclick（遵守「图标不拼字符串」约定），
    所以在这里统一接管 —— 未显式绑 onclick 的 .tab 由 setMode 处理。
-   [教训] 曾经漏掉这一步 → 「插件」tab 点了没反应。 */
+   曾经漏掉这一步 → 「插件」tab 点了没反应。
+   注意：本文件注释里不得出现 emoji，scripts/check_ui_icons.py 第 6 项会硬断言为 0。 */
 (function navWire(){
   var nav=document.getElementById('mainNav');
   if(!nav)return;
@@ -3611,14 +3674,10 @@ function wbRenderInvoke(rows){
 function wbSyncPackUI(){
   var isMulti=document.getElementById('wbMode').value==='multi';
   document.getElementById('wbPackField').classList.toggle('hide',isMulti);
-  var sel=document.getElementById('wbPack');
-  sel.innerHTML='';
-  var o0=document.createElement('option');o0.value='';o0.textContent=tr('— 默认音色（不上传参考） —','— default voice (no reference) —');
-  sel.appendChild(o0);
-  (voicePacks||[]).forEach(function(p){
-    var o=document.createElement('option');o.value=p.id;o.textContent=p.name;
-    sel.appendChild(o);
-  });
+  // 与克隆页/清唱区共用同一套填充：音色包与声音资产都能选（保留当前选中值）
+  fillRefSel(document.getElementById('wbPack'),
+             i18nText('wbPackDefaultOpt','— 默认音色（不上传参考） —'));
+  refSelSyncAll();
 }
 
 function wbEnter(){
@@ -3654,7 +3713,11 @@ async function wbGo(){
       fd.append('normalize','true');fd.append('denoise','false');
       fd.append('stable',document.getElementById('wbStable').checked?'true':'false');
       var pid=document.getElementById('wbPack').value;
-      if(pid)fd.append('voice_pack_id',pid);
+      if(pid){
+        var prk=splitRefKey(pid);
+        if(prk.kind==='asset')fd.append('ref_asset_id',prk.id);
+        else fd.append('voice_pack_id',prk.id);
+      }
       r=await fetch('/api/generate',{method:'POST',body:fd,headers:apiHeaders()});
     }
     clearInterval(timer);
@@ -3811,14 +3874,22 @@ async function wbCvStart(){
   if(wbCvPolling)return;
   var song=document.getElementById('wbCvSong').files[0];
   var ref=document.getElementById('wbCvRef').files[0];
+  var songKey=document.getElementById('wbCvSongSel').value||'';
+  var refKey=document.getElementById('wbCvRefSel').value||'';
   var lyric=document.getElementById('wbCvLyric').value.trim();
   var auto=document.getElementById('wbCvAutoLyric').checked;
-  if(!song){wbCvShowErr(tr('请先选择原曲音频。','Choose a song file first.'));return;}
-  if(!ref){wbCvShowErr(tr('请先选择目标音色的参考音频。','Choose a reference audio first.'));return;}
+  if(!song&&!songKey){
+    wbCvShowErr(tr('请先选择原曲：上传文件，或从声音资产里选一个。',
+                   'Pick a song: upload a file or choose one from voice assets.'));return;
+  }
+  if(!ref&&!refKey){
+    wbCvShowErr(tr('请先选择目标音色：上传参考音频，或从音色包 / 声音资产里选一个。',
+                   'Pick a reference: upload one, or choose a voice pack / asset.'));return;
+  }
   if(!lyric&&!auto){wbCvShowErr(tr('请填写歌词，或勾选自动识词。','Fill lyrics or enable auto transcription.'));return;}
   var fd=new FormData();
-  fd.append('song',song);
-  fd.append('reference',ref);
+  if(song)fd.append('song',song); else fd.append('song_source',songKey);
+  if(ref)fd.append('reference',ref); else fd.append('ref_source',refKey);
   fd.append('lyric',lyric);
   fd.append('auto_lyric',auto?'true':'false');
   fd.append('snap',document.getElementById('wbCvSnap').checked?'true':'false');
@@ -4192,6 +4263,16 @@ function repaintDynamicText(){
     const dp=document.getElementById('dialoguePanels');
     if(dp&&dp.offsetParent!==null){try{renderDialoguePanels();}catch(_){}}
   }
+  /* 拖拽提示与「参考来源」提示都是 JS 写的（元素不带 data-i18n），切语言不会自动
+     跟着变，这里统一重放：传空串即为恢复该处的默认双语文案。 */
+  setVpDropHint('');
+  setAsDropHint('');
+  refSelSyncAll();
+  /* 下拉里的 optgroup 标签与首项文案都是 JS 生成的，setLang 的重刷管不到它们，
+     必须重新填一次（fillRefSel 会保留当前选中值，所以重填不会丢用户的选择）。 */
+  fillPackSel();
+  /* 克隆页的提示与参考框显隐由 onPackSel 依当前选中值重算，幂等，直接调用即为重放 */
+  onPackSel();
 }
 function pre(t){const el=document.getElementById('text');el.value=t+el.value.replace(/^\([^()]*\)|^（[^（）]*）/,'');el.focus();}
 
@@ -4262,6 +4343,8 @@ async function init(){
 }
 init();
 loadVoicePacks();
+loadVoiceAssets();
+initRefSelectors();
 refreshLoras();
 // 初始化语言（从本地存储恢复，默认中文）
 try{const _sl=localStorage.getItem('voxcpm_lang');if(_sl)setLang(_sl);}catch(_){}
@@ -4284,7 +4367,10 @@ async function generate(){
   err.classList.remove('show');res.classList.remove('show');
   if(!text){return showErr(tr('请输入要合成的文本','Please enter text to synthesize'));}
   const refFile=document.getElementById('refFile').files[0];
-  if(mode!=='design'&&!refFile&&!selectedPackId){return showErr(tr('该模式需要上传参考音频，或从“已保存音色包”中选择一个','This mode requires a reference audio upload, or pick one from the saved voice packs'));}
+  if(mode!=='design'&&!refFile&&!selectedPackId&&!selectedAssetId){
+    return showErr(tr('该模式需要上传参考音频，或从“音色包 / 声音资产”中选择一个',
+                      'This mode requires a reference audio upload, or pick one from voice packs / voice assets'));
+  }
   const promptText=document.getElementById('promptText').value.trim();
   // 极致克隆：选用音色包时无需逐字文本；上传参考音频时才需填写
   if(mode==='hifi'&&!selectedPackId&&!promptText){return showErr(tr('极致克隆请上传参考音频并填写其逐字文本；或直接选用音色包（无需逐字文本）','HiFi clone: upload a reference audio and its verbatim transcript; or just pick a voice pack (no transcript needed)'));}
@@ -4319,6 +4405,7 @@ async function generate(){
     fd.append('mode',mode);
     if(refFile)fd.append('reference',refFile);
     if(selectedPackId)fd.append('voice_pack_id',selectedPackId);
+    if(selectedAssetId)fd.append('ref_asset_id',selectedAssetId);
     if(promptText)fd.append('prompt_text',promptText);
     try{
       const r=await callGenerate(fd, controller.signal);
@@ -4396,6 +4483,128 @@ async function loadVoicePacks(){
   }catch(e){/* 静默：不影响主功能 */}
 }
 
+async function loadVoiceAssets(){
+  try{
+    const r=await fetch('/api/voiceassets',{headers:apiHeaders()});
+    if(!r.ok)return;
+    const d=await r.json();
+    voiceAssets=d.assets||[];
+    renderAssets();
+    fillPackSel();
+  }catch(e){/* 静默：不影响主功能 */}
+}
+
+// ===== 统一的「音频来源」下拉：音色包 + 声音资产 =====
+// 编码约定与后端 _library_ref_path 对齐："pack:<id>" / "asset:<id>"，空串 = 从库外上传。
+// 克隆页参考、工作台音色、工作台清唱（参考 / 原曲）共用这一套填充与取值逻辑，
+// 这样「同一份素材在任何页面都能被选中」是结构保证的，而不是靠各处手写对齐。
+function splitRefKey(key){
+  const s=String(key==null?'':key);
+  const i=s.indexOf(':');
+  if(i<0)return {kind:'pack',id:s};      // 兼容只有裸 id 的历史值
+  return {kind:s.slice(0,i),id:s.slice(i+1)};
+}
+function refFind(key){
+  const r=splitRefKey(key);
+  if(!r.id)return null;
+  const arr=(r.kind==='asset')?voiceAssets:voicePacks;
+  return (arr||[]).find(x=>x.id===r.id)||null;
+}
+function refOptionGroups(){
+  return [
+    {kind:'pack', items:voicePacks, dur:p=>p.processed_duration,
+     label:tr('音色包（已提纯的声线）','Voice packs (extracted voice)')},
+    {kind:'asset', items:voiceAssets, dur:p=>p.duration,
+     label:tr('声音资产（原始素材）','Voice assets (raw material)')}
+  ];
+}
+function fillRefSel(el, emptyText, kinds){
+  if(!el)return;
+  const cur=el.value;
+  el.innerHTML='';
+  const o0=document.createElement('option');
+  o0.value=''; o0.textContent=emptyText;
+  el.appendChild(o0);
+  for(const g of refOptionGroups()){
+    if(kinds && kinds.indexOf(g.kind)<0)continue;
+    if(!g.items||!g.items.length)continue;
+    const og=document.createElement('optgroup');
+    og.label=g.label;
+    g.items.forEach(function(it){
+      const o=document.createElement('option');
+      o.value=g.kind+':'+it.id;
+      const d=g.dur(it);
+      o.textContent=it.name+(d!=null?(' ('+d+'s)'):'');
+      og.appendChild(o);
+    });
+    el.appendChild(og);
+  }
+  el.value=cur;   // 旧值已不存在时浏览器会自然回落到空项
+}
+
+// 下拉与「上传文件」是二选一：选了下拉就藏起文件框（并清空它），反之亦然。
+// 逐个绑定后把同步函数收进 REF_SEL_SYNC —— 因为 fillRefSel 会重建 options，
+// 重建后必须重放一次显隐状态，否则会出现「下拉显示已选用、文件框也还在」的错位。
+// 逐个绑定后把同步函数收进 REF_SEL_SYNC（声明在顶部全局区，别挪到这里 —— 会踩 TDZ）。
+function bindRefSelUI(selId, fileId, hintId){
+  const sel=document.getElementById(selId);
+  if(!sel)return;
+  const file=fileId?document.getElementById(fileId):null;  // 有配套文件框时才做二选一
+  const hint=hintId?document.getElementById(hintId):null;
+  function sync(){
+    const v=sel.value||'';
+    if(file)file.classList.toggle('hide',!!v);
+    if(v){
+      if(file)file.value='';                 // 二选一：选了库内素材就不再上传
+      if(hint){
+        const it=refFind(v);
+        const r=splitRefKey(v);
+        let t=tr('已选用：','Selected: ')+(it?it.name:v);
+        t+=(r.kind==='pack')
+          ? tr('（音色包，已提纯，无需再上传）',' (voice pack, pre-extracted)')
+          : tr('（原始素材，将按当前设置现场处理）',' (raw material, processed on the fly)');
+        hint.textContent=t;
+      }
+    }else if(hint){hint.textContent='';}
+  }
+  sel.addEventListener('change',sync);
+  if(file){
+    file.addEventListener('change',function(){
+      if(file.files&&file.files.length){sel.value='';sync();}
+    });
+  }
+  REF_SEL_SYNC.push(sync);
+  sync();
+}
+function refSelSyncAll(){REF_SEL_SYNC.forEach(function(f){try{f();}catch(_){}});}
+function initRefSelectors(){
+  // 克隆页参考：提示与 refField 显隐都由 onPackSel 专管（别再写一遍，两处维护必然不一致）
+  bindRefSelUI('packSel',null,null);
+  bindRefSelUI('wbPack',null,null);                       // 工作台「音色」，无配套文件框
+  bindRefSelUI('wbCvRefSel','wbCvRef','wbCvRefHint');     // 清唱：参考音色
+  bindRefSelUI('wbCvSongSel','wbCvSong','wbCvSongHint');  // 清唱：原曲
+}
+
+function i18nText(key,fallback){
+  const d=(typeof I18N!=='undefined'&&I18N[curLang])?I18N[curLang]:{};
+  return d[key]||fallback||key;
+}
+
+function fillPackSel(){
+  // 首项文案统一从字典取：HTML 里的静态兜底项用的是同一个 data-i18n 键，
+  // 两处不会各写一份、改一处忘一处。
+  const EMPTY_LIB=i18nText('noPackOpt','— 不选用库内素材，改为上传音频 —');
+  const EMPTY_DEF=i18nText('wbPackDefaultOpt','— 默认音色（不上传参考） —');
+  const EMPTY_UP=i18nText('upNewFileOpt','— 上传新文件 —');
+  fillRefSel(document.getElementById('packSel'),EMPTY_LIB);
+  fillRefSel(document.getElementById('wbPack'),EMPTY_DEF);
+  fillRefSel(document.getElementById('wbCvRefSel'),EMPTY_UP);
+  // 原曲只列声音资产：音色包是约 25 秒的「代表参考」，拿它当整首歌的原曲没有意义，
+  // 混进来只会让列表更难懂（后端仍兼容 pack:，这里只是不展示）。
+  fillRefSel(document.getElementById('wbCvSongSel'),EMPTY_UP,['asset']);
+  refSelSyncAll();
+}
+
 function renderPacks(){
   const el=document.getElementById('packList');
   el.innerHTML='';
@@ -4451,18 +4660,10 @@ document.getElementById('refFile').addEventListener('change', function(){
   }
 });
 
-function fillPackSel(){
-  const sel=document.getElementById('packSel');
-  const cur=sel.value;
-  sel.innerHTML='<option value="">'+tr('— 不使用音色包，改为上传音频 —','— No voice pack, upload audio instead —')+'</option>'+
-    voicePacks.map(p=>'<option value="'+p.id+'">'+esc(p.name)+(p.processed_duration!=null?(' ('+p.processed_duration+'s)'):'')+'</option>').join('');
-  if(cur)sel.value=cur;
-}
-
 function showPackPane(which){
-  const manage=which==='manage';
-  document.getElementById('packManage').classList.toggle('hide',!manage);
-  document.getElementById('packSave').classList.toggle('hide',manage);
+  document.getElementById('packManage').classList.toggle('hide',which!=='manage');
+  document.getElementById('packSave').classList.toggle('hide',which!=='save');
+  document.getElementById('packAssets').classList.toggle('hide',which!=='assets');
   document.querySelectorAll('.ptab').forEach(t=>t.classList.toggle('active',t.dataset.pane===which));
 }
 
@@ -4567,12 +4768,24 @@ function setVpDropHint(t){
 
 function onPackSel(){
   const sel=document.getElementById('packSel');
-  const v=sel.value;
-  selectedPackId=v||null;
+  const v=sel.value||'';
+  // 互斥地占住两个"已选用"槽位。
+  // 不变量：selectedPackId 只在来源是**音色包**时才有值。updatePtField() 靠它
+  //    判断极致克隆能否免填逐字文本 —— 音色包是已提纯的干净参考才可以，声音资产
+  //    是未提纯素材，必须照旧填逐字文本，所以绝不能把 asset 也塞进 selectedPackId。
+  selectedPackId=null;
+  selectedAssetId=null;
   const hint=document.getElementById('packSelHint');
-  if(v){const p=voicePacks.find(x=>x.id===v);
-    let t=tr('已选用：','Selected: ')+(p?p.name:v)+tr('（无需再上传音频，直接点生成即可）',' (no re-upload needed, just generate)');
-    if(p&&p.accelerated)t+=tr('  加速模式已启用，生成更快','  Accelerated mode on, faster generation');
+  if(v){
+    const r=splitRefKey(v);
+    if(r.kind==='asset')selectedAssetId=r.id; else selectedPackId=r.id;
+    const it=refFind(v);
+    let t=tr('已选用：','Selected: ')+(it?it.name:v)+
+          tr('（无需再上传音频，直接点生成即可）',' (no re-upload needed, just generate)');
+    if(it&&r.kind==='pack'&&it.accelerated)
+      t+=tr('  加速模式已启用，生成更快','  Accelerated mode on, faster generation');
+    if(it&&r.kind==='asset')
+      t+=tr('  原始素材，将按当前降噪/去背景设置现场处理','  Raw material, processed with current settings');
     hint.textContent=t;
     document.getElementById('refField').classList.add('hide');
     document.getElementById('refFile').value='';   // 二选一互斥：清空参考音频
@@ -4583,9 +4796,9 @@ function onPackSel(){
 
 function usePack(id){
   const p=voicePacks.find(x=>x.id===id);
-  selectedPackId=id;
+  selectedPackId=id; selectedAssetId=null;
   setMode('clone');
-  document.getElementById('packSel').value=id;
+  document.getElementById('packSel').value='pack:'+id;   // 与 fillRefSel 的编码一致
   const hint=document.getElementById('packSelHint');
   let t=tr('已选用音色包：','Voice pack selected: ')+(p?p.name:id)+tr('（无需再上传音频，直接点生成即可）',' (no re-upload needed, just generate)');
   if(p&&p.accelerated)t+=tr('  加速模式已启用，生成更快','  Accelerated mode on, faster generation');
@@ -4593,6 +4806,21 @@ function usePack(id){
   document.getElementById('refField').classList.add('hide');
   document.getElementById('refFile').value='';
   document.getElementById('packSelField').classList.remove('hide');
+}
+
+function useAsset(id){
+  const a=voiceAssets.find(x=>x.id===id);
+  selectedPackId=null; selectedAssetId=id;
+  setMode('clone');
+  document.getElementById('packSel').value='asset:'+id;
+  const hint=document.getElementById('packSelHint');
+  hint.textContent=tr('已选用声音资产：','Voice asset selected: ')+(a?a.name:id)+
+    tr('（无需再上传，直接点生成即可；将按当前降噪/去背景设置现场处理）',
+       ' (no re-upload needed; processed with current settings)');
+  document.getElementById('refField').classList.add('hide');
+  document.getElementById('refFile').value='';
+  document.getElementById('packSelField').classList.remove('hide');
+  updatePtField();
 }
 
 let vpAudio=null;
@@ -4615,6 +4843,228 @@ async function deletePack(id){
     else{let m=tr('删除失败','Delete failed');try{const j=await r.json();m=j.detail||m;}catch(e){}alert(m);}
   }catch(e){alert(tr('请求失败：','Request failed: ')+e.message);}
 }
+
+// ============ 声音资产 ============
+function renderAssets(){
+  const el=document.getElementById('assetList');
+  if(!el)return;
+  el.innerHTML='';
+  if(!voiceAssets.length){
+    el.innerHTML='<div class="muted">'+
+      tr('还没有声音资产。把音频或视频拖到上面的虚框里，之后任何页面都能直接选用它。',
+         'No voice assets yet. Drop an audio or video above, then reuse it from any page.')+
+      '</div>';
+    return;
+  }
+  for(const a of voiceAssets){
+    const row=document.createElement('div');
+    row.className='pack'; row.dataset.id=a.id;
+    const info=document.createElement('div'); info.className='info';
+    const nm=document.createElement('div'); nm.className='nm';
+    nm.textContent=a.name;
+    const badge=document.createElement('span');
+    badge.className='badge';
+    badge.style.cssText='margin-left:6px;font-size:11px;vertical-align:1px';
+    badge.textContent=(a.source_kind==='video')?tr('视频提取','from video'):tr('音频','audio');
+    nm.appendChild(badge);
+    const md=document.createElement('div'); md.className='meta';
+    const bits=[];
+    if(a.duration!=null)bits.push(tr('时长 ','len ')+a.duration+'s');
+    if(a.sample_rate)bits.push((a.sample_rate/1000).toFixed(1)+'kHz');
+    if(a.source_name)bits.push(a.source_name);
+    if(a.note)bits.push(a.note);
+    if(a.created_at)bits.push(a.created_at);
+    md.textContent=bits.filter(Boolean).join(' · ');
+    info.appendChild(nm); info.appendChild(md);
+
+    const acts=document.createElement('div'); acts.className='acts';
+    function btn(label,cls,act,title){
+      const b=document.createElement('button');
+      if(cls)b.className=cls;
+      b.textContent=label; b.dataset.act=act;
+      if(title)b.title=title;
+      return b;
+    }
+    acts.appendChild(btn(tr('▶ 试听','▶ Preview'),'','preview'));
+    acts.appendChild(btn(tr('选用','Use'),'use','use'));
+    acts.appendChild(btn(tr('改名','Rename'),'','rename'));
+    acts.appendChild(btn(tr('提纯为音色包','Make pack'),'','makepack',
+      tr('提取音色，生成一条可在 (@) 里引用的声线（原素材保留）',
+         'Extract a voice line reusable via (@); the asset is kept')));
+    acts.appendChild(btn(tr('删除','Delete'),'del','delete'));
+    row.appendChild(info); row.appendChild(acts);
+    el.appendChild(row);
+  }
+}
+
+// 事件委托：与 #packList 同一套做法（data-act 标记意图，避免拼 onclick 引号陷阱）
+document.getElementById('assetList').addEventListener('click',function(e){
+  const b=e.target.closest && e.target.closest('button[data-act]');
+  if(!b)return;
+  const row=b.closest('.pack');
+  const id=row && row.dataset.id;
+  if(!id)return;
+  const act=b.dataset.act;
+  if(act==='preview')previewAsset(id);
+  else if(act==='use')useAsset(id);
+  else if(act==='rename')renameAsset(id);
+  else if(act==='makepack')makePackFromAsset(id);
+  else if(act==='delete')deleteAsset(id);
+});
+
+let asAudio=null;
+async function previewAsset(id){
+  if(!asAudio)asAudio=new Audio();
+  try{
+    const r=await fetch('/api/voiceassets/'+id+'/preview',{headers:apiHeaders()});
+    if(!r.ok){showAsErr(tr('试听失败（','Preview failed (')+r.status+tr('）',')'));return;}
+    const blob=await r.blob();
+    asAudio.src=URL.createObjectURL(blob);
+    asAudio.play().catch(()=>{});
+  }catch(e){showAsErr(tr('试听失败：','Preview failed: ')+e.message);}
+}
+
+async function renameAsset(id){
+  const a=voiceAssets.find(x=>x.id===id);
+  const nm=prompt(tr('新的素材名称：','New asset name:'),a?a.name:'');
+  if(nm==null)return;
+  if(!nm.trim()){showAsErr(tr('名称不能为空。','Name cannot be empty.'));return;}
+  try{
+    const fd=new FormData(); fd.append('name',nm.trim());
+    const r=await fetch('/api/voiceassets/'+id+'/rename',{method:'POST',body:fd,headers:apiHeaders()});
+    if(!r.ok){let m=tr('改名失败','Rename failed');try{const j=await r.json();m=j.detail||m;}catch(e){}showAsErr(m);return;}
+    showAsErr('');
+    await loadVoiceAssets();
+  }catch(e){showAsErr(tr('请求失败：','Request failed: ')+e.message);}
+}
+
+async function deleteAsset(id){
+  if(!confirm(tr('确定删除该声音资产？音频文件会一并删除，此操作不可撤销。',
+                 'Delete this voice asset? The audio file is removed too. This cannot be undone.')))return;
+  try{
+    const r=await fetch('/api/voiceassets/'+id,{method:'DELETE',headers:apiHeaders()});
+    if(r.ok){
+      if(selectedAssetId===id)selectedAssetId=null;
+      await loadVoiceAssets();
+    }else{
+      let m=tr('删除失败','Delete failed');
+      try{const j=await r.json();m=j.detail||m;}catch(e){}
+      showAsErr(m);
+    }
+  }catch(e){showAsErr(tr('请求失败：','Request failed: ')+e.message);}
+}
+
+async function makePackFromAsset(id){
+  if(!confirm(tr('按默认设置（降噪开、去背景关）把该素材提纯为音色包？原素材会保留。',
+                 'Extract this asset into a voice pack (denoise on, bg removal off)? The asset is kept.')))return;
+  try{
+    const fd=new FormData();
+    fd.append('denoise','true'); fd.append('remove_bg','false');
+    const r=await fetch('/api/voiceassets/'+id+'/make_pack',{method:'POST',body:fd,headers:apiHeaders()});
+    if(!r.ok){
+      let m=tr('提纯失败','Extraction failed');
+      try{const j=await r.json();m=j.detail||m;}catch(e){}
+      showAsErr(m); return;
+    }
+    const d=await r.json();
+    await loadVoicePacks();
+    showAsErr('');
+    alert(tr('已提纯为音色包：','Voice pack created: ')+d.pack.name);
+  }catch(e){showAsErr(tr('请求失败：','Request failed: ')+e.message);}
+}
+
+let __droppedAsFile=null;   // 拖入的音频/视频（importAsset 优先使用）
+
+function setAsDropHint(t){
+  const el=document.getElementById('asDropHint');
+  if(!el)return;
+  el.textContent=t||tr('建议导入清晰人声或完整歌曲；视频会自动提取音轨（需已安装 ffmpeg）。素材原样保存，不做降噪或提纯。',
+                       'Clear voice or a full song both work; video audio is auto-extracted (ffmpeg required). Files are stored as-is, no denoise or extraction.');
+}
+function showAsErr(m){
+  const e=document.getElementById('asErr');
+  if(!e)return;
+  e.textContent=m||'';
+  e.classList.toggle('show',!!m);
+}
+
+async function importAsset(){
+  const file=document.getElementById('asFile').files[0]||__droppedAsFile;
+  if(!file){showAsErr(tr('请先选择或拖入一个音频/视频文件','Choose or drop an audio/video file first'));return;}
+  const fd=new FormData();
+  fd.append('name',document.getElementById('asName').value);
+  fd.append('note',document.getElementById('asNote').value);
+  fd.append('source',file);
+  const btn=document.getElementById('asSaveBtn'),st=document.getElementById('asStatus');
+  btn.disabled=true;st.classList.add('show');showAsErr('');
+  const t0=Date.now();
+  const timer=setInterval(()=>{
+    document.getElementById('asStatusText').textContent=
+      tr('导入中… 已用 ','Importing… ')+((Date.now()-t0)/1000).toFixed(1)+tr(' 秒','s');
+  },200);
+  try{
+    const r=await fetch('/api/voiceassets',{method:'POST',body:fd,headers:apiHeaders()});
+    clearInterval(timer);
+    if(!r.ok){
+      let m=tr('导入失败','Import failed');
+      try{const j=await r.json();m=j.detail||m;}catch(e){}
+      showAsErr(m); st.classList.remove('show'); return;
+    }
+    const d=await r.json();
+    document.getElementById('asFile').value='';
+    __droppedAsFile=null;
+    document.getElementById('asName').value='';
+    document.getElementById('asNote').value='';
+    setAsDropHint('');
+    st.classList.remove('show');
+    await loadVoiceAssets();
+    alert(tr('已导入声音资产：','Voice asset imported: ')+d.asset.name+
+          ((d.asset.source_kind==='video')?tr('（已从视频提取音轨）',' (audio extracted from video)'):''));
+  }catch(e){clearInterval(timer);st.classList.remove('show');showAsErr(tr('请求失败：','Request failed: ')+e.message);}
+  finally{btn.disabled=false;}
+}
+
+document.getElementById('asSaveBtn').addEventListener('click',importAsset);
+document.getElementById('asFile').addEventListener('change',function(){
+  if(this.files&&this.files.length)__droppedAsFile=null;   // 手选优先，丢弃上一次拖入的
+});
+
+// ===== 拖拽上传（音频/视频 → 声音资产），与音色包页的 vpDropZone 同一套交互 =====
+(function(){
+  const dz=document.getElementById('asDropZone');
+  if(!dz)return;
+  ['dragover','dragenter'].forEach(ev=>dz.addEventListener(ev,function(e){
+    e.preventDefault();e.stopPropagation();
+    dz.style.borderColor='var(--accent)';dz.style.background='var(--accent-soft)';
+  }));
+  ['dragleave','dragend'].forEach(ev=>dz.addEventListener(ev,function(e){
+    e.preventDefault();
+    dz.style.borderColor='var(--border-2)';dz.style.background='';
+  }));
+  dz.addEventListener('drop',function(e){
+    e.preventDefault();e.stopPropagation();
+    dz.style.borderColor='var(--border-2)';dz.style.background='';
+    const files=e.dataTransfer&&e.dataTransfer.files;
+    if(!files||!files.length)return;
+    const f=files[0];
+    const ok=/\.(wav|mp3|flac|m4a|aac|ogg|mp4|mov|mkv|avi|webm|flv|m4v|wmv|ts)$/i.test(f.name||'');
+    if(!ok){
+      showAsErr(tr('不支持的文件类型：','Unsupported file type: ')+(f.name||'')+
+                tr('（请拖入 wav/mp3/flac/mp4/mov 等音视频文件）','(drop wav/mp3/flac/mp4/mov etc.)'));
+      return;
+    }
+    __droppedAsFile=f;
+    try{
+      const dt=new DataTransfer();
+      dt.items.add(f);
+      document.getElementById('asFile').files=dt.files;
+    }catch(_){}
+    setAsDropHint(tr('已拖入：','Dropped: ')+f.name+tr('（',' (')+
+                  (f.size/1024/1024).toFixed(1)+tr(' MB）—— 正在导入…',' MB) — importing…'));
+    showAsErr('');
+    importAsset();   // 拖入即导入（与音色包页「拖入即提取」一致）
+  });
+})();
 
 // ============ 录制音色（MediaRecorder → WAV） ============
 let recBlob=null, recChunks=[], recStream=null, mediaRec=null, recTimer=null, recSecs=0;
@@ -4745,6 +5195,7 @@ def generate(
     stable: str = Form("false"),
     prompt_text: str = Form(""),
     voice_pack_id: str = Form(None),
+    ref_asset_id: str = Form(None),
     pitch: float = Form(0.0),
     speed: float = Form(1.0),
     volume: float = Form(1.0),
@@ -4774,12 +5225,19 @@ def generate(
         # 复用已保存的音色包，无需再次上传长段音频
         if mode not in ("clone", "hifi"):
             raise HTTPException(status_code=400, detail="音色包仅用于克隆 / 极致克隆模式")
-        vp_wav, _ = vp_store.get_pack_paths(voice_pack_id)
-        if vp_wav is None or not Path(vp_wav).exists():
-            raise HTTPException(status_code=404, detail="所选音色包不存在或已损坏，请从列表重新选择")
-        ref_path = str(vp_wav)
+        ref_path = _library_ref_path(f"pack:{voice_pack_id}")
         used_pack = True
         print(f"[VoxCPM2] 使用音色包 {voice_pack_id} 作为参考", flush=True)
+    elif ref_asset_id:
+        # 复用声音资产作为参考，无需再次上传。
+        # 注意这里**不置** used_pack：资产是未提纯的原始素材，必须照下面的流程
+        # 做时长校验与增强预处理；若沿用音色包那条「跳过预处理」的捷径，
+        # 就等于把原始素材当成已清洗参考直接喂给模型（长音频会音色漂移）。
+        if mode not in ("clone", "hifi"):
+            raise HTTPException(status_code=400, detail="声音资产仅用于克隆 / 极致克隆模式")
+        ref_path = _library_ref_path(f"asset:{ref_asset_id}")
+        print(f"[VoxCPM2] 使用声音资产 {ref_asset_id} 作为参考（将按当前参数预处理）",
+              flush=True)
     elif reference is not None and reference.filename:
         suffix = Path(reference.filename).suffix or ".wav"
         ref_path = UPLOAD_DIR / f"ref_{uuid.uuid4().hex[:8]}{suffix}"
@@ -4787,7 +5245,8 @@ def generate(
         ref_path = str(ref_path)
 
     if mode in ("clone", "hifi") and not ref_path:
-        raise HTTPException(status_code=400, detail="该模式需要上传参考音频，或从已保存音色包中选择")
+        raise HTTPException(status_code=400,
+                            detail="该模式需要上传参考音频，或从已保存音色包 / 声音资产中选择")
 
     # 参考音频校验（坏文件在此给出清晰 400，不进入推理）
     if ref_path and not used_pack:
@@ -4844,7 +5303,7 @@ def generate(
             if not prompt_text.strip():
                 raise HTTPException(
                     status_code=400,
-                    detail="极致克隆需上传参考音频并填写其逐字文本；或直接选用音色包（无需逐字文本）",
+                    detail="极致克隆需上传参考音频（或选用声音资产）并填写其逐字文本；或直接选用音色包（无需逐字文本）",
                 )
             kwargs["reference_wav_path"] = ref_path
             kwargs["prompt_wav_path"] = ref_path
@@ -4881,6 +5340,15 @@ async def tts_api(request: Request):
         _meta = vp_store.get_pack_meta(body["voice_pack_id"])
         if _meta and _meta.get("accelerated"):
             kwargs["inference_timesteps"] = min(int(body.get("inference_timesteps", 10)), ACCEL_STEPS)
+    elif body.get("ref_asset_id"):
+        # 用声音资产当参考。资产是未提纯的原始素材，这里直接给模型；
+        # 需要提纯/降噪请改用 voice_pack_id（走 /api/voiceassets/<id>/make_pack 生成）。
+        a_wav, _ = va_store.get_asset_paths(body["ref_asset_id"])
+        if a_wav is None or not Path(a_wav).exists():
+            raise HTTPException(status_code=404, detail="所选声音资产不存在或已损坏")
+        kwargs["reference_wav_path"] = str(a_wav)
+        if body.get("prompt_text"):
+            kwargs["prompt_wav_path"] = str(a_wav)
     elif body.get("reference_wav_path"):
         kwargs["reference_wav_path"] = body["reference_wav_path"]
     if body.get("prompt_wav_path"):
@@ -6130,6 +6598,53 @@ def _safe_unlink(path) -> None:
         pass
 
 
+# 视频容器扩展名：声音资产导入与音色包创建共用这一份判定。
+# （以前只有 /api/voicepacks 里内联的一串，新增入口时极易抄漏格式 —— 提到这里单一来源。）
+_ASSET_VIDEO_SUFFIXES = (".mp4", ".mov", ".mkv", ".avi", ".webm",
+                         ".flv", ".m4v", ".wmv", ".ts")
+
+
+def _library_ref_path(spec: str, copy_to_upload: bool = False) -> str | None:
+    """把统一的「参考来源」标识解析成本机 wav 路径。
+
+    spec 的编码（前端一个下拉里混排两类来源，故统一成同一套字串）：
+      "pack:<id>"   —— 音色包：已提纯的代表参考，可直接用
+      "asset:<id>"  —— 声音资产：原始素材，由调用方按该页参数现场处理
+      "<裸 id>"     —— 兼容旧的接口调用习惯，按音色包解释（`@音色包名` 语法不受影响）
+
+    copy_to_upload=True 时先复制一份到 uploads/ 再返回。
+
+    ⚠️ 这条参数是安全闸门，不是可选优化：凡是「下游会清理临时参考文件」的流程
+    （最典型是清唱 worker 收尾的 _safe_unlink(ref_path)）都必须传 True。
+    否则那条清理动作会顺着这个路径把**库里的资产删掉** —— 用户看到的是
+    "选用过的素材莫名消失"，而现场只剩一行 unlink。
+    """
+    s = (spec or "").strip()
+    if not s:
+        return None
+    kind, sep, pid = s.partition(":")
+    if not sep:
+        kind, pid = "pack", s
+    kind = kind.strip().lower()
+    if kind == "asset":
+        wav, _ = va_store.get_asset_paths(pid)
+        label = "声音资产"
+    elif kind == "pack":
+        wav, _ = vp_store.get_pack_paths(pid)
+        label = "音色包"
+    else:
+        raise HTTPException(status_code=400, detail=f"未知的来源类型「{kind}」")
+    if wav is None or not Path(wav).exists():
+        raise HTTPException(status_code=404,
+                            detail=f"所选{label}不存在或已损坏，请在列表中重新选择")
+    if not copy_to_upload:
+        return str(wav)
+    import shutil as _sh
+    dst = UPLOAD_DIR / f"lib_{kind}_{pid}_{uuid.uuid4().hex[:6]}.wav"
+    _sh.copyfile(str(wav), str(dst))
+    return str(dst)
+
+
 # ============================== 音色包管理 ==============================
 @app.get("/api/voicepacks")
 def list_voice_packs(request: Request):
@@ -6156,7 +6671,7 @@ def create_voice_pack(
     raw_path = str(raw_path)
 
     # 视频文件：先用 ffmpeg 提取音轨（单声道 24k wav），再走音色抽取流程
-    if suffix in (".mp4", ".mov", ".mkv", ".avi", ".webm", ".flv", ".m4v", ".wmv", ".ts"):
+    if suffix in _ASSET_VIDEO_SUFFIXES:
         ff = _find_ffmpeg()
         if not ff:
             _safe_unlink(raw_path)
@@ -6225,6 +6740,126 @@ def delete_voice_pack(pack_id: str, request: Request):
     if not vp_store.delete_pack(pack_id):
         raise HTTPException(status_code=404, detail="音色包不存在")
     return {"ok": True}
+
+
+# ============================== 声音资产管理 ==============================
+@app.get("/api/voiceassets")
+def list_voice_assets(request: Request):
+    """声音资产列表：导入的原始素材（音频原样保存，视频已提取音轨）。"""
+    require_auth(request)
+    return {"assets": va_store.list_assets()}
+
+
+@app.post("/api/voiceassets")
+def create_voice_asset(
+    request: Request,
+    name: str = Form(""),
+    note: str = Form(""),
+    source: UploadFile = File(...),
+):
+    """导入一个声音资产：音频原样入库；视频先用 ffmpeg 提取音轨再入库。
+
+    与 /api/voicepacks 的分工：这里**不做**降噪/长音频融合提纯，素材保持原始
+    形态，以便在任何页面按各自的参数重新加工。要「一条可直接 @ 引用的声线」，
+    请用「制作音色声线包」，或对已有资产调 /api/voiceassets/{id}/make_pack。
+    """
+    require_auth(request)
+    if source is None or not source.filename:
+        raise HTTPException(status_code=400, detail="请选择要导入的音频或视频文件")
+    suffix = (Path(source.filename).suffix or "").lower()
+    is_video = suffix in _ASSET_VIDEO_SUFFIXES
+    raw_path = UPLOAD_DIR / f"va_src_{uuid.uuid4().hex[:8]}{suffix or '.bin'}"
+    raw_path.write_bytes(source.file.read())
+    try:
+        rec = va_store.import_asset(
+            str(raw_path),
+            name=name,
+            source_name=source.filename,
+            kind="video" if is_video else "audio",
+            ffmpeg_path=_find_ffmpeg(),
+            note=note,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        log_error("导入声音资产失败", e)
+        raise HTTPException(status_code=500, detail=f"导入声音资产失败: {type(e).__name__}: {e}")
+    finally:
+        _safe_unlink(raw_path)  # 源文件用后即弃，资产已落盘
+    print(f"[VoxCPM2] 已导入声音资产 {rec['id']} ({rec['name']})", flush=True)
+    return {"ok": True, "asset": rec}
+
+
+@app.get("/api/voiceassets/{asset_id}/audio")
+def get_voice_asset_audio(asset_id: str, request: Request):
+    require_auth(request)
+    wav, _ = va_store.get_asset_paths(asset_id)
+    if wav is None or not wav.exists():
+        raise HTTPException(status_code=404, detail="声音资产不存在")
+    return FileResponse(str(wav), media_type="audio/wav", filename=f"{asset_id}.wav")
+
+
+@app.get("/api/voiceassets/{asset_id}/preview")
+def get_voice_asset_preview(asset_id: str, request: Request):
+    require_auth(request)
+    wav, preview = va_store.get_asset_paths(asset_id)
+    if wav is None or not wav.exists():
+        raise HTTPException(status_code=404, detail="声音资产不存在")
+    target = preview if (preview is not None and preview.exists()) else wav
+    return FileResponse(str(target), media_type="audio/wav",
+                        filename=f"{asset_id}_preview.wav")
+
+
+@app.post("/api/voiceassets/{asset_id}/rename")
+def rename_voice_asset(asset_id: str, request: Request, name: str = Form("")):
+    require_auth(request)
+    rec = va_store.rename_asset(asset_id, name)
+    if rec is None:
+        raise HTTPException(status_code=400, detail="名称不能为空，或资产不存在")
+    return {"ok": True, "asset": rec}
+
+
+@app.delete("/api/voiceassets/{asset_id}")
+def delete_voice_asset(asset_id: str, request: Request):
+    require_auth(request)
+    if not va_store.delete_asset(asset_id):
+        raise HTTPException(status_code=404, detail="声音资产不存在")
+    return {"ok": True}
+
+
+@app.post("/api/voiceassets/{asset_id}/make_pack")
+def make_pack_from_asset(asset_id: str, request: Request,
+                         name: str = Form(""),
+                         denoise: str = Form("true"),
+                         remove_bg: str = Form("false"),
+                         accelerated: str = Form("false")):
+    """把声音资产提纯为音色包（原始素材 -> 可 @ 引用的声线）。
+
+    这是两类资产之间唯一的单向通道：素材是原材料，音色包是提纯产物。
+    提纯产出的是一份**拷贝**，原素材保留不动，因此可以反复用不同参数提纯。
+    """
+    require_auth(request)
+    meta = va_store.get_asset_meta(asset_id)
+    wav, _ = va_store.get_asset_paths(asset_id)
+    if wav is None or not Path(wav).exists():
+        raise HTTPException(status_code=404, detail="声音资产不存在或已损坏")
+    try:
+        rec = vp_store.create_pack(
+            name=name.strip() or str((meta or {}).get("name") or "").strip(),
+            ref_path=str(wav),
+            denoise=str(denoise).lower() == "true",
+            remove_bg=str(remove_bg).lower() == "true",
+            accelerated=str(accelerated).lower() == "true",
+            source_name=str((meta or {}).get("source_name") or Path(str(wav)).name),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        log_error("从声音资产提纯音色包失败", e)
+        raise HTTPException(status_code=500,
+                            detail=f"提纯音色包失败: {type(e).__name__}: {e}")
+    print(f"[VoxCPM2] 声音资产 {asset_id} -> 音色包 {rec['id']} ({rec['name']})", flush=True)
+    return {"ok": True, "pack": rec}
 
 
 # ============================== 插件管理 ==============================
@@ -6415,11 +7050,20 @@ def _cv_clear_vocal_worker(song_path: str, ref_path: str, lyric: str,
 async def clear_vocal_start(request: Request):
     """提交一次清唱生成任务（原曲 + 参考音色 + 可选歌词）。
 
-    multipart 字段：song（必需，原曲音频）、reference（必需，目标音色参考）、
-    lyric（可选，整段歌词文本）、snap（默认 true；散板素材传 false）、
-    auto_lyric（默认 false；歌词留空时用 whisper 识别，较慢）、
-    cfg_value（默认 2.0）、inference_timesteps（默认 10）。
+    multipart 字段：
+      song        原曲音频文件（与 song_source 二选一）
+      song_source 直接用库里已有的音频当原曲："pack:<id>" / "asset:<id>"
+      reference   目标音色参考音频文件（与 ref_source 二选一）
+      ref_source  从库里取参考："pack:<id>"（音色包）/ "asset:<id>"（声音资产）
+      lyric       （可选）整段歌词文本，留空需配合 auto_lyric
+      snap        默认 true；散板素材传 false
+      auto_lyric  默认 false；歌词留空时用 whisper 识别，较慢
+      cfg_value   默认 2.0
+      inference_timesteps 默认 10
     返回 ok=true 仅代表任务已受理，结果用 /api/clear_vocal/progress 轮询。
+
+    注：从库里取出的音频先复制一份到 uploads/ 再交给任务，任务收尾只删副本，
+    库内原件不受影响 —— 所以同一个素材可以反复选用。
     """
     require_auth(request)
     global _CV_THREAD
@@ -6432,9 +7076,10 @@ async def clear_vocal_start(request: Request):
     form = await request.form()
     song = form.get("song")
     ref = form.get("reference")
-    for name, up in (("song", song), ("reference", ref)):
-        if up is None or not hasattr(up, "read"):
-            raise HTTPException(status_code=400, detail=f"缺少文件字段 {name}")
+    # 两个输入各自支持「上传文件」或「直接选用库里已有的音频」二选一。
+    # song_source / ref_source 用统一编码："pack:<id>"（音色包）/"asset:<id>"（声音资产）。
+    song_source = str(form.get("song_source") or "").strip()
+    ref_source = str(form.get("ref_source") or "").strip()
     lyric = str(form.get("lyric") or "").strip()
     auto_lyric = str(form.get("auto_lyric") or "").lower() in ("1", "true", "on", "yes")
     if not lyric and not auto_lyric:
@@ -6449,10 +7094,36 @@ async def clear_vocal_start(request: Request):
 
     ts = time.strftime("%Y%m%d_%H%M%S")
     out_dir = str(OUTPUT_DIR / f"clear_vocal_{ts}")
-    song_path = str(UPLOAD_DIR / f"cv_song_{ts}{Path(song.filename or 'song.wav').suffix or '.wav'}")
-    ref_path = str(UPLOAD_DIR / f"cv_ref_{ts}{Path(ref.filename or 'ref.wav').suffix or '.wav'}")
-    Path(song_path).write_bytes(await song.read())
-    Path(ref_path).write_bytes(await ref.read())
+
+    # --- 原曲：优先用上传的文件，否则从库里取 ---
+    # ⚠️ 从库里取出的一律先**复制**到 uploads/（copy_to_upload=True）：本任务的
+    #    worker 收尾会 _safe_unlink 掉这两个路径，若直接引用库内路径，
+    #    任务一结束用户的音色包/资产就被顺手删了。
+    if song is not None and hasattr(song, "read") and getattr(song, "filename", ""):
+        song_path = str(UPLOAD_DIR / f"cv_song_{ts}{Path(song.filename).suffix or '.wav'}")
+        Path(song_path).write_bytes(await song.read())
+    elif song_source:
+        song_path = _library_ref_path(song_source, copy_to_upload=True)
+    else:
+        raise HTTPException(status_code=400,
+                            detail="请上传原曲音频，或从声音资产 / 音色包中选择一个")
+
+    # --- 目标音色参考：上传 / 音色包 / 声音资产 三选一 ---
+    ref_path = ""
+    if ref is not None and hasattr(ref, "read") and getattr(ref, "filename", ""):
+        ref_path = str(UPLOAD_DIR / f"cv_ref_{ts}{Path(ref.filename).suffix or '.wav'}")
+        Path(ref_path).write_bytes(await ref.read())
+    elif ref_source:
+        try:
+            ref_path = _library_ref_path(ref_source, copy_to_upload=True)
+        except HTTPException:
+            _safe_unlink(song_path)   # 清掉上面刚落盘的副本，别留垃圾
+            raise
+    if not ref_path:
+        _safe_unlink(song_path)
+        raise HTTPException(status_code=400,
+                            detail="请上传目标音色的参考音频，或从音色包 / 声音资产中选择")
+
     try:
         normalize_reference(ref_path)  # 与音色包同一条校验：坏文件在此给出清晰 400
     except ValueError as e:
