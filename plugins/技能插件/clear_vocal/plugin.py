@@ -68,6 +68,7 @@ import numpy as np
 ANALYSIS_NAME = "analysis.json"
 PLAN_NAME = "note_plan.json"
 DIAG_NAME = "align_diag.json"
+PHRASE_NAME = "phrase_plan.json"
 SUMMARY_NAME = "run_summary.json"
 CLIPS_DIRNAME = "clips"
 OUTPUT_NAME = "clear_vocal.wav"
@@ -261,9 +262,10 @@ def run(model, sr: int, reference_wav: str,
         calibrate: bool = True,
         keep_clips: bool = True,
         max_semitones: float = 12.0,
-        auto_lyric: bool = False,
-        progress: Callable[[str, int, int, Any], None] | None = None,
-        logger: Callable[[str], None] | None = None) -> dict:
+         auto_lyric: bool = False,
+         phrased: bool = True,
+         progress: Callable[[str, int, int, Any], None] | None = None,
+         logger: Callable[[str], None] | None = None) -> dict:
     """跑完整条清唱流水线，返回摘要 dict（含所有中间产物的路径）。
 
     参数
@@ -283,10 +285,15 @@ def run(model, sr: int, reference_wav: str,
     max_semitones  : 单音符允许的搬移上限（超过即钳制并计入诊断）。
                      正常路径下由**整体八度折叠**把搬移压到 ±5 以内，
                      这里只是最后一道防线 —— 一旦触发就说明上游有问题。
-    auto_lyric     : ``lyric_text`` 为空时，是否用 whisper 自动识别歌词。
-                     默认 **False**：转写要几百毫秒到数十秒，且**必须在
-                     HTTP 请求线程之外**跑（见 ``transcribe_lyric`` 的告警）。
-                     CLI / 离线脚本可以打开它图省事。
+     auto_lyric     : ``lyric_text`` 为空时，是否用 whisper 自动识别歌词。
+                      默认 **False**：转写要几百毫秒到数十秒，且**必须在
+                      HTTP 请求线程之外**跑（见 ``transcribe_lyric`` 的告警）。
+                      CLI / 离线脚本可以打开它图省事。
+     phrased        : **是否用短语级合成**（默认 True，正解路径）。
+                      逐音符路径喂的是 0.5 秒孤立音节，模型输出无稳定基频
+                      （有声占比 0.86→0.27，8 音符仅 2 个可测基频）。
+                      短语级改为按乐句分组送模型再切回，详见 ``phraser``。
+                      传 False 可回退到旧的逐音符行为（对比/排查用）。
     progress       : 可选 ``(stage, done, total, item)`` 回调，用于 UI 进度条
     logger         : 可选日志函数
 
@@ -389,6 +396,7 @@ def run(model, sr: int, reference_wav: str,
     # 校准：实测"一次短句合成"的典型时长。TTS 时长随音色而变，
     # 写死会让 note_plan 的 target_ratio 诊断失真。
     # ⚠️ 这一步会真的调用模型，所以必须同样遵循"钩子外"约束。
+    cb = _prog("singer")
     if calibrate:
         try:
             src_note_dur = singer.calibrate_source_dur()
@@ -411,11 +419,32 @@ def run(model, sr: int, reference_wav: str,
     log("    乐谱 %d 个音符（歌词 %d 字）→ %s"
         % (len(plan_notes), len(lyric_text or ""), os.path.basename(plan_path)))
 
-    # ---------- ⑤ 逐音符合成 ----------
-    log("③ 逐音符合成（%d 个音符，音色锚定同一参考）…" % len(plan_notes))
-    cb = _prog("singer")
-    clips, sdiags = singer.sing_plan(
-        plan_obj, progress=cb or _progress_printer("singer"))
+    # ---------- ⑤ 短语级合成（正解路径） ----------
+    #
+    # 为什么不再逐音符合成（2026-09-22 实测归因）
+    # ------------------------------------------
+    # 逐音符合成 = 每次喂 0.5 秒**孤立音节**。逐帧频谱体检显示模型输出是
+    # 「宽带噪声爆发 → 谱质心从 1868 快速下滑到 762Hz → 衰减」，**无稳定基频**。
+    #   输入 stem 有声占比 0.86  →  输出 0.27（8 音符仅 2 个可测到基频）
+    # 根因：**VoxCPM2 是 TTS，不是歌手模型**，孤立单音节对它不是合法输入。
+    #
+    # 正解：按乐句分组送模型，拿到**连续语音**后按音符时长比例（能量谷优先）切回。
+    # 已否证的方向（别重走）：静音修剪（0/8 恢复）、调 cfg/steps。
+    if phrased:
+        log("③ 短语级合成（%d 个音符，按乐句分组送模型）…" % len(plan_notes))
+        clips, sdiags, phrase_meta = singer.sing_plan_phrased(
+            plan_obj, progress=cb or _progress_printer("singer"))
+        log("    %d 个短语（每短语 %s 个音符），单音短语 %d 个"
+            % (phrase_meta.get("n_phrases", 0),
+               phrase_meta.get("phrase_sizes", []),
+               phrase_meta.get("n_singletons", 0)))
+        if phrase_meta.get("degraded_to_per_note"):
+            log("    ⚠ 分组退化为逐音符（等价旧路径）")
+    else:
+        log("③ 逐音符合成（%d 个音符，音色锚定同一参考）…" % len(plan_notes))
+        clips, sdiags = singer.sing_plan(
+            plan_obj, progress=cb or _progress_printer("singer"))
+        phrase_meta = {"enabled": False}
     n_degraded = int(sum(1 for d in sdiags if d.get("degraded")))
     if n_degraded:
         log("    ⚠ %d 个音符降级为静音（详见 diag）" % n_degraded)
@@ -499,12 +528,51 @@ def run(model, sr: int, reference_wav: str,
 
     n_measured = 0
     n_clamped = 0
+
+    # ---------- ⑥c 逐片段实测（**诊断用，不改变搬移基准**） ----------
+    #
+    # 为什么不拿它当 source_midi（2026-09-22 实测结论，走了弯路后回退）
+    # -----------------------------------------------------------------
+    # 短语级路径下，每片来自连续语调曲线的不同位置，实测音高**确实互不相同**：
+    #     「春天的花开了」实测 131.2 → 136.9 → 139.3 → 143.8 → 144.2 → 155.5 Hz
+    # 而乐谱要求 48 → 50 → 52 → 55 → 53 → 50 MIDI。
+    # 直觉是"那就逐片实测当基准，搬移量才准" —— **实测这个方案更差**：
+    #
+    #   | 指标                  | 统一锚点(anchor) | 逐片实测 |
+    #   |----------------------|-----------------|---------|
+    #   | clips 平均有声占比     | 0.463           | 0.377   |
+    #   | clips 平均噪声占比     | 0.100           | 0.149   |
+    #   | 最大搬移量             | 5.00 半音        | 9.00 半音 |
+    #
+    # 原因：逐片实测把"语调曲线的起伏"当成"需要修正的音高差"，于是**放大**了
+    # 搬移量（5 → 9 半音），而大幅搬移会明显损坏音质（相位声码器的固有代价）。
+    # 即：算得"更准"的搬移量，换来"更差"的成品。这不是划算的交易。
+    #
+    # 故**恢复"所有音符共用一个参考音色基准"**这一有意设计（见上方长注释），
+    # 实测值仅作为**诊断信息**落盘，供人工核对"模型这次唱在哪个音高附近"。
+    source_measured: dict[int, float] = {}
+    if phrased and anchor is not None:
+        for i, (n, clip) in enumerate(zip(plan_notes, clips)):
+            tgt = float(n.get("midi", 60.0))
+            got = singer.median_midi_of(
+                clip, sr, default=None, target_midi=tgt,
+                tol_semitones=float(max_semitones))
+            if got is not None:
+                source_measured[i] = float(got)
+        log("    诊断：逐片段实测自身音高 %d/%d 片可信（仅供参考，不改变搬移基准）"
+            % (len(source_measured), len(plan_notes)))
+
     for i, n in enumerate(plan_notes):
         if anchor is None:
             n["source_midi"] = float(n.get("midi", 60.0))   # source == target → 不搬移
             continue
         n["source_midi"] = float(anchor)
         n["shift_basis"] = "reference_anchor"
+        # 诊断字段：本次实测到的"这片实际唱在哪个音高"，供人工核对
+        if i in source_measured:
+            n["source_midi_measured"] = float(source_measured[i])
+            n["measured_minus_anchor"] = round(
+                float(source_measured[i]) - float(anchor), 3)
         # 折叠后仍越界 → 素材本身病态，如实记账（由 aligner 钳制并计入诊断）
         if abs(float(n["midi"]) - float(anchor)) >= abs(float(max_semitones)):
             n_clamped += 1
@@ -518,7 +586,13 @@ def run(model, sr: int, reference_wav: str,
     # 诊断里也带上"实测 vs 目标"，方便人工核对
     plan_with_src = dict(plan_obj)
     plan_with_src["notes"] = plan_notes
-    plan_with_src["measured_source_midi"] = True
+    # ⚠️ 这个字段的语义是"source_midi 是否来自**逐片段实测**"。
+    #    本工程**有意**使用统一参考音色基准（理由见 ⑥ 段长注释），
+    #    故恒为 False；逐片实测值另存 ``source_midi_measured``。
+    #    （历史 bug：这里曾无条件写 True，属谎报，已修正。）
+    plan_with_src["measured_source_midi"] = False
+    plan_with_src["n_source_measured"] = len(source_measured)
+    plan_with_src["source_anchor"] = (None if anchor is None else float(anchor))
     _dumps(plan_with_src, plan_path)
 
     # ---------- ⑦ 对齐 + 拼接 ----------
@@ -533,8 +607,12 @@ def run(model, sr: int, reference_wav: str,
 
     out_wav = _write_wav(os.path.join(out_dir, OUTPUT_NAME), audio, sr)
     diag = {"per_note": diags,
+            "phrases": phrase_meta,
             "summary": _al.summary(diags, max_semitones=max_semitones)}
     _dumps(diag, os.path.join(out_dir, DIAG_NAME))
+
+    if phrase_meta.get("texts"):
+        _dumps(phrase_meta, os.path.join(out_dir, PHRASE_NAME))
 
     sm = diag["summary"]
     log("    对齐完成：拉伸中位 %.3f（越界 %d 个），音高搬移最大 %.2f 半音"
@@ -548,6 +626,8 @@ def run(model, sr: int, reference_wav: str,
         "analysis_path": os.path.join(out_dir, ANALYSIS_NAME),
         "plan_path": plan_path,
         "diag_path": os.path.join(out_dir, DIAG_NAME),
+        "phrase_path": (os.path.join(out_dir, PHRASE_NAME)
+                        if phrase_meta.get("texts") else None),
         "clips_dir": clips_dir if keep_clips else None,
         "n_notes": len(plan_notes),
         "n_measured": n_measured,

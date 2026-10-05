@@ -39,11 +39,38 @@ VoxCPM2 是自回归 TTS，生成时长**不可直接指定**。我们能控制�
 from __future__ import annotations
 
 import os
+import sys
 import tempfile
 import wave
 from typing import Any, Callable
 
 import numpy as np
+
+
+# phraser 与本模块同目录。这里刻意不写裸的 `from . import phraser`：
+# singer.py 存在两种加载方式 --
+#   1) 包内导入：`from plugins.clear_vocal import singer`（主流）；
+#   2) 按文件路径裸加载：插件作者会这么用（tests/test_clear_vocal_units.py
+#      的 probe 场景就在模拟它），此时**没有父包上下文**，相对导入会直接
+#      ImportError，整个 singer 模块不可用。
+# 所以先试相对导入，失败再按同目录文件加载。
+def _load_phraser():
+    try:
+        from . import phraser
+        return phraser
+    except ImportError:
+        import importlib.util as _ilu
+        from pathlib import Path as _P
+
+        _spec = _ilu.spec_from_file_location(
+            "voxcpm_clear_vocal_phraser", _P(__file__).with_name("phraser.py"))
+        _mod = _ilu.module_from_spec(_spec)
+        sys.modules[_spec.name] = _mod
+        _spec.loader.exec_module(_mod)
+        return _mod
+
+
+_ph = _load_phraser()
 
 #: 单次合成的文本上限。⚠️ 必须很小！
 #: server.py 里 ``max_chars=60`` 是给"朗读长文"用的；清唱里若把 60 个字
@@ -60,6 +87,23 @@ HUM_CHAR = "啊"
 
 class HookContextError(RuntimeError):
     """在插件钩子上下文里尝试合成 → 会死锁，故显式拒绝。"""
+
+
+def _fade_edges(y: np.ndarray, ms: float = 5.0, sr: int = 48000) -> np.ndarray:
+    """短语切点处的首尾微淡入淡出，消除阶跃造成的高频"咔"声。
+
+    为什么必须做：短语内切分是按能量谷切的，谷底仍有残余振幅，
+    直接拼接会在接缝处产生阶跃 → 宽带咔哒声（听感像"爆音"）。
+    """
+    x = np.asarray(y, dtype=np.float32).reshape(-1).copy()
+    n = x.size
+    if n < 4:
+        return x
+    f = min(max(1, int(float(ms) * 1e-3 * float(sr))), n // 4)
+    ramp = np.linspace(0.0, 1.0, f, dtype=np.float32)
+    x[:f] *= ramp
+    x[-f:] *= ramp[::-1]
+    return x
 
 
 def _assert_not_in_hook() -> None:
@@ -259,6 +303,163 @@ class Singer:
                 except Exception:
                     pass
         return clips, diags
+
+    # ------------------------------------------------------------ 短语级合成（正解路径）
+    def _synth_phrase_matched(self, text: str, target_dur: float,
+                              ) -> tuple[np.ndarray, int, str, float, int]:
+        """合成一个短语，并迭代调整文本使**实测时长逼近音符目标总时长**。
+
+        为什么必须做（实测数据）
+        ------------------------
+        TTS 输出时长不可指定。实测「春天的花开了」（6 音符，目标 2.97s）
+        模型只输出 **2.08s**（比例 0.70）→ 切分后每段偏短 → ``aligner`` 把每段
+        拉伸 1.43~2.25 倍，拉伸中位 2.249、越界 5 个，音质明显受损。
+
+        算法
+        ----
+        1. 合成一次，测 ``ratio = 实测时长 / 目标时长``；
+        2. 比例落在 ``[DUR_TOL_LO, DUR_TOL_HI]`` → 采用，结束；
+        3. 否则用 ``phraser.adjust_text_for_dur`` 改文本再试，最多 ``MAX_DUR_PROBES`` 轮；
+        4. **保留"比例最接近 1.0"的那次结果**（不是最后一次）——
+           迭代可能越过最优解，必须留最优。
+
+        返回 ``(audio, sr, 实际用的文本, 最终比例, 尝试次数)``。
+        """
+        best: tuple[np.ndarray, int, str, float] | None = None
+        cur_text = text
+        for attempt in range(1, int(_ph.MAX_DUR_PROBES) + 1):
+            y, sr = self._synth_text(cur_text)
+            if y.size == 0:
+                break
+            got = len(y) / float(sr)
+            ratio = got / max(1e-6, float(target_dur))
+            score = abs(ratio - 1.0)
+            if best is None or score < abs(best[3] - 1.0):
+                best = (y, sr, cur_text, ratio)
+            if _ph.DUR_TOL_LO <= ratio <= _ph.DUR_TOL_HI:
+                return y, sr, cur_text, ratio, attempt
+            nxt = _ph.adjust_text_for_dur(cur_text, ratio)
+            if nxt == cur_text:
+                break
+            cur_text = nxt
+        if best is None:
+            return (np.zeros(0, dtype=np.float32), int(self.sr), text, 0.0,
+                    int(_ph.MAX_DUR_PROBES))
+        return best[0], best[1], best[2], best[3], int(_ph.MAX_DUR_PROBES)
+
+    def sing_plan_phrased(self, plan_obj: dict,
+                          progress: Callable[[int, int, dict], None] | None = None,
+                          on_error: str = "skip",
+                          max_notes: int = _ph.MAX_NOTES_PER_PHRASE,
+                          max_chars: int = _ph.MAX_CHARS_PER_PHRASE,
+                          max_dur: float = _ph.MAX_PHRASE_DUR,
+                          ) -> tuple[list[np.ndarray], list[dict], dict]:
+        """**短语级**合成：按乐句分组送模型，再在短语内切回逐音符。
+
+        为什么要换掉逐音符路径
+        ----------------------
+        逐音符路径喂的是 0.5 秒**孤立音节**，模型输出「噪声爆发 + 下滑音 + 衰减」，
+        **无稳定基频**（有声占比 0.86 → 0.27，8 个音符只有 2 个可测）。
+        根因是 **VoxCPM2 是 TTS 不是歌手模型**，孤立单音节对它不是合法输入。
+        详见 ``phraser`` 模块头注释与 ``docs/`` 的归因记录。
+
+        本方法把「春天的花开了吗」从 8 次调用变成 2~3 次调用：
+
+            ["春","天","的","花"] → 合成 "春天的花" → 按音符时长比例（能量谷优先）切回 4 段
+
+        这样模型看到完整语义，输出是**连续、有稳定基频的歌唱性语流**。
+
+        返回值
+        ------
+        ``(clips, diags, meta)``
+          * ``clips`` —— **已切回逐音符**的片段（长度 == 音符数，可直接喂 aligner）
+          * ``diags`` —— 逐音符诊断（与 ``sing_plan`` 同形状，多一个 ``phrase`` 字段）
+          * ``meta``  —— 短语分组诊断（落盘用：确认短语级真的生效）
+
+        退化保护
+        --------
+        若分组退化（每个音符自成一组，或分组数 == 音符数），**等价于逐音符路径**，
+        此时 ``meta["degraded_to_per_note"] = True``，调用方据此可回退。
+        """
+        notes = list(plan_obj.get("notes") or [])
+        clips: list[np.ndarray] = []
+        diags: list[dict] = []
+        total = len(notes)
+        if not notes:
+            return [], [], {"n_phrases": 0, "degraded_to_per_note": True}
+
+        groups = _ph.group_notes(notes, max_notes=max_notes,
+                                 max_chars=max_chars, max_dur=max_dur)
+        meta = _ph.summarize(groups, notes)
+        meta["degraded_to_per_note"] = (len(groups) >= total)
+
+        for i, n in enumerate(notes):
+            diags.append({"index": i, "text": (n.get("lyric") or "").strip() or HUM_CHAR,
+                          "lyric": (n.get("lyric") or "").strip(),
+                          "midi": n.get("midi"), "dur": n.get("dur"),
+                          "degraded": False, "error": None, "src_dur": 0.0,
+                          "phrase": None, "n_in_phrase": 0})
+
+        done = 0
+        for pi, g in enumerate(groups):
+            text = _ph.phrase_text(notes, g)
+            durs: list[float] = []
+            for i in g:
+                try:
+                    durs.append(max(1e-3, float((notes[i] or {}).get("dur") or 0.0)))
+                except Exception:
+                    durs.append(1e-3)
+            try:
+                target_dur = float(sum(durs))
+                # 时长适配：TTS 时长不可指定，实测「春天的花开了」目标 2.97s
+                # 只输出 2.08s（0.70 倍）→ 切分后每段偏短 → aligner 要拉伸
+                # 1.43~2.25 倍，音质明显受损。这里按实测比例反推该说多长。
+                y, sr, text_used, ratio, n_try = self._synth_phrase_matched(
+                    text, target_dur)
+                if y.size == 0:
+                    raise RuntimeError("合成为空音频")
+                segs = _ph.slice_phrase(y, sr, durs)[:len(g)]
+                if len(segs) != len(g):
+                    raise RuntimeError(
+                        "短语切分数量不符：期望 %d 实际 %d" % (len(g), len(segs)))
+                # 首尾淡入淡出，消除切点阶跃（aligner 会再做精确对齐）
+                segs = [_fade_edges(s, sr=sr) for s in segs]
+            except HookContextError:
+                raise
+            except Exception as e:
+                if on_error == "raise":
+                    raise
+                segs = [np.zeros(int(0.05 * self.sr), dtype=np.float32) for _ in g]
+                text_used, ratio, n_try = text, 0.0, 0
+                for i in g:
+                    diags[i]["degraded"] = True
+                    diags[i]["error"] = "%s: %s" % (type(e).__name__, e)
+                    self.errors.append(dict(diags[i]))
+
+            for i, seg in zip(g, segs):
+                diags[i]["phrase"] = pi
+                diags[i]["n_in_phrase"] = len(g)
+                diags[i]["phrase_text"] = text_used
+                diags[i]["dur_ratio"] = round(float(ratio), 3)
+                diags[i]["dur_probes"] = int(n_try)
+                diags[i]["src_dur"] = round(len(seg) / float(self.sr), 4)
+                diags[i]["sr"] = self.sr
+                clips.append(seg)
+                done += 1
+            if progress is not None:
+                try:
+                    progress(min(done, total), total,
+                             {"phrase": pi, "text": text_used, "n": len(g)})
+                except Exception:
+                    pass
+
+        # 按音符下标重排（拖腔可能让组内下标非连续，但 clips 已按组顺序累加）
+        order = [i for g in groups for i in g]
+        if len(order) == len(clips) and order != list(range(len(order))):
+            pairs = sorted(zip(order, clips), key=lambda p: p[0])
+            clips = [c for _, c in pairs]
+        meta["ok"] = True
+        return clips, diags, meta
 
     # ------------------------------------------------------------ 实测片段音高
     def median_midi_of(self, clip: np.ndarray, sr: int | None = None,

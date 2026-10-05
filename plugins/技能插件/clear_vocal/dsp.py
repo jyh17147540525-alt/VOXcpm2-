@@ -31,6 +31,24 @@ EPS = 1e-10
 N_FFT = 2048
 HOP = 256
 
+#: ``pitch_shift`` 的相位校正**可信 bin** 相对门限（dB）。
+#:
+#: 低于"该帧峰值 − 此值"的 bin 视为噪声底，**不做相位补偿**（照抄源相位）。
+#:
+#: 为什么必须有这个门限（2026-09-22 实跑归因）
+#: ------------------------------------------
+#: 相位补偿公式 ``2π·(k-1)·inst_freq·t_abs`` 依赖 ``inst_freq``（相位差分估计）。
+#: 在噪声底 bin 上相位是随机的 → ``inst_freq`` 是垃圾值（实测 −93.8 ~ +24046.9 Hz）
+#: → 补偿量 > π 的比例高达 **98.1%** → 相位被缠绕成随机数 → 这些 bin 重建出
+#: 全频段噪声，淹没谐波结构 → ``pyin`` 读不出基频（voiced 0.656 → 0.000）。
+#:
+#: 实测：n_fft=2048 时 **89.1% 的 bin 低于峰值 40dB**。取 40dB 作为门限，
+#: 即在"保留足够多谐波 bin"与"排除噪声底"之间取平衡。
+#:
+#: ⚠️ 调大此值 → 更多 bin 被当噪声保留原相位 → 搬移后噪声底保持"透明"，
+#:    但信噪比低的素材上谐波也会被漏掉。40dB 是实测的甜点。
+PITCH_PHASE_REL_DB = 40.0
+
 
 def _hann(n: int) -> np.ndarray:
     return np.hanning(n).astype(np.float32)
@@ -291,30 +309,77 @@ def pitch_shift(y: np.ndarray, sr: int, semitones: float,
     # 谐波不再对齐 → 频谱看着对（峰值频率正确），但时域波形的周期错乱
     # （实测：频谱峰值 209.9 Hz 正确，pyin 却测出 90.1 Hz）。
     #
-    # 正确公式（经系数扫描实验确定，见 _t_phase.py）：
+    # 正确公式（2026-09-22 修正，见 _scratch_probes/probe_phase_formula.py）：
     #     目标 bin j 的相位 = 源相位 + 2π · (k-1) · f_src · t
-    # 其中 f_src 用**相位差分估计的瞬时频率**（而非 bin 标称频率）。
+    # 其中 **f_src 必须用 bin 标称频率，不能用相位差分估的瞬时频率**。
     #
-    # 三个半音数的实测偏差（越小越好）：
+    # ⚠️ 这里是**第二版修正**。第一版（探针目录 probe_phase_formula 的"公式A"）
+    #    用相位差分估的瞬时频率，理由是"更准确" —— 但那只在**理想正弦**上成立：
+    #    实测正弦信号上 A 与 B 都能把 f0 误差压到 <1%（所以当初选了 A）。
+    #
+    #    真实语音上 A 会**灾难性失效**（实测 clips）：
+    #      公式A 搬 -9 半音: clip1 f0=无、clip2 +25.10 半音、clip3 +11.90、clip6 +29.20
+    #      公式B 搬 -9 半音: clip1 f0=146.8 误差 **+0.00** 半音（期望 146.8）
+    #    原因：瞬时频率由 ``diff(phase)`` 求得，在**低幅度 bin**（n_fft=2048 时占 89.1%，
+    #    低于峰值 40dB）上相位是随机的 → inst_freq 实测范围 −93.8 ~ +24046.9 Hz
+    #    → 补偿量 > π 的比例 98.1% → 相位被缠绕成随机数 → 重建出全频段噪声。
+    #
+    #    bin 标称频率是**确定量**，不受幅度影响，故在真实素材上稳健得多。
+    #
+    # 三个半音数的实测偏差（正弦素材，越小越好）：
     #    系数 \ 半音        -12      -7      +7
-    #    (k-1)·f_src_inst  +0.87%  +0.29%  -0.29%   ← 采用
-    #    (k-1)·f_src_bin   +1.45%  -0.86%  +0.29%
+    #    (k-1)·f_src_inst  +0.87%  +0.29%  -0.29%   ← 旧方案，真实素材上崩
+    #    (k-1)·f_src_bin   +1.45%  -0.86%  +0.29%   ← 现采用（真实素材上唯一可用）
     #    不补偿            -59.0%  -8.56%  +5.64%   ← 降调时灾难性
     # ⚠️ 降调（k<1）对相位误差远比升调敏感，别用升调结果推断降调行为。
+    #
+    # ---- 2026-09-22 实跑归因：可信 bin 闸门（与上述修正协同） ----
+    # 症状：真实语音素材（模型输出的 0.2~0.35s 片段）上搬移后 pyin 读不出基频
+    #       （clip 1 voiced 0.656 → 0.000），而**理想正弦上完美**（−12 半音都 1.000）。
+    #
+    # 实测根因（见 _scratch_probes/probe_pitch_defect.py）：
+    #   · n_fft=2048 时 **89.1% 的 bin 低于峰值 40dB**（纯噪声底，相位随机）
+    #   · 相位差分在噪声 bin 上估出的"瞬时频率"范围是 **−93.8 ~ +24046.9 Hz**
+    #     （垃圾值；垃圾值不是负频率，别期待用"负值检测"过滤）
+    #   · 于是 (k-1)·f_inst·t_abs 在这些 bin 上量级极大：
+    #     **98.1% 的低幅 bin 相位补偿量 > π**，即相位被**完全缠绕**成随机数
+    #   · iSTFT 后这些随机相位 bin 重建出全频段噪声，淹没真正的谐波结构
+    #   · 能量损失实测：dsp rms=0.0389 vs librosa rms=0.0955（丢 59%）
+    #
+    # 修法（两层）：
+    #   ① 相位补偿系数改用 bin 标称频率（见上）；
+    #   ② **只对"有能量"的 bin 做相位校正**，噪声 bin 的相位保持原样 ——
+    #      噪声 bin 的贡献本就是噪声底，"保持原样"是唯一透明的选择；
+    #      给它加任意相位都会把噪声底放大成可听的嘶声。
     bin_freqs = freqs * float(sr)                    # 各 bin 的物理频率 [n_bins]
-    if phase.shape[1] >= 2:
-        d = np.diff(phase, axis=1)
-        d = np.mod(d + np.pi, 2.0 * np.pi) - np.pi
-        d = np.concatenate([d[:, :1], d], axis=1)
-        inst_freq = bin_freqs[:, None] + d * (float(sr) / (2.0 * np.pi * hop))
-    else:
-        inst_freq = np.repeat(bin_freqs[:, None], phase.shape[1], axis=1)
 
+    # ---- 可信 bin 掩码：逐帧判定（噪声底是逐帧变化的） ----
+    # 阈值取"该帧峰值以下 REL_DB"，并同时用**全局**峰值兜底，
+    # 避免整帧都很弱时把全部 bin 判成可信（或全部不可信）。
+    mag_ref = np.maximum(mag.max(axis=0, keepdims=True), EPS)      # 每帧峰值
+    with np.errstate(divide="ignore"):
+        rel_db = 20.0 * np.log10(np.maximum(mag, EPS) / mag_ref)
+    credible = rel_db > (-float(PITCH_PHASE_REL_DB))               # [n_bins, n_frames]
+
+    # 绝对时间轴（秒），[1, n_frames]；相位补偿与它线性相关
     t_abs = (np.arange(phase.shape[1], dtype=np.float64) * hop / float(sr))[None, :]
+
+    # ---- 相位补偿量 [n_bins, n_frames] ----
+    # ⚠️ 用 ``bin_freqs[lo]``（标称频率）—— 这是 2026-09-22 修正的核心。
+    #    旧版用相位差分估的瞬时频率，在真实素材上会因低幅度 bin 的随机相位
+    #    而产生垃圾值（实测 −93.8 ~ +24046.9 Hz），导致相位缠绕。详见上方长注释。
+    #
+    #    物理含义：目标 bin j 的目标频率 = k · f_src，其中 f_src = bin_freqs[lo[j]]。
+    #    相位随时间线性推进，推进速率 = 2π·(k-1)·f_src（相对源相位的偏移）。
+    comp = (k - 1.0) * bin_freqs[lo][:, None] * t_abs     # [n_bins, n_frames]
+    # 默认：**照抄源相位**（透明，不做任何补偿）
     new_phase = np.zeros_like(phase)
-    # 目标 bin j 承载源 bin lo[j] 的内容，源瞬时频率取该 bin 的估计值
-    comp = (k - 1.0) * inst_freq[lo]                 # [n_bins, n_frames]
-    new_phase[valid] = phase[lo[valid]] + 2.0 * np.pi * comp[valid] * t_abs
+    new_phase[valid] = phase[lo[valid]]
+    # 仅在"源 bin 可信"处施加相位补偿（噪声底保持原相位，避免放大成嘶声）
+    sel = valid[:, None] & credible[lo]
+    comp_sel = np.where(sel, comp, 0.0)
+    new_phase = np.where(sel, new_phase + 2.0 * np.pi * comp_sel, new_phase)
+    new_phase = new_phase.astype(np.float32)
 
     Dn = (new_mag * np.exp(1j * new_phase)).astype(np.complex64)
 
